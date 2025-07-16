@@ -1171,7 +1171,3 @@ def crosswords2(altdriver):
     print("[INFO] Crosswords2 activity complete.")
 
 
-def wordle_daily(altdriver) :
-    word_obj = altdriver.find_object(By.NAME, 'Gameplay Manager')
-    word_text = word_obj.get_component_property('KaelmixStudioGameAssets.TemplateWordGuess.GameplayManager', 'word','Assembly-CSharp')
-
