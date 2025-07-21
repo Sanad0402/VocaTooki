@@ -14,11 +14,6 @@ from Activities.activitiesDemo import *
 
 # Utility: Google TTS + Pygame Playback
 
-@pytest.fixture
-def altdriver():
-    altdriver = AltDriver(enable_logging=False)
-    yield altdriver
-    altdriver.stop()
 
 def say(word, lang="en"):
     """Speak a word using Google TTS and play it via Pygame."""
