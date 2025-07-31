@@ -2,6 +2,8 @@
 import logging
 
 import time
+import traceback
+
 from alttester import By, AltKeyCode, AltDriver
 import pytest
 import requests
@@ -9,8 +11,11 @@ from google.cloud import texttospeech
 from pygame import mixer
 from Utilities.utils import client
 from Activities.activitiesDemo import *
+from datetime import datetime
 
 
+FAILED_ACTIVITIES = set()
+activity_report = []
 
 # Utility: Google TTS + Pygame Playback
 
@@ -158,11 +163,28 @@ def handle_level_flow(altdriver):
 
 
 def run_activity(altdriver, activity):
-    """Runs the current activity based on its scene type."""
+    import time  # Make sure time is available
     time.sleep(1)
     activity.click()
     time.sleep(3)
-    scene = call_method(altdriver, "AltTesterUtils", "GetCurrentActivity")
+
+    try:
+        scene = call_method(altdriver, "AltTesterUtils", "GetCurrentActivity")
+    except Exception as e:
+        print(f"[ERROR] Failed to get scene: {e}")
+        return
+
+    start_time = datetime.now()
+
+    if scene in FAILED_ACTIVITIES:
+        print(f"[SKIPPED] Previously failed activity: {scene}")
+        activity_report.append({
+            "activity": scene,
+            "status": "SKIPPED",
+            "error": "Previously failed",
+            "duration": "0s"
+        })
+        return
 
     activity_map = {
         'MEMMORY_CARDS': memory,
@@ -188,17 +210,53 @@ def run_activity(altdriver, activity):
         'CROSSWORD2': crosswords2
     }
 
-    if scene in activity_map:
-        print(f"[INFO] Running activity: {scene}")
+    if scene not in activity_map:
+        print(f"[WARN] Unknown activity '{scene}' — skipping.")
+        activity_report.append({
+            "activity": scene,
+            "status": "SKIPPED",
+            "error": "No mapping defined",
+            "duration": "0s"
+        })
+        return
+
+    print(f"[INFO] Running activity: {scene}")
+
+    try:
         if scene == 'CROSSWORD2':
             print("[INFO] Waiting 15 seconds for CROSSWORD2 to load")
             time.sleep(15)
+
         activity_map[scene](altdriver)
-    else:
-        print(f"[WARN] Activity '{scene}' not defined")
 
-    time.sleep(2)
+        end_time = datetime.now()
 
+        activity_report.append({
+            "activity": scene,
+            "status": "PASSED",
+            "error": "",
+            "duration": str(end_time - start_time)
+        })
+
+    except Exception as e:
+        error_msg = traceback.format_exc()
+        print(f"[EXCEPTION] Activity {scene} failed: {e}")
+        FAILED_ACTIVITIES.add(scene)
+
+        end_time = datetime.now()
+
+        activity_report.append({
+            "activity": scene,
+            "status": "FAILED",
+            "error": error_msg,
+            "duration": str(end_time - start_time)
+        })
+
+        try:
+            print(f"[INFO] Trying to exit activity '{scene}' after failure...")
+            when_finish_activity(altdriver)
+        except Exception as exit_err:
+            print(f"[WARN] Could not click Back after failure: {exit_err}")
 def when_finish_activity(altdriver, retries=3, delay=1):
     """
     Attempts to exit the activity screen by clicking the Exit button.
@@ -521,3 +579,15 @@ def solve_lesson_levels_express(altdriver, class_id, lesson_num):
         except Exception as e:
             logging.error(f"[solve_lesson_levels] Error solving {level_name} level: {e}")
 
+def write_activity_report(file_path="activity_report.txt"):
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.write("Detailed Activity Execution Report\n")
+        f.write("=" * 40 + "\n\n")
+        for entry in activity_report:
+            f.write(f"Activity: {entry['activity']}\n")
+            f.write(f"Status  : {entry['status']}\n")
+            f.write(f"Duration: {entry['duration']}\n")
+            if entry['error']:
+                f.write(f"Error   :\n{entry['error']}\n")
+            f.write("-" * 40 + "\n")
+    print(f"[INFO] Report saved to {file_path}")

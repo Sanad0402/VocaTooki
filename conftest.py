@@ -1,12 +1,12 @@
 import pytest
+import os
 from alttester import AltDriver
-
+from Utilities.utilsdemo import write_activity_report  # ✅ Add this
 
 def pytest_addoption(parser):
     parser.addoption("--platform", action="store", required=True)
     parser.addoption("--app_id", action="store", required=True)
     parser.addoption("--device_instance_id", action="store", required=False)
-
 
 @pytest.fixture
 def altdriver(request):
@@ -25,3 +25,8 @@ def altdriver(request):
 
     yield driver
     driver.stop()
+
+# ✅ Auto-generate report after test session
+def pytest_sessionfinish(session, exitstatus):
+    os.makedirs("reports", exist_ok=True)
+    write_activity_report("reports/final_activity_report.txt")
