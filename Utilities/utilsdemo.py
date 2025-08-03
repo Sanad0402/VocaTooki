@@ -17,6 +17,7 @@ from datetime import datetime
 FAILED_ACTIVITIES = set()
 activity_report = []
 
+
 # Utility: Google TTS + Pygame Playback
 
 
@@ -61,15 +62,18 @@ def call_method(altdriver, component_name, method_name, parameters=None, paramet
 
 
 # Login Utility
-def login(altdriver, username, password):
+def login(altdriver, username=None, password=None):
+    # Use global USERNAME, PASSWORD if not provided
+    global USERNAME, PASSWORD
+    username = username or USERNAME
+    password = password or PASSWORD
+
     call_method(altdriver, "AltTesterUtils", "Logout")
     time.sleep(3)
     altdriver.wait_for_object(By.NAME, "UserInputField", enabled=True).set_text(username)
     altdriver.wait_for_object(By.NAME, "PasswordInputField", enabled=True).set_text(password)
     altdriver.wait_for_object(By.NAME, "LoginButton").click()
     time.sleep(7)
-
-
 # API Utilities
 def get_user_state(user_id, avatar_version, awards_version, lessons_version, add_is_complete):
     payload = {
@@ -95,7 +99,7 @@ def extract_lesson_titles(user_state):
 # UI Interactions
 def click_by_name(altdriver, name):
     try:
-        altdriver.wait_for_object(By.NAME, name).click()
+        altdriver.find_object(By.NAME, name).click()
         time.sleep(2)
     except:
         print(f"[WARN] Failed to click element by name: {name}")
@@ -163,7 +167,10 @@ def handle_level_flow(altdriver):
 
 
 def run_activity(altdriver, activity):
-    import time  # Make sure time is available
+    import time
+    from datetime import datetime
+    import traceback
+
     time.sleep(1)
     activity.click()
     time.sleep(3)
@@ -257,6 +264,47 @@ def run_activity(altdriver, activity):
             when_finish_activity(altdriver)
         except Exception as exit_err:
             print(f"[WARN] Could not click Back after failure: {exit_err}")
+            print(f"[RECOVERY] Attempting full recovery flow after exit failure...")
+
+            try:
+                # Logout
+                call_method(altdriver, "AltTesterUtils", "Logout")
+                time.sleep(5)
+
+                # Re-login using global USERNAME/PASSWORD
+                login(altdriver)
+                time.sleep(5)
+
+                # Return to Map Scene
+                click_by_name(altdriver, "GO-Map")
+                time.sleep(5)
+
+                print("[RECOVERY] Recovery flow completed successfully. Continuing tests...")
+
+            except Exception as recovery_err:
+                print(f"[CRITICAL] Recovery flow failed: {recovery_err}")
+                print("[CRITICAL] Attempting to restart the App...")
+
+                try:
+                    # Kill & Relaunch App Logic
+                    altdriver.stop()
+                    time.sleep(5)
+                    altdriver.start()  # Ensure altdriver instance is reusable, otherwise re-init AltDriver.
+                    time.sleep(10)
+
+                    # Re-login after restart
+                    login(altdriver)
+                    time.sleep(5)
+
+                    # Return to Map Scene after relaunch
+                    click_by_name(altdriver, "GO-Map")
+                    time.sleep(5)
+
+                    print("[RECOVERY] App Restart recovery completed. Continuing tests...")
+
+                except Exception as restart_err:
+                    print(f"[FATAL] App Restart failed: {restart_err}")
+                    print(f"[FATAL] Test execution cannot proceed after multiple recovery attempts.")
 def when_finish_activity(altdriver, retries=3, delay=1):
     """
     Attempts to exit the activity screen by clicking the Exit button.
@@ -270,7 +318,7 @@ def when_finish_activity(altdriver, retries=3, delay=1):
 
     for attempt in range(1, retries + 1):
         try:
-            exit_button = altdriver.find_object(By.NAME, "ExitButton")
+            exit_button = altdriver.find_object(By.NAME, "prev")
             exit_button.click()
             logging.info("Exit button clicked successfully.")
             return
@@ -580,14 +628,32 @@ def solve_lesson_levels_express(altdriver, class_id, lesson_num):
             logging.error(f"[solve_lesson_levels] Error solving {level_name} level: {e}")
 
 def write_activity_report(file_path="activity_report.txt"):
+    difficulty_labels = ["Easy", "Medium", "Hard"]
+    activity_occurrences = {}  # Tracks occurrence count for each activity
+
     with open(file_path, "w", encoding="utf-8") as f:
         f.write("Detailed Activity Execution Report\n")
         f.write("=" * 40 + "\n\n")
+
         for entry in activity_report:
-            f.write(f"Activity: {entry['activity']}\n")
+            activity = entry['activity']
+            count = activity_occurrences.get(activity, 0)
+
+            # Assign difficulty label based on occurrence order
+            if count < len(difficulty_labels):
+                difficulty = difficulty_labels[count]
+            else:
+                difficulty = f"Attempt {count + 1}"
+
+            activity_occurrences[activity] = count + 1
+            activity_label = f"{activity}[{difficulty}]"
+
+            # Write report entry
+            f.write(f"Activity: {activity_label}\n")
             f.write(f"Status  : {entry['status']}\n")
             f.write(f"Duration: {entry['duration']}\n")
             if entry['error']:
                 f.write(f"Error   :\n{entry['error']}\n")
             f.write("-" * 40 + "\n")
+
     print(f"[INFO] Report saved to {file_path}")
