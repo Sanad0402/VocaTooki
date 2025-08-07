@@ -5,7 +5,8 @@ SINGLE_USER = {
     "username": "vt01274560008",
     "password": "3453",
     "class_id": 7456,
-    "lesson_nums": [1, 2]
+    "lesson_nums": [0, 1],
+    "target_language": "Hebrew"  # Example: Hebrew
 }
 
 # 👥 Used when USE_SINGLE_USER = False
@@ -14,18 +15,21 @@ ALL_USERS = [
         "username": "vt01274560008",
         "password": "3453",
         "class_id": 7456,
-        "lesson_nums": [1, 2, 3]
+        "lesson_nums": [1, 2, 3],
+        "target_language": "En"
     },
     {
-        "username": "vt01274560009",
-        "password": "1234",
-        "class_id": 8320,
-        "lesson_nums": [0, 1]
+        "username": "vt56988190001",
+        "password": "3882",
+        "class_id": 8819,
+        "lesson_nums": [0, 1],
+        "target_language": "DE"
     },
     {
-        "username": "vt01274560010",
-        "password": "5678",
-        "class_id": 9010,
-        "lesson_nums": [2]
+        "username": "vt56789610001",
+        "password": "2944",
+        "class_id": 8961,
+        "lesson_nums": [2],
+        "target_language": "PT"
     },
 ]

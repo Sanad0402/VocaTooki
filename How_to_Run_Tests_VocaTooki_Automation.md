@@ -31,6 +31,7 @@ You can run a specific group of tests using the marker system defined in `pytest
 | `sanity`   | `pytest -m sanity`                     | Run basic start scene and navigation tests   |
 | `dialogues`| `pytest -m dialogues`                  | Run dialogue-based lessons                   |
 | `exams`    | `pytest -m exams`                      | Run exam-type lessons                        |
+| `test`     | `pytest -m test`                       | Run custom simple test cases                 |
 
 Example: Run both express and dialogues:
 ```bash
@@ -55,12 +56,12 @@ pytest test_batch_gameplay.py -k "lesson"
 
 ## 🎯 5. Run Tests on a Specific Platform (Command Line)
 
-```bash
-pytest Sanity/test_batch_gameplay.py \
-  --platform=WindowsEditor \
-  --app_id=56750000 \
-  --device_instance_id=73e60e7d6bbb26eb2e71b16c2c479c0f1dadbb48 \
-  -m sanity
+```powershell
+pytest -s -v Sanity/test_batch_gameplay.py `
+  --platform=WindowsEditor `
+  --app_id=56750000 `
+  --device_instance_id=73e60e7d6bbb26eb2e71b16c2c479c0f1dadbb48 `
+  -m test
 ```
 
 You can change the platform to:
@@ -104,13 +105,23 @@ USE_SINGLE_USER = True  # Run tests with only 1 user
 USE_SINGLE_USER = False  # Run tests with all users
 ```
 
+Each user can include a `target_language` field.
+You can print it inside your test:
+```python
+print(f"[INFO] Running tests for user: {username}, Target Language: {user_case['target_language']}")
+```
+For example, inside `test_batch_lessons` or `test_project_1`:
+```python
+print(f"[SUCCESS] Login passed for: {username}, Target Language: {user_case['target_language']}")
+```
+
 ---
 
 ## 📄 Final Report
 
 After all tests run, the execution report will be saved to:
 ```
-C:\Users\sanad\Downloads\reports\final_activity_report.txt
+C:\Users\sanad\Downloads\reports\activity_report_<timestamp>.txt
 ```
 
 This includes:
@@ -133,3 +144,13 @@ This includes:
 | Run on WindowsEditor platform    | `pytest Sanity/test_batch_gameplay.py --platform=WindowsEditor --app_id=56750000 --device_instance_id=73e60e7d6bbb26eb2e71b16c2c479c0f1dadbb48 -m sanity` |
 | Run on Android platform          | `pytest test_file.py --platform=Android --app_id=... --device_instance_id=...` |
 | Run dynamic parallel tests       | `run_parallel_dynamic.bat` |
+
+run in powershell :
+"pytest -s -v Sanity/test_batch_gameplay.py `
+  --platform=WindowsEditor `
+  --app_id=56750000 `
+  --device_instance_id=73e60e7d6bbb26eb2e71b16c2c479c0f1dadbb48 `
+  -m test"
+
+run in cmd(to be in the automation proj) : 
+"Sanity/test_batch_gameplay.py --platform=WindowsEditor --app_id=56750000 --device_instance_id=73e60e7d6bbb26eb2e71b16c2c479c0f1dadbb48 -m test"

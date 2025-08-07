@@ -61,7 +61,7 @@ def test_project(altdriver):
     username = SINGLE_USER['username']
     password = SINGLE_USER['password']
     class_id = SINGLE_USER['class_id']
-    lesson_num = SINGLE_USER['lesson_nums'][1]  # Pick first lesson
+    lesson_num = SINGLE_USER['lesson_nums'][0]  # Pick first lesson
 
     print(f"[TEST] Logging in {username} on {platform_name}")
     login(driver, username, password)
@@ -83,4 +83,22 @@ def test_project(altdriver):
         print(f"[INFO] Lesson {lesson_num} solved successfully.")
     except Exception as e:
         print(f"[ERROR] Failed to solve lesson {lesson_num}: {e}")
+        raise
+
+
+@pytest.mark.test
+@pytest.mark.parametrize("user_case", ALL_USERS)
+def test_login_multiple_users(altdriver, user_case):
+    driver, platform_name = altdriver
+    username = user_case['username']
+    password = user_case['password']
+    target_lang = user_case.get('target_language', 'Unknown')
+
+    print(f"[TEST] Logging in USER: {username} | PLATFORM: {platform_name} | Target Language: {target_lang}")
+    try:
+        login(driver, username, password)
+        print(f"[SUCCESS] Login passed for: {username}, Target Language: {target_lang}")
+        time.sleep(2)
+    except Exception as e:
+        print(f"[ERROR] Login failed for {username}: {e}")
         raise
