@@ -63,11 +63,6 @@ def call_method(altdriver, component_name, method_name, parameters=None, paramet
 
 # Login Utility
 def login(altdriver, username=None, password=None):
-    # Use global USERNAME, PASSWORD if not provided
-    global USERNAME, PASSWORD
-    username = username or USERNAME
-    password = password or PASSWORD
-
     call_method(altdriver, "AltTesterUtils", "Logout")
     time.sleep(3)
     altdriver.wait_for_object(By.NAME, "UserInputField", enabled=True).set_text(username)
@@ -637,6 +632,7 @@ def write_activity_report(file_path="activity_report.txt"):
 
         for entry in activity_report:
             activity = entry['activity']
+            platform = entry.get('platform', 'Unknown')  # <-- Get platform from entry
             count = activity_occurrences.get(activity, 0)
 
             # Assign difficulty label based on occurrence order
@@ -649,6 +645,7 @@ def write_activity_report(file_path="activity_report.txt"):
             activity_label = f"{activity}[{difficulty}]"
 
             # Write report entry
+            f.write(f"Platform: {platform}\n")
             f.write(f"Activity: {activity_label}\n")
             f.write(f"Status  : {entry['status']}\n")
             f.write(f"Duration: {entry['duration']}\n")
