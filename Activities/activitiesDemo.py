@@ -5,7 +5,6 @@ from alttester import By
 import time
 import re
 from langdetect import detect
-from Utilities.utils import click_by_name
 from Utilities.utilsdemo import *
 
 def search(altdriver):

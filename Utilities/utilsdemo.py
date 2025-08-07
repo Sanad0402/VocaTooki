@@ -9,7 +9,6 @@ import pytest
 import requests
 from google.cloud import texttospeech
 from pygame import mixer
-from Utilities.utils import client
 from Activities.activitiesDemo import *
 from datetime import datetime
 
@@ -622,35 +621,31 @@ def solve_lesson_levels_express(altdriver, class_id, lesson_num):
         except Exception as e:
             logging.error(f"[solve_lesson_levels] Error solving {level_name} level: {e}")
 
-def write_activity_report(file_path="activity_report.txt"):
+def write_activity_report(f):
     difficulty_labels = ["Easy", "Medium", "Hard"]
     activity_occurrences = {}  # Tracks occurrence count for each activity
 
-    with open(file_path, "w", encoding="utf-8") as f:
-        f.write("Detailed Activity Execution Report\n")
-        f.write("=" * 40 + "\n\n")
+    f.write("📊 ACTIVITY EXECUTION REPORT\n")
+    f.write("=" * 40 + "\n\n")
 
-        for entry in activity_report:
-            activity = entry['activity']
-            platform = entry.get('platform', 'Unknown')  # <-- Get platform from entry
-            count = activity_occurrences.get(activity, 0)
+    for entry in activity_report:
+        activity = entry['activity']
+        platform = entry.get('platform', 'Unknown')
+        count = activity_occurrences.get(activity, 0)
 
-            # Assign difficulty label based on occurrence order
-            if count < len(difficulty_labels):
-                difficulty = difficulty_labels[count]
-            else:
-                difficulty = f"Attempt {count + 1}"
+        if count < len(difficulty_labels):
+            difficulty = difficulty_labels[count]
+        else:
+            difficulty = f"Attempt {count + 1}"
 
-            activity_occurrences[activity] = count + 1
-            activity_label = f"{activity}[{difficulty}]"
+        activity_occurrences[activity] = count + 1
+        activity_label = f"{activity}[{difficulty}]"
 
-            # Write report entry
-            f.write(f"Platform: {platform}\n")
-            f.write(f"Activity: {activity_label}\n")
-            f.write(f"Status  : {entry['status']}\n")
-            f.write(f"Duration: {entry['duration']}\n")
-            if entry['error']:
-                f.write(f"Error   :\n{entry['error']}\n")
-            f.write("-" * 40 + "\n")
-
-    print(f"[INFO] Report saved to {file_path}")
+        # Write activity entry
+        f.write(f"Platform: {platform}\n")
+        f.write(f"Activity: {activity_label}\n")
+        f.write(f"Status  : {entry['status']}\n")
+        f.write(f"Duration: {entry['duration']}\n")
+        if entry['error']:
+            f.write(f"Error   :\n{entry['error']}\n")
+        f.write("-" * 40 + "\n")

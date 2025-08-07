@@ -1,4 +1,4 @@
-USE_SINGLE_USER = False  # ✅ Toggle this to True for single-user tests
+USE_SINGLE_USER = True  # ✅ Toggle this to True for single-user tests
 
 # 👤 Used only when USE_SINGLE_USER is True
 SINGLE_USER = {

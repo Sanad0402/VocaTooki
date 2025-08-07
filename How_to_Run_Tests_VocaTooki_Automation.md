@@ -56,11 +56,11 @@ pytest test_batch_gameplay.py -k "lesson"
 ## 🎯 5. Run Tests on a Specific Platform (Command Line)
 
 ```bash
-pytest test_batch_gameplay.py \
-  --platform=Android \
-  --app_id=com.vocatooki.app \
-  --device_instance_id=YOUR_DEVICE_ID \
-  -m express
+pytest Sanity/test_batch_gameplay.py \
+  --platform=WindowsEditor \
+  --app_id=56750000 \
+  --device_instance_id=73e60e7d6bbb26eb2e71b16c2c479c0f1dadbb48 \
+  -m sanity
 ```
 
 You can change the platform to:
@@ -130,5 +130,6 @@ This includes:
 | Run sanity + dialogues           | `pytest -m "sanity or dialogues"` |
 | Run specific file                | `pytest test_batch_gameplay.py` |
 | Run by test function             | `pytest -k "test_login"` |
+| Run on WindowsEditor platform    | `pytest Sanity/test_batch_gameplay.py --platform=WindowsEditor --app_id=56750000 --device_instance_id=73e60e7d6bbb26eb2e71b16c2c479c0f1dadbb48 -m sanity` |
 | Run on Android platform          | `pytest test_file.py --platform=Android --app_id=... --device_instance_id=...` |
 | Run dynamic parallel tests       | `run_parallel_dynamic.bat` |
