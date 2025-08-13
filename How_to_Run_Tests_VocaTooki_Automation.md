@@ -153,4 +153,14 @@ run in powershell :
   -m test"
 
 run in cmd(to be in the automation proj) : 
-"Sanity/test_batch_gameplay.py --platform=WindowsEditor --app_id=56750000 --device_instance_id=73e60e7d6bbb26eb2e71b16c2c479c0f1dadbb48 -m test"
+"pytest Sanity/test_batch_gameplay.py -s --platform=WindowsEditor --app_id=D590000 --device_instance_id=73e60e7d6bbb26eb2e71b16c2c479c0f1dadbb48 -m sanity"
+"pytest Sanity/test_multiuser_solve_lesson.py --platform WindowsEditor --user-mode single"
+
+Pick a different user:
+"pytest Sanity/test_multiuser_solve_lesson.py --platform WindowsEditor --user-mode single --user-index 1"
+
+All users :
+"pytest Sanity/test_multiuser_solve_lesson.py --platform WindowsEditor --user-mode all"
+
+run for spefic lesson :
+"pytest -q Sanity/test_single_lesson_express.py --lesson=4 --class-id=8821"

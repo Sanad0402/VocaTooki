@@ -6,6 +6,8 @@ import time
 import re
 from langdetect import detect
 from Utilities.utilsdemo import *
+from Utilities.utilsdemo import click_by_name
+
 
 def search(altdriver):
     """Automates the Search activity by matching and tapping letters."""

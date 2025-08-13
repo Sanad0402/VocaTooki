@@ -1,14 +1,5 @@
-import pytest
-import time
-import logging
-
-from alttester import By
-
 from Utilities.utilsdemo import *
-from Utilities.test_users import USE_SINGLE_USER, SINGLE_USER, ALL_USERS
-from Utilities.utilsdemo import write_activity_report
-from datetime import datetime
-import os
+from data.test_users import USE_SINGLE_USER, SINGLE_USER, ALL_USERS
 
 logging.getLogger("alttester").setLevel(logging.CRITICAL)
 
@@ -55,7 +46,7 @@ def test_batch_lessons(altdriver, user_case):
         raise
 
 
-@pytest.mark.sanity
+@pytest.mark.test
 def test_project(altdriver):
     driver, platform_name = altdriver
     username = SINGLE_USER['username']
@@ -86,7 +77,7 @@ def test_project(altdriver):
         raise
 
 
-@pytest.mark.test
+@pytest.mark.sanity
 @pytest.mark.parametrize("user_case", ALL_USERS)
 def test_login_multiple_users(altdriver, user_case):
     driver, platform_name = altdriver
@@ -102,3 +93,47 @@ def test_login_multiple_users(altdriver, user_case):
     except Exception as e:
         print(f"[ERROR] Login failed for {username}: {e}")
         raise
+
+@pytest.mark.sanity
+@pytest.mark.parametrize("user_case", [SINGLE_USER])  # ✅ single user wrapped in a list
+def test_login_single_user_param(altdriver, user_case):
+    driver, platform_name = altdriver
+    username = user_case['username']
+    password = user_case['password']
+    target_lang = user_case.get('target_language', 'Unknown')
+
+    print(f"[TEST] Logging in USER: {username} | PLATFORM: {platform_name} | Target Language: {target_lang}")
+    try:
+        login(driver, username, password)
+        print(f"[SUCCESS] Login passed for: {username}, Target Language: {target_lang}")
+        time.sleep(4)
+        actual_scene = 'NewStartScene'
+        expected_scene = driver.get_current_scene()
+        assert actual_scene == expected_scene
+    except Exception as e:
+        print(f"[ERROR] Login failed for {username}: {e}")
+        raise
+
+
+@pytest.mark.sanity
+@pytest.mark.parametrize("user_case", [SINGLE_USER])  # ✅ single user wrapped in a list
+def test_start_scene(altdriver, user_case):
+    driver, platform_name = altdriver
+    username = user_case['username']
+    password = user_case['password']
+    target_lang = user_case.get('target_language', 'Unknown')
+
+    print(f"[TEST] Logging in USER: {username} | PLATFORM: {platform_name} | Target Language: {target_lang}")
+    try:
+        login(driver, username, password)
+        print(f"[SUCCESS] Login passed for: {username}, Target Language: {target_lang}")
+        time.sleep(4)
+        actual_scene = 'NewStartScene'
+        expected_scene = driver.get_current_scene()
+        assert actual_scene == expected_scene
+    except Exception as e:
+        print(f"[ERROR] Login failed for {username}: {e}")
+        raise
+
+
+

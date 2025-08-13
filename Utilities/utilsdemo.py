@@ -9,7 +9,6 @@ import pytest
 import requests
 from google.cloud import texttospeech
 from pygame import mixer
-from Activities.activitiesDemo import *
 from datetime import datetime
 
 
@@ -159,20 +158,69 @@ def handle_level_flow(altdriver):
         time.sleep(2)
         activities = altdriver.find_objects(By.NAME, "ActivityThumb")
 
+def _get_current_activity_with_retry(altdriver, prev_scene=None, max_attempts=6, waits=(1, 2, 3, 5, 5, 5)):
+    """
+    Polls AltTesterUtils.GetCurrentActivity until it returns a non-empty value
+    and (optionally) different from prev_scene. Returns the scene string or None.
+    """
+    import time
+
+    last_err = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            scene = call_method(altdriver, "AltTesterUtils", "GetCurrentActivity")
+            if scene:
+                # If we know what we were before, ensure it changed
+                if prev_scene is None or scene != prev_scene:
+                    print(f"[DEBUG] GetCurrentActivity attempt {attempt}: '{scene}'")
+                    return scene
+                else:
+                    print(f"[DEBUG] attempt {attempt}: scene still '{scene}' (same as before), retrying...")
+            else:
+                print(f"[DEBUG] attempt {attempt}: empty scene, retrying...")
+        except Exception as e:
+            last_err = e
+            print(f"[WARN] GetCurrentActivity attempt {attempt} failed: {e}")
+
+        # wait before next attempt
+        wait = waits[attempt - 1] if attempt - 1 < len(waits) else waits[-1]
+        time.sleep(wait)
+
+    print(f"[ERROR] Could not obtain a new activity after {max_attempts} attempts.")
+    if last_err:
+        print(f"[ERROR] Last error: {last_err}")
+    return None
 
 def run_activity(altdriver, activity):
     import time
     from datetime import datetime
     import traceback
+    # ✅ Lazy import to break circular import
+    from Activities import activitiesDemo as A
+
+    # --- capture previous scene before clicking ---
+    try:
+        prev_scene = call_method(altdriver, "AltTesterUtils", "GetCurrentActivity")
+    except Exception as e:
+        print(f"[WARN] Failed to get previous scene (before click): {e}")
+        prev_scene = None
 
     time.sleep(1)
     activity.click()
-    time.sleep(3)
+    time.sleep(2)  # small settle time before polling
 
-    try:
-        scene = call_method(altdriver, "AltTesterUtils", "GetCurrentActivity")
-    except Exception as e:
-        print(f"[ERROR] Failed to get scene: {e}")
+    # --- get new scene with retries ---
+    scene = _get_current_activity_with_retry(altdriver, prev_scene=prev_scene, max_attempts=6, waits=(5,8,15,25,30,45))
+    if not scene:
+        # We never detected a new activity; treat as unmapped/not detected
+        activity_report.append({
+            "activity": "UNMAPPED_OR_NOT_DETECTED",
+            "status": "SKIPPED",
+            "error": "Could not detect new activity after click (GetCurrentActivity timed out).",
+            "duration": "0s",
+            "platform": getattr(altdriver, "platform", "Unknown")
+        })
+        print("[SKIPPED] No new activity detected after click.")
         return
 
     start_time = datetime.now()
@@ -183,41 +231,44 @@ def run_activity(altdriver, activity):
             "activity": scene,
             "status": "SKIPPED",
             "error": "Previously failed",
-            "duration": "0s"
+            "duration": "0s",
+            "platform": getattr(altdriver, "platform", "Unknown")
         })
         return
 
+    # ✅ Use function references from activitiesDemo (A.*)
     activity_map = {
-        'MEMMORY_CARDS': memory,
-        'LISTEN_FIND': megaphone,
-        'SENTENCE_COMPLETION_QUIZ': fill_in,
-        'SENTENCE_TRANSLATION_QUIZ': spiders,
-        'SEARCH': search,
-        'MISSING_BUBBLE': bubbels,
-        'RADAR': radar,
-        'UNSCRAMBLE_QUIZ': lexi_match,
-        'GAP_GURU': gap_guru,
-        'TYPE_IT_RIGHT': type_it_right,
-        'TRANSLATION_WIZ': translation_wiz,
-        'ECHO_ORDER': frogger,
-        'FROGGER': frogger,
-        'HANGWORDS': hang_words,
-        'WORDS_MATCHING_QUIZ': moving,
-        'BEE_CAREFUL': bee,
-        'ISPY': ispy,
-        'LETTERS_SEARCH': search_3rd,
-        'LETTERS_BUBBLES': bubbels_activity_3rd,
-        'LETTERS_SORTING': signs,
-        'CROSSWORD2': crosswords2
+        'MEMMORY_CARDS': A.memory,
+        'LISTEN_FIND': A.megaphone,
+        'SENTENCE_COMPLETION_QUIZ': A.fill_in,
+        'SENTENCE_TRANSLATION_QUIZ': A.spiders,
+        'SEARCH': A.search,
+        'MISSING_BUBBLE': A.bubbels,
+        'RADAR': A.radar,
+        'UNSCRAMBLE_QUIZ': A.lexi_match,
+        'GAP_GURU': A.gap_guru,
+        'TYPE_IT_RIGHT': A.type_it_right,
+        'TRANSLATION_WIZ': A.translation_wiz,
+        'ECHO_ORDER': A.echo_order,
+        'FROGGER': A.frogger,
+        'HANGWORDS': A.hang_words,
+        'WORDS_MATCHING_QUIZ': A.moving,
+        'BEE_CAREFUL': A.bee,
+        'ISPY': A.ispy,
+        'LETTERS_SEARCH': A.search_3rd,
+        'LETTERS_BUBBLES': A.bubbels_activity_3rd,
+        'LETTERS_SORTING': A.signs,
+        'CROSSWORD2': A.crosswords2
     }
 
     if scene not in activity_map:
-        print(f"[WARN] Unknown activity '{scene}' — skipping.")
+        print(f"[WARN] Unknown activity '{scene}' — marking as UNMAPPED.")
         activity_report.append({
             "activity": scene,
             "status": "SKIPPED",
             "error": "No mapping defined",
-            "duration": "0s"
+            "duration": "0s",
+            "platform": getattr(altdriver, "platform", "Unknown")
         })
         return
 
@@ -231,12 +282,12 @@ def run_activity(altdriver, activity):
         activity_map[scene](altdriver)
 
         end_time = datetime.now()
-
         activity_report.append({
             "activity": scene,
             "status": "PASSED",
             "error": "",
-            "duration": str(end_time - start_time)
+            "duration": str(end_time - start_time),
+            "platform": getattr(altdriver, "platform", "Unknown")
         })
 
     except Exception as e:
@@ -245,60 +296,47 @@ def run_activity(altdriver, activity):
         FAILED_ACTIVITIES.add(scene)
 
         end_time = datetime.now()
-
         activity_report.append({
             "activity": scene,
             "status": "FAILED",
             "error": error_msg,
-            "duration": str(end_time - start_time)
+            "duration": str(end_time - start_time),
+            "platform": getattr(altdriver, "platform", "Unknown")
         })
 
+        # --- Recovery flow (unchanged, with safety checks) ---
         try:
             print(f"[INFO] Trying to exit activity '{scene}' after failure...")
             when_finish_activity(altdriver)
         except Exception as exit_err:
             print(f"[WARN] Could not click Back after failure: {exit_err}")
-            print(f"[RECOVERY] Attempting full recovery flow after exit failure...")
+            print(f"[RECOVERY] Attempting full recovery flow...")
 
             try:
-                # Logout
                 call_method(altdriver, "AltTesterUtils", "Logout")
                 time.sleep(5)
-
-                # Re-login using global USERNAME/PASSWORD
                 login(altdriver)
                 time.sleep(5)
-
-                # Return to Map Scene
                 click_by_name(altdriver, "GO-Map")
                 time.sleep(5)
-
-                print("[RECOVERY] Recovery flow completed successfully. Continuing tests...")
-
+                print("[RECOVERY] Recovery flow completed.")
             except Exception as recovery_err:
                 print(f"[CRITICAL] Recovery flow failed: {recovery_err}")
                 print("[CRITICAL] Attempting to restart the App...")
-
                 try:
-                    # Kill & Relaunch App Logic
                     altdriver.stop()
                     time.sleep(5)
-                    altdriver.start()  # Ensure altdriver instance is reusable, otherwise re-init AltDriver.
+                    if hasattr(altdriver, "start"):
+                        altdriver.start()
                     time.sleep(10)
-
-                    # Re-login after restart
                     login(altdriver)
                     time.sleep(5)
-
-                    # Return to Map Scene after relaunch
                     click_by_name(altdriver, "GO-Map")
                     time.sleep(5)
-
-                    print("[RECOVERY] App Restart recovery completed. Continuing tests...")
-
+                    print("[RECOVERY] App Restart recovery completed.")
                 except Exception as restart_err:
                     print(f"[FATAL] App Restart failed: {restart_err}")
-                    print(f"[FATAL] Test execution cannot proceed after multiple recovery attempts.")
+                    print("[FATAL] Test execution cannot proceed after multiple recovery attempts.")
 def when_finish_activity(altdriver, retries=3, delay=1):
     """
     Attempts to exit the activity screen by clicking the Exit button.
@@ -496,6 +534,9 @@ def detect_exam_type(altdriver):
 
 
 def solve_exam(altdriver, class_id, lesson_num):
+    from Activities import activitiesDemo as A  # local import breaks circulars
+
+
     """
     Efficiently solves all 3 exam parts based on fast detection of type.
     """
@@ -507,14 +548,14 @@ def solve_exam(altdriver, class_id, lesson_num):
         time.sleep(1)
 
     exam_solvers = {
-        "spelling": exam_spelling,
-        "audio_letter": exams_3rd_audio_to_letter_matrix,
-        "letter_to_word": exams_3rd_letter_to_word_image_match,
-        "word_to_image": exams_word_to_image,
-        "audio": exams_audio_to_meaning,
-        "meaning":exams_word_to_meaning,
-        "spelling":exam_spelling,
-        'context':exam_multiple_choice
+        "spelling": A.exam_spelling,
+        "audio_letter": A.exams_3rd_audio_to_letter_matrix,
+        "letter_to_word": A.exams_3rd_letter_to_word_image_match,
+        "word_to_image": A.exams_word_to_image,
+        "audio": A.exams_audio_to_meaning,
+        "meaning":A.exams_word_to_meaning,
+        "spelling":A.exam_spelling,
+        'context':A.exam_multiple_choice
     }
 
     for part in ['1/3', '2/3', '3/3']:
@@ -556,6 +597,7 @@ def solve_lesson(altdriver, class_id, lesson_num):
         solve_lesson_levels(altdriver, class_id, lesson_num)
         time.sleep(2)
         solve_exam(altdriver, class_id, lesson_num)
+        time.sleep(2)
     except Exception as e:
         print(f"[ERROR] Failed to solve lesson {lesson_num}: {e}")
 
@@ -598,8 +640,9 @@ def solve_lesson_express(altdriver, class_id, lesson_num):
     try:
         print(f"[INFO] Solving lesson {lesson_num} for class {class_id}")
         solve_lesson_levels_express(altdriver, class_id, lesson_num)
-        time.sleep(2)
+        time.sleep(3)
         solve_exam(altdriver, class_id, lesson_num)
+        time.sleep(3)
     except Exception as e:
         print(f"[ERROR] Failed to solve lesson {lesson_num}: {e}")
 
@@ -614,6 +657,7 @@ def solve_lesson_levels_express(altdriver, class_id, lesson_num):
             continue
 
         try:
+            time.sleep(2)
             solve_level_express(altdriver, diff)
             back_button = altdriver.wait_for_object(By.NAME, 'Back')
             back_button.click()
@@ -621,7 +665,7 @@ def solve_lesson_levels_express(altdriver, class_id, lesson_num):
         except Exception as e:
             logging.error(f"[solve_lesson_levels] Error solving {level_name} level: {e}")
 
-def write_activity_report(f):
+def write_activity_report(f, lesson_num=None, lesson_id=None):
     difficulty_labels = ["Easy", "Medium", "Hard"]
     activity_occurrences = {}  # Tracks occurrence count for each activity
 
@@ -639,7 +683,14 @@ def write_activity_report(f):
             difficulty = f"Attempt {count + 1}"
 
         activity_occurrences[activity] = count + 1
-        activity_label = f"{activity}[{difficulty}]"
+
+        # Build activity label with lesson number or ID
+        if lesson_num is not None:
+            activity_label = f"{activity}[{difficulty}][Lesson {lesson_num}]"
+        elif lesson_id is not None:
+            activity_label = f"{activity}[{difficulty}][ID: {lesson_id}]"
+        else:
+            activity_label = f"{activity}[{difficulty}]"
 
         # Write activity entry
         f.write(f"Platform: {platform}\n")
