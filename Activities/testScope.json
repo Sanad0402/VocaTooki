@@ -1,0 +1,8 @@
+{
+  // test definition
+  "testDomains": ["sanity", "activities","test_3"],
+  "reportOut" : ["mohammad.owesat@kideo.com", "sanad@kideo.tech"],
+  "errorFiles" : "",
+  "screenShotsFolder" :,
+  "reportFileName" : ""
+}

@@ -25,10 +25,8 @@ def pytest_addoption(parser):
     parser.addoption("--reports_dir", action="store",
                      default=os.getenv("REPORTS_DIR", r"C:\Users\sanad\Downloads\reports"),
                      help="Directory to save reports")
-    parser.addoption("--user-mode", choices=["single", "all"], default="single",
-                     help="Run for one user (single) or all users (all)")
-    parser.addoption("--user-index", type=int, default=0,
-                     help="Index of the user in TEST_USERS for --user-mode=single")
+    parser.addoption("--user-mode", choices=["single", "all"], default="single")
+    parser.addoption("--user-index", type=int, default=0)
     parser.addoption("--difficulty", choices=["easy", "medium", "hard"], default="easy",
                      help="Difficulty to run for single-level execution.")
     parser.addoption("--level", type=int, default=None,
@@ -37,7 +35,8 @@ def pytest_addoption(parser):
                      help="[Alias of --level] Map node index to run.")
     parser.addoption("--class-id", action="store", default=None,
                      help="Override class ID for this test (optional)")
-
+    parser.addoption("--lessons", action="store", default="0", help="Comma-separated lesson indexes to run")
+    parser.addoption("--levels-only", action="store_true", default=False, help="Run levels only, skip exam")
 
 @pytest.fixture(scope="session")
 def altdriver(request):
@@ -141,3 +140,27 @@ def single_lesson_num(request):
 def single_class_id(request):
     cid = request.config.getoption("--class-id")
     return cid if cid else DEFAULT_CLASS_ID
+
+@pytest.fixture
+def lesson_numbers(request):
+    """
+    Returns a list of lesson indexes to run.
+    Supports:
+      --lessons=0,1,2,3   (multiple lessons)
+      --lesson=2          (single lesson)
+    """
+    lessons_arg = request.config.getoption("--lessons")
+    if lessons_arg and lessons_arg.strip() != "0":  # default 0 means probably user didn't set
+        try:
+            return [int(x) for x in lessons_arg.split(",") if x.strip().isdigit()]
+        except ValueError:
+            return [0]
+
+    single = request.config.getoption("--lesson")
+    if single is not None:
+        try:
+            return [int(single)]
+        except ValueError:
+            return [0]
+
+    return [0]  # default if neither is set

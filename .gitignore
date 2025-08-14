@@ -1,0 +1,27 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environment
+venv/
+.env/
+.venv/
+
+# Test / temp files
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+
+# Reports & screenshots
+*.xml
+*.html
+*.screens.zip
+reports/
+screenshots/
+
+# Sensitive config
+automation_email.env

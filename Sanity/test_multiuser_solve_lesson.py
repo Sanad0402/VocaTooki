@@ -3,12 +3,11 @@ import time
 import pathlib
 import pytest
 
-from data.test_users import *
+from data.test_users import DEFAULT_CLASS_ID
 from Pages.StartScreen import StartScreen
 from Pages.map_page import MapPage
 
 REPORTS_DIR = os.getenv("REPORTS_DIR", os.path.expanduser("~/Downloads/reports"))
-LESSON_RANGE = range(0, 6)
 
 def _ensure_reports_dir():
     pathlib.Path(REPORTS_DIR).mkdir(parents=True, exist_ok=True)
@@ -18,8 +17,11 @@ def _report_filename(platform_name: str, username: str) -> str:
     ts = time.strftime("%Y%m%d_%H%M%S")
     return os.path.join(REPORTS_DIR, f"ActivityReport_{platform_name}_{safe_user}_{ts}.txt")
 
-@pytest.mark.sanity1
-def test_multiuser_full_lessons(altdriver, user):
+@pytest.mark.sanity2
+def test_lesson_runner(altdriver, user, lesson_numbers, request):
+    """Runs one or more lessons based on --lesson or --lessons from runner.json/CLI."""
+    levels_only = bool(request.config.getoption("--levels-only"))
+
     driver, platform_name = altdriver
     username = user["username"]
     password = user["password"]
@@ -28,20 +30,18 @@ def test_multiuser_full_lessons(altdriver, user):
     start_page = StartScreen(driver)
     map_page = MapPage(driver)
 
-    # 1) Login
+    # Login + navigate to map
     start_page.login(username, password)
-
-    # 2) Click the GO-Map object
     start_page.go_to_map()
-
     time.sleep(6)
 
-    # 3) Solve lessons 0..5
-    for lesson_num in LESSON_RANGE:
-        map_page.solve_lesson_express(class_id, lesson_num)
+    for lesson_num in lesson_numbers:
+        if levels_only and hasattr(map_page, "solve_lesson_levels_express"):
+            map_page.solve_lesson_levels_express(class_id, lesson_num)
+        else:
+            map_page.solve_lesson_express(class_id, lesson_num)
         time.sleep(1)
 
-    # 4) Write report
     _ensure_reports_dir()
     report_path = _report_filename(platform_name, username)
     with open(report_path, "w", encoding="utf-8") as f:
