@@ -1139,25 +1139,26 @@ def crosswords2(altdriver):
     number_of_words = int(progresstext.split('/')[1])
     print(f"[INFO] Total words to solve: {number_of_words}")
 
+    # ✅ Step 1: Build the letters map once
+    letters_map = {
+        letter.get_component_property("TMPro.TextMeshProUGUI", "m_text", "Unity.TextMeshPro").lower(): letter
+        for letter in altdriver.find_objects(By.NAME, 'FillLetter')
+    }
+    print(f"[DEBUG] Available letters (cached once): {list(letters_map.keys())}")
+
+    # ✅ Step 2: Iterate through each word
     for i in range(number_of_words):
         print(f"[INFO] Solving word {i + 1} of {number_of_words}")
         time.sleep(3)
 
-        # Step 1: Get current target word
+        # Get current target word
         current_word_obj = altdriver.find_object(By.NAME, "RTLTMPWordPanel")
         current_word_text = current_word_obj.get_component_property(
             'TMProWordPanel', 'Word.word', 'Assembly-CSharp'
         ).lower()
         print(f"[DEBUG] Target word: {current_word_text}")
 
-        # Step 2: Get clickable letters on screen
-        letters_map = {
-            letter.get_component_property("TMPro.TextMeshProUGUI", "m_text", "Unity.TextMeshPro").lower(): letter
-            for letter in altdriver.find_objects(By.NAME, 'FillLetter')
-        }
-        print(f"[DEBUG] Available letters: {list(letters_map.keys())}")
-
-        # Step 3: Click each letter in the word
+        # Step 3: Use cached letters_map
         for letter in current_word_text:
             if letter in letters_map:
                 letters_map[letter].click()
@@ -1167,8 +1168,5 @@ def crosswords2(altdriver):
                 print(f"[WARNING] Letter not found: {letter}")
 
         # Wait for next round to load
-        time.sleep(1.5)
-
-    print("[INFO] Crosswords2 activity complete.")
 
 
