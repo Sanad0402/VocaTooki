@@ -25,3 +25,4 @@ screenshots/
 
 # Sensitive config
 automation_email.env
+debug_*.py
