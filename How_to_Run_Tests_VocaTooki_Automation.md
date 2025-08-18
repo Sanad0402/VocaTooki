@@ -164,3 +164,6 @@ All users :
 
 run for spefic lesson :
 "pytest -q Sanity/test_single_lesson_express.py --lesson=4 --class-id=8821"
+
+run by runner :
+python scripts/test_runner.py --config runner.json

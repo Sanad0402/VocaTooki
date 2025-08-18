@@ -40,8 +40,7 @@ def _normalize_marks(marks: List[str]) -> List[str]:
 
 
 def _marks_expr(marks: List[str]) -> str:
-    return "(" + " or ".join(marks) + ")" if marks else ""
-
+    return " or ".join(marks) if marks else ""
 
 def _zip_folder(folder: Path, outzip: Path):
     _mkparents(outzip)
@@ -122,14 +121,17 @@ def _parse_junit(junit_path: Path):
 
     tree = ET.parse(junit_path)
     root = tree.getroot()
-    total = int(root.attrib.get("tests", 0))
-    failures = int(root.attrib.get("failures", 0))
-    errors = int(root.attrib.get("errors", 0))
-    skipped = int(root.attrib.get("skipped", 0))
-    passed = total - failures - errors - skipped
+
+    testcases = list(root.iter("testcase"))
+    total = len(testcases)
+
+    failures = sum(1 for c in testcases if c.find("failure") is not None)
+    errors   = sum(1 for c in testcases if c.find("error") is not None)
+    skipped  = sum(1 for c in testcases if c.find("skipped") is not None)
+    passed   = total - failures - errors - skipped
 
     details = []
-    for case in root.iter("testcase"):
+    for case in testcases:
         name = f'{case.attrib.get("classname","")}.{case.attrib.get("name","")}'.strip(".")
         for tag in ("failure", "error", "skipped"):
             el = case.find(tag)
@@ -139,7 +141,6 @@ def _parse_junit(junit_path: Path):
                 details.append(f"{tag.upper()}: {name}\n{msg}\n{text}\n")
 
     return total, passed, failures, skipped, errors, "\n".join(details) if details else ""
-
 
 def _try_write_activity_section(fh):
     try:
