@@ -5,7 +5,7 @@ from alttester import AltDriver, By, altdriver
 altdriver = AltDriver(
     host="127.0.0.1",
     port=13000,
-    enable_logging=True
+    enable_logging=False
 )
 
 progress = altdriver.find_object(By.NAME, "ProgressText").get_text()

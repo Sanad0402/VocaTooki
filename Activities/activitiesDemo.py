@@ -1144,7 +1144,7 @@ def crosswords2(altdriver):
         letter.get_component_property("TMPro.TextMeshProUGUI", "m_text", "Unity.TextMeshPro").lower(): letter
         for letter in altdriver.find_objects(By.NAME, 'FillLetter')
     }
-    print(f"[DEBUG] Available letters (cached once): {list(letters_map.keys())}")
+    print(f"[DEBUG] Available letters : {list(letters_map.keys())}")
 
     # ✅ Step 2: Iterate through each word
     for i in range(number_of_words):
@@ -1170,3 +1170,158 @@ def crosswords2(altdriver):
         # Wait for next round to load
 
 
+def solve_puzzles(altdriver):
+    """
+    Automates the word puzzle activity by rearranging puzzle pieces to form correct sentences.
+
+    This version is optimized for reliability by fetching all game elements and filtering for
+    pieces with numerical names. It correctly handles multi-line puzzles, filters for
+    the current sentence's words, and robustly manages duplicate words.
+
+    The function works by:
+    1. Determining the total number of sentences in the level.
+    2. For each sentence:
+       a. Fetching the target sentence and creating a frequency map of its words.
+       b. Getting all elements and filtering to find active puzzle pieces by their numerical name.
+       c. Reading the current order of words from those pieces, sorting them by position (-Y then X).
+       d. Comparing the current order with the target order.
+       e. If they don't match, it calculates the necessary swaps and performs them.
+    3. Clicking the 'next' button to proceed to the next puzzle.
+    """
+    print("[INFO] Starting puzzle activity automation...")
+
+    try:
+        # Wait for the ProgressText to be available to ensure the activity is loaded.
+        altdriver.wait_for_object(By.NAME, "ProgressText", timeout=20)
+        progress_text_element = altdriver.find_object(By.NAME, "ProgressText")
+        puzzles_manager = altdriver.find_object(By.NAME, 'PuzzlesManager')
+    except Exception as e:
+        print(f"[ERROR] Could not find initial game objects. Please ensure the puzzle activity is active. Error: {e}")
+        return
+
+    # 1. Determine the total number of sentences to solve.
+    progress_text = progress_text_element.get_text()
+    total_sentences = int(progress_text.split('/')[1])
+    print(f"[INFO] Found {total_sentences} sentences to solve.")
+
+    # Loop through each sentence in the activity.
+    for i in range(total_sentences):
+        print(f"\n--- Solving Sentence {i + 1}/{total_sentences} ---")
+        # Wait for the next puzzle to load completely.
+        time.sleep(4)
+
+        progress = progress_text_element.get_text()
+        solved_count_before = int(progress.split('/')[0])
+
+        # 2a. Get the target sentence (the correct order of words).
+        try:
+            target_sentence = puzzles_manager.get_component_property('com.kideo.learn.english.PuzzlesManager',
+                                                                     'currentSentence_', 'Assembly-CSharp')
+            target_order = target_sentence.split()
+            # Create a frequency map of words needed for the current sentence.
+            target_word_counts = Counter(target_order)
+            print(f"  [TARGET]: {' '.join(target_order)}")
+        except Exception as e:
+            print(f"[ERROR] Failed to get the target sentence. Error: {e}")
+            continue
+
+        # 2b. Get the current state by fetching all elements and filtering them.
+        try:
+            print("  [INFO] Searching for puzzle pieces...")
+            all_pieces = []
+            # Get all game elements and filter them to find the pieces.
+            all_elements = altdriver.get_all_elements()
+
+            words_to_find = target_word_counts.copy()
+
+            for element in all_elements:
+                # Filter for enabled elements whose name is a number.
+                if element.name.isdigit() and element.enabled:
+                    try:
+                        text = element.get_component_property('PuzzlePiece', 'text.text', 'Assembly-CSharp')
+                        # Only consider this piece if its word is needed for the current sentence.
+                        if text in words_to_find and words_to_find[text] > 0:
+                            all_pieces.append({'object': element, 'text': text})
+                            words_to_find[text] -= 1  # Decrement the count for the found word.
+                    except:
+                        # This element might have a numerical name but isn't a puzzle piece.
+                        continue
+
+            # Sort pieces by y-coordinate descending (top row first), then by x-coordinate ascending (left to right).
+            current_pieces = sorted(all_pieces, key=lambda p: (-p['object'].y, p['object'].x))
+
+            current_order = [p['text'] for p in current_pieces]
+            print(f"  [CURRENT]: {' '.join(current_order)}")
+
+        except Exception as e:
+            print(f"[ERROR] An error occurred while finding puzzle pieces. Error: {e}")
+            continue
+
+        if len(current_order) != len(target_order):
+            print(
+                f"[WARNING] Mismatch: Found {len(current_order)} pieces but target has {len(target_order)} words. Skipping.")
+            continue
+
+        if current_order == target_order:
+            print("[INFO] Sentence is already in the correct order.")
+        else:
+            print("[ACTION] Rearranging words...")
+            for idx in range(len(target_order)):
+                # If the word at the current position is correct, move on.
+                if current_pieces[idx]['text'] == target_order[idx]:
+                    continue
+
+                # The word is incorrect. Find the best piece to swap with.
+                correct_word_for_idx = target_order[idx]
+
+                target_piece_index = -1
+
+                # Find any piece that has the correct word for our current position.
+                for k in range(idx + 1, len(current_pieces)):
+                    if current_pieces[k]['text'] == correct_word_for_idx:
+                        target_piece_index = k
+                        break
+
+                if target_piece_index != -1:
+                    print(
+                        f"  - Swapping '{current_pieces[idx]['text']}' with '{current_pieces[target_piece_index]['text']}'")
+
+                    # Click the piece at the current wrong position, then the piece that should be here.
+                    piece_to_click_1 = current_pieces[idx]['object']
+                    piece_to_click_2 = current_pieces[target_piece_index]['object']
+
+                    piece_to_click_1.click()
+                    time.sleep(0.5)
+                    piece_to_click_2.click()
+                    time.sleep(1)
+
+                    # Update our local list to reflect the swap in the game.
+                    current_pieces[idx], current_pieces[target_piece_index] = current_pieces[target_piece_index], \
+                    current_pieces[idx]
+
+            print("[INFO] All words have been arranged.")
+
+        # 3. Proceed to the next sentence.
+        try:
+            # Wait for 2 seconds after arranging words before checking progress.
+            time.sleep(2)
+
+            start_time = time.time()
+            while int(progress_text_element.get_text().split('/')[0]) <= solved_count_before:
+                time.sleep(0.5)
+                if time.time() - start_time > 10:
+                    print("[WARNING] Timeout waiting for progress to update.")
+                    break
+
+            print("[ACTION] Clicking 'next' button.")
+            altdriver.find_object(By.NAME, 'nextButton').click()
+        except Exception as e:
+            print(f"[ERROR] Could not find or click the 'next' button. Error: {e}")
+            break
+
+    print("\n[SUCCESS] Puzzle activity completed!")
+
+# Example of how to run the script:
+# from altdriver import AltDriver
+# alt_driver = AltDriver()
+# solve_puzzles(alt_driver)
