@@ -634,13 +634,46 @@ def solve_level_express(altdriver, difficulty):
 
     logging.info(f"[solve_level] Finished solving level for difficulty {difficulty}")
     time.sleep(4)
+def solve_level_express_hard(altdriver, difficulty):
+    """
+    Executes opened level flow(s) based on difficulty level:
+    - Easy → 3 activities
+    - Medium → 2 activities
+    - Hard → 1 activity
+
+    Args:
+        altdriver (AltDriver): AltTester driver instance
+        difficulty (int or str): 0, 1, 2 or "easy", "medium", "hard"
+    """
+    logging.info(f"[solve_level] Starting level solving for difficulty: {difficulty}")
+
+    # Normalize difficulty
+    if isinstance(difficulty, str):
+        difficulty = {"hard": 2}.get(difficulty.lower(), -1)
+
+    if difficulty not in [2]:
+        logging.error(f"[solve_level] Invalid difficulty level: {difficulty}")
+        raise ValueError(f"Unknown difficulty: {difficulty}")
+
+    repetitions = {2: 1}[difficulty]
+    logging.info(f"[solve_level] Will run {repetitions} open-level flow(s)")
+
+    for i in range(repetitions):
+        logging.info(f"[solve_level] Executing flow {i + 1}/{repetitions}")
+        try:
+            handle_level_flow(altdriver)
+        except Exception as e:
+            logging.warning(f"[solve_level] Flow {i + 1} failed: {e}")
+
+    logging.info(f"[solve_level] Finished solving level for difficulty {difficulty}")
+    time.sleep(4)
 
 def solve_lesson_express(altdriver, class_id, lesson_num):
     """Solve full lesson including all levels and the exam."""
     try:
         print(f"[INFO] Solving lesson {lesson_num} for class {class_id}")
         solve_lesson_levels_express(altdriver, class_id, lesson_num)
-        time.sleep(3)
+        time.sleep(5)
         solve_exam(altdriver, class_id, lesson_num)
         time.sleep(3)
     except Exception as e:
@@ -659,6 +692,25 @@ def solve_lesson_levels_express(altdriver, class_id, lesson_num):
         try:
             time.sleep(2)
             solve_level_express(altdriver, diff)
+            back_button = altdriver.wait_for_object(By.NAME, 'Back')
+            back_button.click()
+            time.sleep(6)
+        except Exception as e:
+            logging.error(f"[solve_lesson_levels] Error solving {level_name} level: {e}")
+
+def solve_lesson_levels_express_hard(altdriver, class_id, lesson_num):
+    difficulties = [("hard", 2)]
+
+    for level_name, diff in difficulties:
+        logging.info(f"[solve_lesson_levels] Solving {level_name} level...")
+
+        if not enter_to_level(altdriver, class_id, lesson_num, type="lesson", difficulty=level_name):
+            logging.warning(f"[solve_lesson_levels] Skipped {level_name} level — no level found or failed to enter.")
+            continue
+
+        try:
+            time.sleep(2)
+            solve_level_express_hard(altdriver, diff)
             back_button = altdriver.wait_for_object(By.NAME, 'Back')
             back_button.click()
             time.sleep(6)

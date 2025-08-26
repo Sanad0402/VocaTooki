@@ -167,3 +167,24 @@ run for spefic lesson :
 
 run by runner :
 python scripts/test_runner.py --config runner.json
+
+{ "testDomains": ["sanity1"],
+  "reportOut": ["sanad@kideo.tech"],
+  "errorFiles": "C:/Users/sanad/Downloads/reports/errors.txt",
+  "screenShotsFolder": "C:/Users/sanad/Downloads/screenshots",
+  "reportFileName": "C:/Users/sanad/Downloads/reports/RunReport.txt",
+  "testsPath": "Sanity",
+  "extraPytestArgs": [],
+  "levelsOnly": false,
+  "lessons": [-1,0,1,2,3,4,5],
+  "userMode": "single", 
+  "userIndex": 0,
+  "platform": "WindowsEditor",
+  "appId": "5DD30000",
+  "deviceInstanceId": "73e60e7d6bbb26eb2e71b16c2c479c0f1dadbb48"
+}
+
+  "userMode": "single", or  'all'
+  "lessons": [-1,0,1,2,3,4,5], or   "lesson": 2
+
+

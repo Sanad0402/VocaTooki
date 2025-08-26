@@ -17,7 +17,7 @@ def _report_filename(platform_name: str, username: str) -> str:
     ts = time.strftime("%Y%m%d_%H%M%S")
     return os.path.join(REPORTS_DIR, f"ActivityReport_{platform_name}_{safe_user}_{ts}.txt")
 
-@pytest.mark.sanity2
+@pytest.mark.sanity1
 def test_lesson_runner(altdriver, user, lesson_numbers, request):
     """Runs one or more lessons based on --lesson or --lessons from runner.json/CLI."""
     levels_only = bool(request.config.getoption("--levels-only"))
@@ -37,7 +37,7 @@ def test_lesson_runner(altdriver, user, lesson_numbers, request):
 
     for lesson_num in lesson_numbers:
         if levels_only and hasattr(map_page, "solve_lesson_levels_express"):
-            map_page.solve_lesson_levels_express(class_id, lesson_num)
+            map_page.solve_lesson_express(class_id, lesson_num)
         else:
             map_page.solve_lesson_express(class_id, lesson_num)
         time.sleep(1)

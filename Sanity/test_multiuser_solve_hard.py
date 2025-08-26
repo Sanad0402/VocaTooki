@@ -17,9 +17,11 @@ def _report_filename(platform_name: str, username: str) -> str:
     ts = time.strftime("%Y%m%d_%H%M%S")
     return os.path.join(REPORTS_DIR, f"ActivityReport_{platform_name}_{safe_user}_{ts}.txt")
 
-@pytest.mark.sanity2
-def test_single_lesson_express(altdriver, user, lesson_numbers):
-    """Runs one or more lessons from --lesson or --lessons."""
+@pytest.mark.sanity1
+def test_lesson_runner(altdriver, user, lesson_numbers, request):
+    """Runs one or more lessons based on --lesson or --lessons from runner.json/CLI."""
+    levels_only = bool(request.config.getoption("--levels-only"))
+
     driver, platform_name = altdriver
     username = user["username"]
     password = user["password"]
@@ -28,17 +30,18 @@ def test_single_lesson_express(altdriver, user, lesson_numbers):
     start_page = StartScreen(driver)
     map_page = MapPage(driver)
 
-    # Login and navigate to map
+    # Login + navigate to map
     start_page.login(username, password)
-    time.sleep(3)
     start_page.go_to_map()
     time.sleep(6)
 
-    for lesson_number in lesson_numbers:
-        map_page.solve_lesson_express(class_id, lesson_number)
+    for lesson_num in lesson_numbers:
+        if levels_only and hasattr(map_page, "solve_lesson_levels_express"):
+            map_page.solve_lesson_levels_express_hard(class_id, lesson_num)
+        else:
+            map_page.solve_lesson_levels_express_hard(class_id, lesson_num)
         time.sleep(1)
 
-    # Save activity report
     _ensure_reports_dir()
     report_path = _report_filename(platform_name, username)
     with open(report_path, "w", encoding="utf-8") as f:

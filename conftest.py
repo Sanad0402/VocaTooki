@@ -4,10 +4,10 @@ import pytest
 from datetime import datetime
 from alttester import AltDriver
 from Utilities import utilsdemo
-from data.test_users import TEST_USERS
-
+from data.test_users import TEST_USERS, DEFAULT_CLASS_ID  # Added missing import for clarity
 
 test_results = []  # Store test status info
+
 
 @pytest.fixture(scope="session", autouse=True)
 def _reset_activity_report():
@@ -17,6 +17,7 @@ def _reset_activity_report():
     except Exception:
         pass
     yield
+
 
 def pytest_addoption(parser):
     parser.addoption("--platform", action="store", default="WindowsEditor", help="Platform name")
@@ -38,6 +39,7 @@ def pytest_addoption(parser):
     parser.addoption("--lessons", action="store", default="0", help="Comma-separated lesson indexes to run")
     parser.addoption("--levels-only", action="store_true", default=False, help="Run levels only, skip exam")
 
+
 @pytest.fixture(scope="session")
 def altdriver(request):
     platform = request.config.getoption("--platform")
@@ -53,23 +55,20 @@ def altdriver(request):
         enable_logging=True
     )
 
-    # OPTIONAL: make platform available to utilsdemo so activity logs can include it
-    # (Use in your log appends: platform = getattr(utilsdemo, "RUN_PLATFORM", "Unknown"))
     setattr(utilsdemo, "RUN_PLATFORM", platform)
 
     yield driver, platform
 
     # Graceful shutdown
     try:
-        driver.close()  # preferred for AltTester Python client
+        driver.close()
     except Exception:
         try:
-            driver.stop()  # fallback if close() isn't available in your client version
+            driver.stop()
         except Exception:
             pass
 
 
-# --- Collect individual test results (unchanged logic, just kept tidy)
 def pytest_runtest_logreport(report):
     if report.when == "call":
         test_results.append({
@@ -80,7 +79,6 @@ def pytest_runtest_logreport(report):
         })
 
 
-# --- Write the combined report at session end (tests + gameplay activities)
 @pytest.hookimpl(tryfirst=True)
 def pytest_sessionfinish(session, exitstatus):
     reports_dir = session.config.getoption("--reports_dir")
@@ -90,7 +88,6 @@ def pytest_sessionfinish(session, exitstatus):
     report_path = os.path.join(reports_dir, f"activity_report_{timestamp}.txt")
 
     with open(report_path, "w", encoding="utf-8") as f:
-        # 1) Test case results
         f.write("🧪 TEST CASE EXECUTION REPORT\n")
         f.write("=" * 40 + "\n\n")
         for entry in test_results:
@@ -101,10 +98,8 @@ def pytest_sessionfinish(session, exitstatus):
                 f.write(f"Error   :\n{entry['longrepr']}\n")
             f.write("-" * 40 + "\n")
 
-        f.write("\n\n")  # separator
+        f.write("\n\n")
 
-        # 2) Activity gameplay results (your exact formatter)
-        # Safe even if your run didn't populate activity_report
         try:
             utilsdemo.write_activity_report(f)
         except Exception as e:
@@ -112,13 +107,13 @@ def pytest_sessionfinish(session, exitstatus):
 
     print(f"[REPORT] Full report saved to: {report_path}")
 
+
 def pytest_generate_tests(metafunc):
     if "user" in metafunc.fixturenames:
         mode = metafunc.config.getoption("--user-mode")
         idx = metafunc.config.getoption("--user-index")
 
         if mode == "single":
-            # clamp index into valid range
             if idx < 0 or idx >= len(TEST_USERS):
                 print(f"[WARN] --user-index {idx} out of range. Using 0.")
                 idx = 0
@@ -126,14 +121,16 @@ def pytest_generate_tests(metafunc):
         else:
             users = TEST_USERS
 
-        metafunc.parametrize("user", users, ids=[u["username"] for u in users])
+        # This is the corrected line:
+        metafunc.parametrize("user", users, ids=[u["username"] for u in users], scope="class")
+
 
 @pytest.fixture
 def single_lesson_num(request):
     try:
         return int(request.config.getoption("--lesson"))
     except Exception:
-        return 0  # fallback
+        return 0
 
 
 @pytest.fixture
@@ -141,16 +138,11 @@ def single_class_id(request):
     cid = request.config.getoption("--class-id")
     return cid if cid else DEFAULT_CLASS_ID
 
+
 @pytest.fixture
 def lesson_numbers(request):
-    """
-    Returns a list of lesson indexes to run.
-    Supports:
-      --lessons=0,1,2,3   (multiple lessons)
-      --lesson=2          (single lesson)
-    """
     lessons_arg = request.config.getoption("--lessons")
-    if lessons_arg and lessons_arg.strip() != "0":  # default 0 means probably user didn't set
+    if lessons_arg and lessons_arg.strip() != "0":
         try:
             return [int(x) for x in lessons_arg.split(",") if x.strip().isdigit()]
         except ValueError:
@@ -163,4 +155,4 @@ def lesson_numbers(request):
         except ValueError:
             return [0]
 
-    return [0]  # default if neither is set
+    return [0]

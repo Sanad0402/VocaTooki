@@ -12,7 +12,8 @@ class MapPage(BasePage):
 
     def solve_lesson_express(self, class_id, lesson_num):
         return utilsdemo.solve_lesson_express(self.driver, class_id, lesson_num)
-
+    def solve_lesson_levels_express_hard(self, class_id, lesson_num):
+        return utilsdemo.solve_lesson_levels_express_hard(self.driver, class_id, lesson_num)
     def solve_lesson_levels_express(self, class_id, lesson_num):
         return utilsdemo.solve_lesson_levels_express(self.driver, class_id, lesson_num)
 
