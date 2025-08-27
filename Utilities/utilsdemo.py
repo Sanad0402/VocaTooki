@@ -158,7 +158,7 @@ def handle_level_flow(altdriver):
         time.sleep(2)
         activities = altdriver.find_objects(By.NAME, "ActivityThumb")
 
-def _get_current_activity_with_retry(altdriver, prev_scene=None, max_attempts=6, waits=(1, 2, 3, 5, 5, 5)):
+def _get_current_activity_with_retry(altdriver, prev_scene=None, max_attempts=10, waits=(2,5,10,15,30,45)):
     """
     Polls AltTesterUtils.GetCurrentActivity until it returns a non-empty value
     and (optionally) different from prev_scene. Returns the scene string or None.
@@ -210,7 +210,7 @@ def run_activity(altdriver, activity):
     time.sleep(2)  # small settle time before polling
 
     # --- get new scene with retries ---
-    scene = _get_current_activity_with_retry(altdriver, prev_scene=prev_scene, max_attempts=6, waits=(5,8,15,25,30,45))
+    scene = _get_current_activity_with_retry(altdriver, prev_scene=prev_scene, max_attempts=10, waits=(5,8,15,40,120,240))
     if not scene:
         # We never detected a new activity; treat as unmapped/not detected
         activity_report.append({
@@ -679,6 +679,17 @@ def solve_lesson_express(altdriver, class_id, lesson_num):
     except Exception as e:
         print(f"[ERROR] Failed to solve lesson {lesson_num}: {e}")
 
+def solve_lesson_express_hard(altdriver, class_id, lesson_num):
+    """Solve full lesson including all levels and the exam."""
+    try:
+        print(f"[INFO] Solving lesson {lesson_num} for class {class_id}")
+        solve_lesson_levels_express_hard(altdriver, class_id, lesson_num)
+        time.sleep(5)
+        solve_exam(altdriver, class_id, lesson_num)
+        time.sleep(3)
+    except Exception as e:
+        print(f"[ERROR] Failed to solve lesson {lesson_num}: {e}")
+
 def solve_lesson_levels_express(altdriver, class_id, lesson_num):
     difficulties = [("easy", 0), ("medium", 1), ("hard", 2)]
 
@@ -714,6 +725,7 @@ def solve_lesson_levels_express_hard(altdriver, class_id, lesson_num):
             back_button = altdriver.wait_for_object(By.NAME, 'Back')
             back_button.click()
             time.sleep(6)
+
         except Exception as e:
             logging.error(f"[solve_lesson_levels] Error solving {level_name} level: {e}")
 

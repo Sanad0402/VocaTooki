@@ -7,6 +7,9 @@ import time
 DIFF_INDEX = {"easy": 0, "medium": 1, "hard": 2}
 
 class MapPage(BasePage):
+    def solve_lesson_express_hard(self, class_id, lesson_num):
+        """Solve full lesson including all levels and the exam."""
+        return utilsdemo.solve_lesson_express_hard(self.driver, class_id, lesson_num)
     def solve_lesson(self, class_id, lesson_num):
         return utilsdemo.solve_lesson(self.driver, class_id, lesson_num)
 

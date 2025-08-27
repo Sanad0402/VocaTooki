@@ -32,12 +32,11 @@ def pytest_addoption(parser):
                      help="Difficulty to run for single-level execution.")
     parser.addoption("--level", type=int, default=None,
                      help="Map node index to run (0/1/2 are lessons; 4 is exam).")
-    parser.addoption("--lesson", type=int, default=None,  # backward-compat alias
-                     help="[Alias of --level] Map node index to run.")
-    parser.addoption("--class-id", action="store", default=None,
-                     help="Override class ID for this test (optional)")
-    parser.addoption("--lessons", action="store", default="0", help="Comma-separated lesson indexes to run")
-    parser.addoption("--levels-only", action="store_true", default=False, help="Run levels only, skip exam")
+    parser.addoption("--lessons", action="store", default=None,
+                     help='Lessons as CSV or JSON-like list, e.g. "1,2,3" or "[1,2,3]"')
+    parser.addoption("--lesson", action="store", default=None,help="Single lesson number")
+    parser.addoption("--levels-only", action="store_true", default=False,help="Run level solver only")
+    parser.addoption("--class-id", action="store", default=None,help="Override class ID for this test (optional)")
 
 
 @pytest.fixture(scope="session")
@@ -139,20 +138,38 @@ def single_class_id(request):
     return cid if cid else DEFAULT_CLASS_ID
 
 
+def _parse_lessons(val):
+    # Accept list/tuple, CSV string, or JSON-ish string with brackets/spaces
+    if val is None:
+        return None
+    if isinstance(val, (list, tuple)):
+        return [int(x) for x in val if str(x).strip().isdigit()]
+
+    s = str(val).strip()
+    # Strip surrounding brackets if present and remove spaces
+    if s.startswith("[") and s.endswith("]"):
+        s = s[1:-1]
+    s = s.replace(" ", "")
+    out = []
+    for part in s.split(","):
+        if part == "":
+            continue
+        try:
+            out.append(int(part))
+        except ValueError:
+            # ignore junk tokens safely
+            pass
+    return out or None
 @pytest.fixture
 def lesson_numbers(request):
     lessons_arg = request.config.getoption("--lessons")
-    if lessons_arg and lessons_arg.strip() != "0":
-        try:
-            return [int(x) for x in lessons_arg.split(",") if x.strip().isdigit()]
-        except ValueError:
-            return [0]
+    parsed = _parse_lessons(lessons_arg)
+    if parsed:
+        return parsed
 
     single = request.config.getoption("--lesson")
-    if single is not None:
-        try:
-            return [int(single)]
-        except ValueError:
-            return [0]
+    parsed_single = _parse_lessons(single)
+    if parsed_single:
+        return parsed_single
 
     return [0]

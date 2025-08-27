@@ -168,8 +168,7 @@ def main():
     user_index = str(cfg.get("userIndex", 0))
     levels_only = bool(cfg.get("levelsOnly", False))
 
-    lesson = cfg.get("lesson", None)        # single lesson
-    lessons = cfg.get("lessons", None)      # 🆕 multiple lessons support
+
 
     platform = cfg.get("platform", "WindowsEditor")
     app_id = cfg.get("appId", "")
@@ -196,10 +195,13 @@ def main():
         pytest_args.append("--levels-only")
 
     # 🆕 priority: multiple lessons > single lesson
+    lessons = cfg.get("lessons", None)
     if lessons:
-        pytest_args += ["--lessons", str(lessons)]
-    elif lesson is not None:
-        pytest_args += ["--lesson", str(lesson)]
+        if isinstance(lessons, (list, tuple)):
+            csv = ",".join(str(x) for x in lessons)
+        else:
+            csv = str(lessons)
+        pytest_args += ["--lessons", csv]
 
     for extra in (cfg.get("extraPytestArgs") or []):
         pytest_args.append(str(extra))
