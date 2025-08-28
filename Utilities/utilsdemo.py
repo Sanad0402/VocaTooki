@@ -273,6 +273,31 @@ def run_activity(altdriver, activity):
         return
 
     print(f"[INFO] Running activity: {scene}")
+    # --- Handle optional "Last Attempt" popup (PlaceHolder only) ---
+    try:
+        placeholder = None
+        try:
+            placeholder = altdriver.find_object(By.NAME, "PlaceHolder")
+        except Exception:
+            pass
+
+        if placeholder:
+            try:
+                is_active = placeholder.get_component_property(
+                    "UnityEngine.GameObject", "activeInHierarchy", "UnityEngine.CoreModule"
+                )
+            except Exception:
+                is_active = True  # fallback: if found, assume active
+
+            if is_active:
+                print("[INFO] 'Last Attempt' popup detected — clicking 'Yes'.")
+                try:
+                    altdriver.find_object(By.NAME, "Yes").click()
+                    time.sleep(0.3)  # quick settle
+                except Exception as e:
+                    print(f"[WARN] Could not click 'Yes': {e}")
+    except Exception as popup_err:
+        print(f"[WARN] Could not process 'Last Attempt' popup: {popup_err}")
 
     try:
         if scene == 'CROSSWORD2':

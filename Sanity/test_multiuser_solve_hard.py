@@ -37,9 +37,9 @@ def test_lesson_runner(altdriver, user, lesson_numbers, request):
 
     for lesson_num in lesson_numbers:
         if levels_only and hasattr(map_page, "solve_lesson_levels_express"):
-            map_page.solve_lesson_express_hard(class_id, lesson_num)
+            map_page.solve_lesson_levels_express_hard(class_id, lesson_num)
         else:
-            map_page.solve_lesson_express_hard(class_id, lesson_num)
+            map_page.solve_lesson_levels_express_hard(class_id, lesson_num)
         time.sleep(1)
 
     _ensure_reports_dir()
