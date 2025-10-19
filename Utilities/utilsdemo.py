@@ -258,7 +258,8 @@ def run_activity(altdriver, activity):
         'LETTERS_SEARCH': A.search_3rd,
         'LETTERS_BUBBLES': A.bubbels_activity_3rd,
         'LETTERS_SORTING': A.signs,
-        'CROSSWORD2': A.crosswords2
+        'CROSSWORD2': A.crosswords2,
+        'PUZZLES':A.solve_puzzles
     }
 
     if scene not in activity_map:
@@ -398,7 +399,7 @@ def get_class_map(class_id, map_id):
     Returns:
         dict: Map data as JSON, or an empty dict on failure.
     """
-    url = f"https://vtbe2025.vocatooki.com/data/get-class-map/{class_id}/{map_id}"
+    url = f"https://vtbe.vocatooki.com/data/get-class-map/{class_id}/{map_id}"
     logging.info(f"[get_class_map] Fetching map for class_id={class_id}, map_id={map_id}")
 
     try:
@@ -465,8 +466,7 @@ def enter_to_level(altdriver, class_id, lesson_number, type="lesson", difficulty
         return False
 
     try:
-        level_objs = altdriver.find_objects(By.PATH,
-                                            "/MapCanvas/MapSection/Scroll View/Viewport/Content/Map Backgrounds/Levels/level_icons/*")
+        level_objs = altdriver.find_objects(By.PATH,"/MainMap(Clone)/Map Backgrounds/Levels/level_icons/*")
 
         if level_num >= len(level_objs):
             logging.error(f"[Map Navigation] Level index {level_num} out of range ({len(level_objs)} icons).")

@@ -1,6 +1,6 @@
 TEST_USERS = [
-    {"username": "vt745672", "password": "8572", "class_id": "7456"},
-    {"username": "vt881905", "password": "8797", "class_id": "8819"},
+    {"username": "vt252602", "password": "6047", "class_id": "2526"},
+    {"username": "vt254001", "password": "2631", "class_id": "2540"},
     {"username": "vt882106", "password": "9311", "class_id": "8821"},
 ]
 

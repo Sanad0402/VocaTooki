@@ -7,6 +7,8 @@ import re
 from langdetect import detect
 from Utilities.utilsdemo import *
 from Utilities.utilsdemo import click_by_name
+import math
+
 
 
 def search(altdriver):
@@ -1170,158 +1172,300 @@ def crosswords2(altdriver):
         # Wait for next round to load
 
 
-def solve_puzzles(altdriver):
-    """
-    Automates the word puzzle activity by rearranging puzzle pieces to form correct sentences.
+from collections import Counter
 
-    This version is optimized for reliability by fetching all game elements and filtering for
-    pieces with numerical names. It correctly handles multi-line puzzles, filters for
-    the current sentence's words, and robustly manages duplicate words.
 
-    The function works by:
-    1. Determining the total number of sentences in the level.
-    2. For each sentence:
-       a. Fetching the target sentence and creating a frequency map of its words.
-       b. Getting all elements and filtering to find active puzzle pieces by their numerical name.
-       c. Reading the current order of words from those pieces, sorting them by position (-Y then X).
-       d. Comparing the current order with the target order.
-       e. If they don't match, it calculates the necessary swaps and performs them.
-    3. Clicking the 'next' button to proceed to the next puzzle.
-    """
-    print("[INFO] Starting puzzle activity automation...")
+def _as_bool(v):
+    if isinstance(v, bool):
+        return v
+    return str(v).strip().lower() in {"true", "1", "yes"}
 
+
+def _button_interactable(next_btn):
     try:
-        # Wait for the ProgressText to be available to ensure the activity is loaded.
-        altdriver.wait_for_object(By.NAME, "ProgressText", timeout=20)
-        progress_text_element = altdriver.find_object(By.NAME, "ProgressText")
-        puzzles_manager = altdriver.find_object(By.NAME, 'PuzzlesManager')
-    except Exception as e:
-        print(f"[ERROR] Could not find initial game objects. Please ensure the puzzle activity is active. Error: {e}")
-        return
+        return _as_bool(next_btn.get_component_property(
+            "UnityEngine.UI.Button", "interactable", "UnityEngine.UI"
+        ))
+    except Exception:
+        return getattr(next_btn, "enabled", False)
 
-    # 1. Determine the total number of sentences to solve.
-    progress_text = progress_text_element.get_text()
-    total_sentences = int(progress_text.split('/')[1])
-    print(f"[INFO] Found {total_sentences} sentences to solve.")
 
-    # Loop through each sentence in the activity.
-    for i in range(total_sentences):
-        print(f"\n--- Solving Sentence {i + 1}/{total_sentences} ---")
-        # Wait for the next puzzle to load completely.
-        time.sleep(4)
+def solve_puzzles(altdriver):
+    time.sleep(10)
+    print("[INFO] Puzzle solver started...")
+    altdriver.wait_for_object(By.NAME, "ProgressText", timeout=15)
+    progress = altdriver.find_object(By.NAME, "ProgressText")
+    manager = altdriver.find_object(By.NAME, "PuzzlesManager")
 
-        progress = progress_text_element.get_text()
-        solved_count_before = int(progress.split('/')[0])
+    total = int(progress.get_text().split("/")[1])
+    print(f"[INFO] Total sentences: {total}")
 
-        # 2a. Get the target sentence (the correct order of words).
+    # ===== Timer Extension for Hard =====
+    if total > 6:
         try:
-            target_sentence = puzzles_manager.get_component_property('com.kideo.learn.english.PuzzlesManager',
-                                                                     'currentSentence_', 'Assembly-CSharp')
-            target_order = target_sentence.split()
-            # Create a frequency map of words needed for the current sentence.
-            target_word_counts = Counter(target_order)
-            print(f"  [TARGET]: {' '.join(target_order)}")
+            timer = altdriver.find_object(By.NAME, "LenearTimer")
+            timer.set_component_property(
+                "com.kideo.learn.english.LenearTimerScript",
+                "timeLeft",
+                "Assembly-CSharp",
+                1700
+            )
+            print("[INFO] Timer extended to 1700 for hard level.")
         except Exception as e:
-            print(f"[ERROR] Failed to get the target sentence. Error: {e}")
-            continue
+            print(f"[WARNING] Failed to set timer: {e}")
 
-        # 2b. Get the current state by fetching all elements and filtering them.
-        try:
-            print("  [INFO] Searching for puzzle pieces...")
-            all_pieces = []
-            # Get all game elements and filter them to find the pieces.
-            all_elements = altdriver.get_all_elements()
+    # ===== Difficulty Ranges =====
+    if total == 4:  # EASY
+        group_ranges = [(42, 55), (28, 41), (14, 27), (0, 13)]
+    elif total == 6:  # NORMAL
+        group_ranges = [(70, 83), (56, 69), (42, 55),
+                        (28, 41), (14, 27), (0, 13)]
+    elif total > 6:  # HARD
+        group_ranges = [
+            (147, 167), (119, 139), (91, 111), (63, 83),
+            (35, 55), (7, 27), (140, 160), (112, 132),
+            (84, 104), (56, 76), (28, 48), (0, 20)
+        ]
+    else:
+        group_ranges = [(0, 9999)]
 
-            words_to_find = target_word_counts.copy()
+    def read_pieces(target_words, start_idx, end_idx):
+        freq = Counter(target_words)
+        pieces = []
+        for e in reversed(altdriver.get_all_elements()):
+            if not e.name.isdigit():
+                continue
+            num = int(e.name)
+            if num < start_idx or num > end_idx or not e.enabled:
+                continue
+            try:
+                word = e.get_component_property("PuzzlePiece", "text.text", "Assembly-CSharp")
+            except Exception:
+                continue
+            if freq.get(word, 0) > 0:
+                pieces.append({"obj": e, "text": word})
+                freq[word] -= 1
+            if sum(freq.values()) == 0:
+                break
+        pieces.sort(key=lambda p: (-p["obj"].y, p["obj"].x))
+        return pieces
 
-            for element in all_elements:
-                # Filter for enabled elements whose name is a number.
-                if element.name.isdigit() and element.enabled:
-                    try:
-                        text = element.get_component_property('PuzzlePiece', 'text.text', 'Assembly-CSharp')
-                        # Only consider this piece if its word is needed for the current sentence.
-                        if text in words_to_find and words_to_find[text] > 0:
-                            all_pieces.append({'object': element, 'text': text})
-                            words_to_find[text] -= 1  # Decrement the count for the found word.
-                    except:
-                        # This element might have a numerical name but isn't a puzzle piece.
-                        continue
+    for i in range(total):
+        print(f"\n--- Sentence {i+1}/{total} ---")
+        time.sleep(0.5)
 
-            # Sort pieces by y-coordinate descending (top row first), then by x-coordinate ascending (left to right).
-            current_pieces = sorted(all_pieces, key=lambda p: (-p['object'].y, p['object'].x))
+        target = manager.get_component_property(
+            "com.kideo.learn.english.PuzzlesManager",
+            "currentSentence_",
+            "Assembly-CSharp"
+        ).split()
+        print("[TARGET]", " ".join(target))
 
-            current_order = [p['text'] for p in current_pieces]
-            print(f"  [CURRENT]: {' '.join(current_order)}")
+        start_idx, end_idx = group_ranges[i] if i < len(group_ranges) else (0, 9999)
 
-        except Exception as e:
-            print(f"[ERROR] An error occurred while finding puzzle pieces. Error: {e}")
-            continue
+        while True:
+            pieces = read_pieces(target, start_idx, end_idx)
+            current = [p["text"] for p in pieces]
+            print("[CURRENT]", " ".join(current))
 
-        if len(current_order) != len(target_order):
-            print(
-                f"[WARNING] Mismatch: Found {len(current_order)} pieces but target has {len(target_order)} words. Skipping.")
-            continue
+            if current == target:
+                print(f"[OK] Sentence solved.")
+                break
 
-        if current_order == target_order:
-            print("[INFO] Sentence is already in the correct order.")
-        else:
-            print("[ACTION] Rearranging words...")
-            for idx in range(len(target_order)):
-                # If the word at the current position is correct, move on.
-                if current_pieces[idx]['text'] == target_order[idx]:
+            visited = set()
+
+            for idx, want in enumerate(target):
+                if idx >= len(pieces):
                     continue
 
-                # The word is incorrect. Find the best piece to swap with.
-                correct_word_for_idx = target_order[idx]
+                have = pieces[idx]["text"]
+                if have == want:
+                    visited.add(idx)
+                    continue
 
-                target_piece_index = -1
-
-                # Find any piece that has the correct word for our current position.
-                for k in range(idx + 1, len(current_pieces)):
-                    if current_pieces[k]['text'] == correct_word_for_idx:
-                        target_piece_index = k
-                        break
-
-                if target_piece_index != -1:
-                    print(
-                        f"  - Swapping '{current_pieces[idx]['text']}' with '{current_pieces[target_piece_index]['text']}'")
-
-                    # Click the piece at the current wrong position, then the piece that should be here.
-                    piece_to_click_1 = current_pieces[idx]['object']
-                    piece_to_click_2 = current_pieces[target_piece_index]['object']
-
-                    piece_to_click_1.click()
-                    time.sleep(0.5)
-                    piece_to_click_2.click()
-                    time.sleep(1)
-
-                    # Update our local list to reflect the swap in the game.
-                    current_pieces[idx], current_pieces[target_piece_index] = current_pieces[target_piece_index], \
-                    current_pieces[idx]
-
-            print("[INFO] All words have been arranged.")
-
-        # 3. Proceed to the next sentence.
-        try:
-            # Wait for 2 seconds after arranging words before checking progress.
-            time.sleep(2)
-
-            start_time = time.time()
-            while int(progress_text_element.get_text().split('/')[0]) <= solved_count_before:
-                time.sleep(0.5)
-                if time.time() - start_time > 10:
-                    print("[WARNING] Timeout waiting for progress to update.")
+                cand_idx = None
+                for j in range(idx + 1, len(pieces)):
+                    if pieces[j]["text"] != want:
+                        continue
+                    if j in visited:
+                        continue
+                    if j < len(target) and pieces[j]["text"] == target[j]:
+                        continue
+                    cand_idx = j
                     break
 
-            print("[ACTION] Clicking 'next' button.")
-            altdriver.find_object(By.NAME, 'nextButton').click()
-        except Exception as e:
-            print(f"[ERROR] Could not find or click the 'next' button. Error: {e}")
-            break
+                if cand_idx is None:
+                    continue
 
-    print("\n[SUCCESS] Puzzle activity completed!")
+                visited.add(idx)
+                print(f" [SWAP] '{have}' ↔ '{want}' (idx={idx}, j={cand_idx})")
+                a_obj, b_obj = pieces[idx]["obj"], pieces[cand_idx]["obj"]
 
+                try:
+                    a_obj.click()
+                    time.sleep(0.2)
+                    b_obj.click()
+                    time.sleep(1)
+                except Exception:
+                    print(" [WARNING] Swap click failed.")
+                    continue
+
+                pieces = read_pieces(target, start_idx, end_idx)
+                current = [p["text"] for p in pieces]
+                print("[AFTER SWAP]", " ".join(current))
+
+                if idx < len(current) and current[idx] == want:
+                    print(f" [VALID] '{want}' now correctly placed.")
+                else:
+                    print(f" [REVERT] '{want}' not correct — reverting.")
+                    try:
+                        a_obj.click()
+                        time.sleep(1)
+                        b_obj.click()
+                        time.sleep(1)
+                    except Exception:
+                        print(" [WARNING] Revert failed.")
+
+                    pieces = read_pieces(target, start_idx, end_idx)
+                    current = [p["text"] for p in pieces]
+                    print("[AFTER REVERT]", " ".join(current))
+
+            time.sleep(0.5)
+
+        print("[NEXT] Clicking next button...")
+        try:
+            next_btn = altdriver.find_object(By.NAME, "nextButton")
+            next_btn.click()
+        except Exception:
+            print("[WARNING] Failed to click Next.")
+
+        print("[WAIT] Waiting 5s for next sentence to load...")
+        time.sleep(6.5)
+
+    print("\n[SUCCESS] All puzzles processed!")
 # Example of how to run the script:
 # from altdriver import AltDriver
 # alt_driver = AltDriver()
 # solve_puzzles(alt_driver)
+
+
+# ----------------------------------------------------------------
+# Helper: swipe in an arc path for curved strokes
+# ----------------------------------------------------------------
+def swipe_arc(altdriver, start, end, center=None, steps=14, clockwise=True, duration=0.25):
+    """Helper to trace an arc path when a stroke is curved."""
+    if center is None:
+        # default center roughly above midpoint
+        center = ((start[0] + end[0]) // 2,
+                  (start[1] + end[1]) // 2 - 120)
+
+    def angle(p):
+        return math.degrees(math.atan2(p[1] - center[1], p[0] - center[0]))
+
+    start_angle = angle(start)
+    end_angle   = angle(end)
+
+    # Normalise rotation direction
+    if clockwise and end_angle > start_angle:
+        end_angle -= 360
+    if not clockwise and end_angle < start_angle:
+        end_angle += 360
+
+    points = []
+    for i in range(steps + 1):
+        t = i / steps
+        ang = math.radians(start_angle + (end_angle - start_angle) * t)
+        x = center[0] + math.cos(ang) * abs(start[0] - center[0])
+        y = center[1] + math.sin(ang) * abs(start[1] - center[1])
+        points.append((x, y))
+
+    for i in range(len(points) - 1):
+        altdriver.swipe(points[i], points[i + 1], duration=duration)
+        time.sleep(0.05)
+
+
+# ----------------------------------------------------------------
+# Inner routine: traces **one single letter** currently on screen
+# ----------------------------------------------------------------
+def trace_letter(altdriver, use_arc_for_index=None, arc_center=None):
+    """
+    Traces all strokes for the current letter already visible on screen.
+    After each stroke it taps the SecondNumber to confirm/fill.
+    """
+
+    first_numbers = altdriver.find_objects(By.NAME, "FirstNumber")
+    second_numbers = altdriver.find_objects(By.NAME, "SecondNumber")
+
+    print(f"[INFO] Found {len(first_numbers)} FirstNumber and {len(second_numbers)} SecondNumber")
+
+    total = min(len(first_numbers), len(second_numbers))
+
+    for i in range(total):
+        start_obj = first_numbers[i]
+        end_obj   = second_numbers[i]
+
+        start = start_obj.get_screen_position()
+        end   = end_obj.get_screen_position()
+
+        print(f"  Stroke {i+1}: {start_obj.name}[{i}] -> {end_obj.name}[{i}]")
+
+        if use_arc_for_index is not None and i in use_arc_for_index:
+            print("    Using arc swipe for this stroke.")
+            swipe_arc(altdriver, start, end, center=arc_center, steps=16)
+        else:
+            print("    Using straight swipe.")
+            altdriver.swipe(start, end, duration=1.0)
+
+        time.sleep(0.3)
+
+        print("    Clicking on second number to fill.")
+        altdriver.tap(end)
+        time.sleep(0.3)
+
+    print("✅ Letter tracing finished.")
+
+
+# ----------------------------------------------------------------
+# Outer routine: handles the **whole Magic Trace activity**
+#   e.g. 4 × 'N' (capital) then 4 × 'n' (small)
+# ----------------------------------------------------------------
+def magic_trace(altdriver):
+    print("[INFO] Starting Magic Trace activity…")
+
+    # read total rounds from ProgressText
+    progress_obj = altdriver.find_object(By.NAME, "ProgressText")
+    total_rounds = int(progress_obj.get_text().split("/")[1]) if progress_obj else 1
+    print(f"[INFO] Total rounds to do: {total_rounds}")
+
+    previous_letter = None
+
+    for round_idx in range(total_rounds):
+        # wait for next letter to appear
+        time.sleep(8)
+
+        # read which letter is now displayed (if available)
+        try:
+            current_letter = altdriver.find_object(By.NAME, "CurrentLetter").get_text()
+        except:
+            current_letter = "?"
+        print(f"\n=== Round {round_idx+1}/{total_rounds}: Letter '{current_letter}' ===")
+
+        # pause 5 s if we changed from capital to small or to a new letter
+        if previous_letter and current_letter != previous_letter:
+            print("[INFO] Detected letter change → waiting 5 sec for transition")
+            time.sleep(10)
+        previous_letter = current_letter
+
+        # trace the strokes of this letter
+        trace_letter(altdriver)
+
+        print(f"[INFO] Finished round {round_idx+1}/{total_rounds}")
+        time.sleep(1.0)   # short pause before next round
+
+    print("\n✅ Magic Trace activity complete.")
+
+
+# ----------------------------------------------------------------
+# Example: simply call
+# ----------------------------------------------------------------
+# magic_trace(altdriver)
