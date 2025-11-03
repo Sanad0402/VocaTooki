@@ -458,7 +458,8 @@ def get_level(class_id, lesson_number, type="lesson", difficulty=-1):
 
 def enter_to_level(altdriver, class_id, lesson_number, type="lesson", difficulty=-1):
     logging.info(
-        f"[Map Navigation] Attempting to enter level: class_id={class_id}, lesson={lesson_number}, type={type}, difficulty={difficulty}")
+        f"[Map Navigation] Attempting to enter level: class_id={class_id}, lesson={lesson_number}, type={type}, difficulty={difficulty}"
+    )
 
     level_num = get_level(class_id, lesson_number, type, difficulty)
     if level_num < 0:
@@ -466,12 +467,24 @@ def enter_to_level(altdriver, class_id, lesson_number, type="lesson", difficulty
         return False
 
     try:
-        level_objs = altdriver.find_objects(By.PATH,"/MainMap(Clone)/Map Backgrounds/Levels/level_icons/*")
+        # --- Try standard map path first ---
+        level_objs = altdriver.find_objects(By.PATH, "/MainMap(Clone)/Map Backgrounds/Levels/level_icons/*")
+
+        # --- If no icons found, fallback to 5thMap path ---
+        if not level_objs or len(level_objs) == 0:
+            logging.warning("[Map Navigation] No levels found under MainMap(Clone). Trying 5thMap(Clone)...")
+            level_objs = altdriver.find_objects(By.PATH, "/5thMap(Clone)/Map Backgrounds/Levels/level_icons/*")
+
+        # --- Validate result ---
+        if not level_objs or len(level_objs) == 0:
+            logging.error("[Map Navigation] No level icons found in either MainMap or 5thMap.")
+            return False
 
         if level_num >= len(level_objs):
             logging.error(f"[Map Navigation] Level index {level_num} out of range ({len(level_objs)} icons).")
             return False
 
+        # --- Click the target level ---
         level_objs[level_num].click()
         time.sleep(4)
         logging.info(f"[Map Navigation] Entered level index {level_num} successfully.")

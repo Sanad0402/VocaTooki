@@ -1,4 +1,4 @@
-{ "testDomains": ["sanity2"],
+{ "testDomains": ["sanity1"],
   "reportOut": ["sanad@kideo.tech"],
   "errorFiles": "C:/Users/sanad/Downloads/reports/errors.txt",
   "screenShotsFolder": "C:/Users/sanad/Downloads/screenshots",
@@ -6,11 +6,11 @@
   "testsPath": "Sanity",
   "extraPytestArgs": [],
   "levelsOnly": false,
-  "lessons": [6],
+  "lessons": [12],
   "userMode": "single",
-  "userIndex": 1,
+  "userIndex": 0,
   "platform": "WindowsEditor",
-  "appId": "C0240000",
+  "appId": "6710000",
   "deviceInstanceId": "73e60e7d6bbb26eb2e71b16c2c479c0f1dadbb48"
 }
 

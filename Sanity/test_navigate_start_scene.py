@@ -27,7 +27,7 @@ def _report_filename(platform_name: str, username: str) -> str:
 
 # --- Test Suite ---
 
-@pytest.mark.sanity1
+@pytest.mark.sanity2
 class TestStartScreenNavigation:
     """
     Test suite for navigating to all main areas from the StartScreen.

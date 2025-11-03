@@ -247,8 +247,8 @@ def megaphone(altdriver):
     )
 
     leaf_map = {
-        "Sea": "LeafPref_Sea(Clone)", "FairyTales": "LeafPref_Farm(Clone)", "Dinosaurs": "LeafPref_Dinosaurs(Clone)",
-        "Space": "LeafPref_Moon(Clone)", "Candy": "LeafPref_Candy(Clone)", "Farm": "LeafPref_Farm(Clone)",
+        "Sea": "LeafPref_Sea(Clone)", "FairyTales": "LeafPref(Clone)", "Dinosaurs": "LeafPref_Dinosaurs(Clone)",
+        "Space": "LeafPref_Moon(Clone)", "Candy": "LeafPref_Candy(Clone)", "Farm": "LeafPref(Clone)",
         "Desert": "LeafPref_Desert(Clone)", "Pole": "LeafPref_Pole(Clone)"
     }
     leaf_name = leaf_map.get(geo_name, "LeafPref(Clone)")
