@@ -567,6 +567,10 @@ def detect_exam_type(altdriver):
         return "spelling"
     if altdriver.find_objects(By.NAME, "Context"):
         return "context"
+    if altdriver.find_objects(By.NAME, "QuestionTemplate(Clone)"):
+        return "image_4_voices"
+    if altdriver.find_objects(By.NAME, "ImageAudioShape(Clone)"):
+        return "audio_to_image"
 
     return "unknown"
 
@@ -593,7 +597,10 @@ def solve_exam(altdriver, class_id, lesson_num):
         "audio": A.exams_audio_to_meaning,
         "meaning":A.exams_word_to_meaning,
         "spelling":A.exam_spelling,
-        'context':A.exam_multiple_choice
+        'context':A.exam_multiple_choice,
+        "image_4_voices":A.exams_image_for_voices,
+        "audio_to_image":A.exams_image_to_audio
+
     }
 
     for part in ['1/3', '2/3', '3/3']:
@@ -802,3 +809,17 @@ def write_activity_report(f, lesson_num=None, lesson_id=None):
         if entry['error']:
             f.write(f"Error   :\n{entry['error']}\n")
         f.write("-" * 40 + "\n")
+
+def run_all_exams(altdriver, class_id):
+    """
+    Runs solve_exam for all lessons (0–18) in sequence.
+    """
+    for lesson_number in range(10, 40):  # lessons 0 to 18 inclusive
+        try:
+            logging.info(f"[Exam Runner] Starting exam for lesson {lesson_number}")
+            solve_exam(altdriver, class_id, lesson_number)
+            logging.info(f"[Exam Runner] Completed exam for lesson {lesson_number}")
+            time.sleep(3)  # short pause between lessons
+        except Exception as e:
+            logging.error(f"[Exam Runner] Error at lesson {lesson_number}: {e}")
+            continue

@@ -9,8 +9,6 @@ from Utilities.utilsdemo import *
 from Utilities.utilsdemo import click_by_name
 import math
 
-
-
 def search(altdriver):
     """Automates the Search activity by matching and tapping letters."""
     progress = altdriver.find_object(By.NAME, "ProgressText").get_text()
@@ -249,7 +247,7 @@ def megaphone(altdriver):
     leaf_map = {
         "Sea": "LeafPref_Sea(Clone)", "FairyTales": "LeafPref(Clone)", "Dinosaurs": "LeafPref_Dinosaurs(Clone)",
         "Space": "LeafPref_Moon(Clone)", "Candy": "LeafPref_Candy(Clone)", "Farm": "LeafPref(Clone)",
-        "Desert": "LeafPref_Desert(Clone)", "Pole": "LeafPref_Pole(Clone)"
+        "Desert": "LeafPref_Desert(Clone)", "Pole": "LeafPref_Pole(Clone)","Islam":"LeafPref_Islam(Clone)","China":"LeafPref_Rome(Clone)"
     }
     leaf_name = leaf_map.get(geo_name, "LeafPref(Clone)")
 
@@ -281,7 +279,7 @@ def exams_word_to_meaning(altdriver):
     time.sleep(1)
     words = altdriver.find_objects(By.NAME, 'WordMeaningObject(Clone)')
     if not words:
-        raise Exception("Not a word-to-meaning exam")
+        words= altdriver.find_objects(By.NAME, 'KL_WordMeaningObject(Clone)')
 
     shapes = altdriver.find_objects(By.NAME, 'WordMeaningShape(Clone)')
 
@@ -384,50 +382,95 @@ def exams_3rd_audio_to_letter_matrix(altdriver):
 
 
 def exams_audio_to_meaning(altdriver):
-    """Matches audio meanings to word labels via swipe interaction."""
+    """Automates matching audio meanings to word labels via swipe interaction."""
     time.sleep(1)
+
+    # --- Find audio shapes ---
     audio_shapes = altdriver.find_objects(By.NAME, 'WordAudioShape(Clone)')
     if not audio_shapes:
-        raise Exception("Not an audio-to-meaning exam")
+        audio_shapes = altdriver.find_objects(By.NAME, 'KL_WordAudioShape(Clone)')
+    if not audio_shapes:
+        raise Exception("[ERROR] No audio shapes found. Not an audio-to-meaning exam.")
 
+    # --- Click each shape once to activate audio ---
     for shape in audio_shapes:
-        shape.click()
-        time.sleep(1)
+        try:
+            shape.click()
+            time.sleep(0.8)
+        except Exception as e:
+            print(f"[WARN] Failed to click shape: {e}")
 
+    # --- Find word objects ---
     words = altdriver.find_objects(By.NAME, 'WordAudioObject(Clone)')
-    word_data = [(w.get_component_property('com.kideo.learn.english.WordAudioObject', 'word', 'Assembly-CSharp'), w, w.get_screen_position()) for w in words]
+    if not words:
+        words = altdriver.find_objects(By.NAME, 'KL_WordAudioObject(Clone)')
+    if not words:
+        raise Exception("[ERROR] No word objects found.")
 
-    shape_data = [(s.get_component_property('com.kideo.learn.english.WordAudioShape', 'word', 'Assembly-CSharp'),
-                   s, (s.get_screen_position()[0], s.get_screen_position()[1] - 100)) for s in audio_shapes]
+    # --- Collect data ---
+    word_data = []
+    for w in words:
+        try:
+            word_text = w.get_component_property(
+                'com.kideo.learn.english.WordAudioObject', 'word', 'Assembly-CSharp'
+            )
+            word_pos = w.get_screen_position()
+            word_data.append((word_text, w, word_pos))
+        except Exception as e:
+            print(f"[WARN] Failed to read word: {e}")
 
+    shape_data = []
+    for s in audio_shapes:
+        try:
+            shape_text = s.get_component_property(
+                'com.kideo.learn.english.WordAudioShape', 'word', 'Assembly-CSharp'
+            )
+            x, y = s.get_screen_position()
+            shape_data.append((shape_text, s, (x, y - 100)))  # small offset upwards
+        except Exception as e:
+            print(f"[WARN] Failed to read shape: {e}")
+
+    # --- Swipe matches ---
+    matched = 0
     for word_text, word_obj, word_pos in word_data:
-        for shape_text, shape_obj, shape_pos in shape_data:
+        for shape_text, _, shape_pos in shape_data:
             if word_text == shape_text:
                 altdriver.swipe(word_pos, shape_pos, 2.3)
+                time.sleep(0.5)
                 word_obj.click()
+                matched += 1
                 break
 
-    print("[INFO] exams_audio_to_meaning completed")
+    print(f"[INFO] exams_audio_to_meaning completed ({matched}/{len(word_data)} matched).")
 
 def exam_spelling(altdriver):
     """Completes the spelling activity by clicking missing letters."""
+    # ✅ Corrected missing_words fallback logic
     missing_words = altdriver.find_objects(By.NAME, "FillWord(Clone)")
-    if len(missing_words) == 0:
+    if not missing_words:
+        missing_words = altdriver.find_objects(By.NAME, 'KL_FillWord(Clone)')
+    if not missing_words:  # second fallback
         missing_words = altdriver.find_objects(By.NAME, "VTFillWord_RTL(Clone)")
 
     missing_letters_list = []
 
     for obj in missing_words:
-        raw_letters = obj.get_component_property("com.kideo.learn.english.FillMissingWord", "missingLetters", "Assembly-CSharp")
+        raw_letters = obj.get_component_property(
+            "com.kideo.learn.english.FillMissingWord",
+            "missingLetters",
+            "Assembly-CSharp"
+        )
         try:
+            # ✅ Safer parsing (no risky eval)
             if isinstance(raw_letters, str):
-                letters = eval(raw_letters)
+                import ast
+                letters = ast.literal_eval(raw_letters)
             elif isinstance(raw_letters, list):
                 letters = raw_letters
             else:
                 raise ValueError()
             missing_letters_list.append([l.lower() for l in letters])
-        except:
+        except Exception:
             raise ValueError(f"Invalid format: {raw_letters}")
 
     toggles = altdriver.find_objects(By.NAME, "FillWordToggle")
@@ -439,19 +482,28 @@ def exam_spelling(altdriver):
     for i, letters in enumerate(missing_letters_list):
         if i < len(toggles):
             toggles[i].click()
+            time.sleep(0.4)  # ✅ small delay for UI update
             for letter in letters:
                 if letter in letters_map:
                     letters_map[letter].click()
                     time.sleep(0.2)
+                else:
+                    print(f"[WARN] Letter '{letter}' not found in map.")
 
     print("[INFO] exam_spelling completed")
 
 def exam_multiple_choice(altdriver):
     """Clicks toggle by index across all questions using pre-collected toggle lists."""
 
+    # --- Find all question templates ---
     questions = altdriver.find_objects(By.NAME, 'QuestionTemplate(Clone)')
-    if len(questions) == 0 :
+    if not questions:
         questions = altdriver.find_objects(By.NAME, 'QuestionTemplate_RTL(Clone)')
+    if not questions:
+        questions = altdriver.find_objects(By.NAME, 'KL_QuestionTemplate(Clone)')
+    if not questions:
+        raise Exception("[ERROR] No question templates found in the scene.")
+
     correct_indexes = []
 
     # Step 1: Get correct index for each question
@@ -479,44 +531,59 @@ def exam_multiple_choice(altdriver):
 
 def echo_order(altdriver):
     """Completes the Echo Order quiz by selecting words in the correct order."""
+    time.sleep(1)
     num_words = int(altdriver.find_object(By.NAME, "ProgressText").get_text().split('/')[1])
+    print(f"[INFO] Total sentences: {num_words}")
 
-    for _ in range(num_words):
-        time.sleep(2.5)
+    for i in range(num_words):
+        time.sleep(2)
 
-        sentence = altdriver.find_object(By.NAME, 'ContextEchoOrderQuiz(Clone)')\
-            .get_component_property('com.kideo.learn.english.ContextBuilderQuiz', 'correctAnswer_', 'Assembly-CSharp')
-        print('Current Sentence to solve:', sentence)
+        # --- Get the correct sentence (handle both normal and KL variants) ---
+        sentence = None
+        for name in ["ContextEchoOrderQuiz(Clone)", "KL_ContextEchoOrderQuiz(Clone)"]:
+            objs = altdriver.find_objects(By.NAME, name)
+            if objs:
+                sentence = objs[0].get_component_property(
+                    "com.kideo.learn.english.ContextBuilderQuiz",
+                    "correctAnswer_",
+                    "Assembly-CSharp"
+                )
+                break
 
-        words_in_order = [normalize_text(w) for w in sentence.split(' ')]
+        if not sentence:
+            print(f"[WARN] No sentence found for question {i+1}")
+            continue
 
+        print(f"[INFO] Sentence to solve: {sentence}")
+        words_in_order = [normalize_text(w) for w in sentence.split()]
+
+        # --- Find clickable word objects ---
         text_objects = altdriver.find_objects(By.NAME, "Text")
         clickable_words = [(normalize_text(t.get_text()), t.get_parent()) for t in text_objects]
-
         word_map = {}
         for word, parent in clickable_words:
             word_map.setdefault(word, []).append(parent)
 
+        # --- Click words in order ---
         click_counts = {}
-
         for word in words_in_order:
             click_counts[word] = click_counts.get(word, 0)
             if word in word_map and click_counts[word] < len(word_map[word]):
                 word_map[word][click_counts[word]].click()
-                print(f"[INFO] Clicked word: {word}")
                 click_counts[word] += 1
-                time.sleep(1)
+                print(f"[INFO] Clicked: {word}")
+                time.sleep(0.7)
             else:
-                print(f"[WARN] Could not find word to click: {word}")
+                print(f"[WARN] Could not find word: {word}")
 
+        # --- Check and move to next ---
         click_by_name(altdriver, "QuizCheckButton")
         time.sleep(1)
-
-        if _ < num_words - 1:
+        if i < num_words - 1:
             click_by_name(altdriver, "QuizNextButton")
             time.sleep(1)
 
-    print("[INFO] EchoOrder activity complete")
+    print("\n[INFO] EchoOrder activity complete ✅")
 def translation_wiz(altdriver):
     """Completes the Translation Wiz quiz by selecting words in correct translated order."""
     num_words = int(altdriver.find_object(By.NAME, "ProgressText").get_text().split('/')[1])
@@ -594,44 +661,57 @@ def frogger(altdriver):
 
     print("[INFO] Frogger activity complete")
 def gap_guru(altdriver):
-    """Solves the GapGuru quiz by selecting and confirming the correct word choice."""
+    """Solves the GapGuru quiz by choosing the correct missing word."""
+    time.sleep(1)
+
     num_words = int(altdriver.find_object(By.NAME, "ProgressText").get_text().split('/')[1])
+    print(f"[INFO] Total questions: {num_words}")
 
     for i in range(num_words):
-        current_sentence = altdriver.find_object(By.NAME, 'ContextGapGuruQuiz(Clone)')
-        current_sentence_text = current_sentence.get_component_property(
-            'com.kideo.learn.english.ContextFillMissingWordQuiz',
-            'currentContext_.context', 'Assembly-CSharp')
-        print('Current Sentence : ', current_sentence_text)
+        print(f"\n[STEP] Solving question {i+1}/{num_words}")
 
-        time.sleep(2.5)
+        # --- Find quiz object (support both versions) ---
+        quiz_obj = None
+        for name in ["ContextGapGuruQuiz(Clone)", "KL_ContextGapGuruQuiz(Clone)"]:
+            objs = altdriver.find_objects(By.NAME, name)
+            if objs:
+                quiz_obj = objs[0]
+                break
+        if not quiz_obj:
+            raise Exception("No quiz object found")
 
-        correct_word = altdriver.find_object(By.NAME, "ContextGapGuruQuiz(Clone)")\
-            .get_component_property("com.kideo.learn.english.ContextFillMissingWordQuiz", "missingWord_", "Assembly-CSharp")
+        # --- Get current context and correct word ---
+        context = quiz_obj.get_component_property(
+            "com.kideo.learn.english.ContextFillMissingWordQuiz",
+            "currentContext_.context", "Assembly-CSharp"
+        )
+        correct_word = quiz_obj.get_component_property(
+            "com.kideo.learn.english.ContextFillMissingWordQuiz",
+            "missingWord_", "Assembly-CSharp"
+        )
+        print(f"[INFO] Sentence: {context}")
+        print(f"[INFO] Correct word: {correct_word}")
 
-        normalized_correct = normalize_text(correct_word)
-
+        # --- Choose the correct option ---
         options = altdriver.find_objects(By.NAME, "QuizWordToggle(Clone)")
         for opt in options:
-            word = opt.get_component_property("com.kideo.learn.english.QuizWordToggle", "text.text", "Assembly-CSharp")
-            normalized_option = normalize_text(word)
-
-
-            if normalized_option == normalized_correct:
+            word = opt.get_component_property(
+                "com.kideo.learn.english.QuizWordToggle",
+                "text.text", "Assembly-CSharp"
+            )
+            if normalize_text(word) == normalize_text(correct_word):
                 opt.click()
-                print(f"[INFO] Clicked correct option: {word}")
+                print(f"[INFO] Clicked: {word}")
                 break
-        else:
-            print(f"[WARN] Correct word '{correct_word}' not found among options.")
 
+        # --- Confirm & go next ---
         click_by_name(altdriver, "QuizCheckButton")
         time.sleep(1)
-
         if i < num_words - 1:
             click_by_name(altdriver, "QuizNextButton")
             time.sleep(1)
 
-    print("[INFO] GapGuru activity complete")
+    print("\n[INFO] GapGuru completed ✅")
 def bee(altdriver):
     """Solves Bee Careful by dragging the correct word to the hive."""
     num_words = int(altdriver.find_object(By.NAME, "ProgressText").get_text().split('/')[1])
@@ -716,7 +796,7 @@ def type_it_right(altdriver):
     for i in range(num_words):
         time.sleep(2.5)
 
-        raw_answer = altdriver.find_object(By.NAME, "ContextTypingItQuiz(Clone)") \
+        raw_answer = altdriver.find_object(By.NAME, "KL_ContextTypingItQuiz(Clone)") \
             .get_component_property("com.kideo.learn.english.ContextAudioTypingQuiz", "currentWord_.word",
                                     "Assembly-CSharp")
 
@@ -1171,6 +1251,45 @@ def crosswords2(altdriver):
 
         # Wait for next round to load
 
+#def crosswords2(altdriver): KLLLLL
+    """Solve all crossword items based on ProgressText (click letters in reverse order)."""
+    progresstext = altdriver.find_object(By.NAME, "ProgressText").get_text()
+    number_of_words = int(progresstext.split('/')[1])
+    print(f"[INFO] Total words to solve: {number_of_words}")
+
+    # ✅ Step 1: Build the letters map once
+    letters_map = {
+        letter.get_component_property("TMPro.TextMeshProUGUI", "m_text", "Unity.TextMeshPro").lower(): letter
+        for letter in altdriver.find_objects(By.NAME, 'FillLetter')
+    }
+    print(f"[DEBUG] Available letters: {list(letters_map.keys())}")
+
+    # ✅ Step 2: Iterate through each word
+    for i in range(number_of_words):
+        print(f"[INFO] Solving word {i + 1} of {number_of_words}")
+        time.sleep(3)
+
+        # Get current target word
+        current_word_obj = altdriver.find_object(By.NAME, "RTLTMPWordPanel")
+        current_word_text = current_word_obj.get_component_property(
+            "TMProWordPanel", "Word.word", "Assembly-CSharp"
+        ).lower()
+        print(f"[DEBUG] Target word: {current_word_text}")
+
+        # ✅ Step 3: Click letters in reverse order
+        for letter in reversed(current_word_text):
+            if letter in letters_map:
+                letters_map[letter].click()
+                print(f"[ACTION] Clicked letter: {letter}")
+                time.sleep(0.2)
+            else:
+                print(f"[WARNING] Letter not found: {letter}")
+
+        # Wait before next word loads
+        time.sleep(1)
+
+    print("[INFO] Crosswords2 activity complete ✅")
+
 
 from collections import Counter
 
@@ -1463,6 +1582,130 @@ def magic_trace(altdriver):
         time.sleep(1.0)   # short pause before next round
 
     print("\n✅ Magic Trace activity complete.")
+
+def exams_image_to_audio(altdriver):
+
+    """Automates matching audio meanings to word labels via swipe interaction."""
+    time.sleep(1)
+
+    # --- Find audio shapes ---
+    audio_shapes = altdriver.find_objects(By.NAME, 'ImageAudioShape(Clone)')
+    if not audio_shapes:
+        audio_shapes = altdriver.find_objects(By.NAME, 'KL_WordAudioShape(Clone)')
+    if not audio_shapes:
+        raise Exception("[ERROR] No audio shapes found. Not an audio-to-meaning exam.")
+
+    # --- Click each shape once to activate audio ---
+    for shape in audio_shapes:
+        try:
+            shape.click()
+            time.sleep(0.8)
+        except Exception as e:
+            print(f"[WARN] Failed to click shape: {e}")
+
+    # --- Find word objects ---
+    words = altdriver.find_objects(By.NAME, 'WordAudioObject(Clone)')
+    if not words:
+        words = altdriver.find_objects(By.NAME, 'KL_WordAudioObject(Clone)')
+    if not words:
+        raise Exception("[ERROR] No word objects found.")
+
+    # --- Collect data ---
+    word_data = []
+    for w in words:
+        try:
+            word_text = w.get_component_property(
+                'com.kideo.learn.english.WordAudioObject', 'word', 'Assembly-CSharp'
+            )
+            word_pos = w.get_screen_position()
+            word_data.append((word_text, w, word_pos))
+        except Exception as e:
+            print(f"[WARN] Failed to read word: {e}")
+
+    shape_data = []
+    for s in audio_shapes:
+        try:
+            shape_text = s.get_component_property(
+                'com.kideo.learn.english.WordAudioShape', 'word', 'Assembly-CSharp'
+            )
+            x, y = s.get_screen_position()
+            shape_data.append((shape_text, s, (x, y - 100)))  # small offset upwards
+        except Exception as e:
+            print(f"[WARN] Failed to read shape: {e}")
+
+    # --- Swipe matches ---
+    matched = 0
+    for word_text, word_obj, word_pos in word_data:
+        for shape_text, _, shape_pos in shape_data:
+            if word_text == shape_text:
+                altdriver.swipe(word_pos, shape_pos, 2.3)
+                time.sleep(0.5)
+                word_obj.click()
+                matched += 1
+                break
+
+    print(f"[INFO] exams_audio_to_meaning completed ({matched}/{len(word_data)} matched).")
+
+
+def exams_image_for_voices(altdriver):
+    """Automates toggle click per question based on answerIndex and question index."""
+    time.sleep(1)
+    questions = altdriver.find_objects(By.NAME, 'QuestionTemplate(Clone)')
+
+    for i, question in enumerate(questions):
+        try:
+            answer_index = int(question.get_component_property(
+                'ImageWithAudioChoicesQuestion', 'answerIndex', 'Assembly-CSharp'))
+
+            toggle_name = f'Toggle{answer_index}'
+            toggles = altdriver.find_objects(By.NAME, toggle_name)
+
+            if i < len(toggles):
+                toggles[i].click()
+                print(f"[INFO] Question {i}: Clicked {toggle_name}[{i}]")
+            else:
+                print(f"[WARN] {toggle_name}[{i}] not found. Skipping.")
+
+            time.sleep(0.5)
+
+        except Exception as e:
+            print(f"[ERROR] Question {i}: {e}")
+
+def turtle_island(altdriver):
+    """Solves the Missing Bubble activity by identifying and clicking missing letters with detailed logs."""
+    print("[INFO] Starting Bubbels activity...")
+
+    num_words = int(altdriver.find_object(By.NAME, "ProgressText").get_text().split('/')[1])
+    print(f"[INFO] Total words to solve: {num_words}")
+
+    for i in range(num_words):
+        print(f"[INFO] Solving word {i + 1} of {num_words}")
+        time.sleep(4.5)
+
+        full_context = altdriver.find_object(By.NAME, "RTLTMPWordPanel").get_component_property(
+            "TMProWordPanel", "Word.word", "Assembly-CSharp"
+        )
+        print(f"[CONTEXT] Full target word: {full_context}")
+
+        partial_context = altdriver.find_object(By.NAME, "RTLTMPWordPanel").get_component_property(
+            "TMProWordPanel", "Text", "Assembly-CSharp"
+        )
+        print(f"[CONTEXT]  partial  word: {partial_context}")
+
+        missing_word = "".join(
+            f for f, p in zip(full_context, partial_context) if p == "_"
+        )
+
+        #NOW we finding all turtles that start with turtle_:
+
+        turtles = [
+            obj for obj in altdriver.get_all_objects()
+            if obj.name.startswith("turtle_")
+        ]
+
+        print(f"Found {len(turtles)} turtle objects:")
+        for t in turtles:
+            print(" -", t.name)
 
 
 # ----------------------------------------------------------------
