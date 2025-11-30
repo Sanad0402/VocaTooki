@@ -1671,44 +1671,218 @@ def exams_image_for_voices(altdriver):
         except Exception as e:
             print(f"[ERROR] Question {i}: {e}")
 
+### need to fix the duplication issue in turtle_island
 def turtle_island(altdriver):
-    """Solves the Missing Bubble activity by identifying and clicking missing letters with detailed logs."""
-    print("[INFO] Starting Bubbels activity...")
 
-    num_words = int(altdriver.find_object(By.NAME, "ProgressText").get_text().split('/')[1])
-    print(f"[INFO] Total words to solve: {num_words}")
+    print("[INFO] Starting Turtle Island activity...")
 
-    for i in range(num_words):
-        print(f"[INFO] Solving word {i + 1} of {num_words}")
-        time.sleep(4.5)
+    # Get total words
+    progress_obj = altdriver.find_object(By.NAME, "ProgressText")
+    total = int(progress_obj.get_text().split('/')[1])
+    print(f"[INFO] Total words to solve: {total}")
 
-        full_context = altdriver.find_object(By.NAME, "RTLTMPWordPanel").get_component_property(
-            "TMProWordPanel", "Word.word", "Assembly-CSharp"
-        )
-        print(f"[CONTEXT] Full target word: {full_context}")
+    # Main word loop
+    for word_i in range(total):
+        print(f"\n====== Solving word {word_i + 1}/{total} ======")
+        time.sleep(2)
 
-        partial_context = altdriver.find_object(By.NAME, "RTLTMPWordPanel").get_component_property(
-            "TMProWordPanel", "Text", "Assembly-CSharp"
-        )
-        print(f"[CONTEXT]  partial  word: {partial_context}")
+        # Remove false-letter turtles
+        all_objs = altdriver.get_all_elements()
+        turtles = [t for t in all_objs if t.name.startswith("turtle_") and t.name.replace("turtle_", "").isdigit()]
 
-        missing_word = "".join(
-            f for f, p in zip(full_context, partial_context) if p == "_"
-        )
-
-        #NOW we finding all turtles that start with turtle_:
-
-        turtles = [
-            obj for obj in altdriver.get_all_objects()
-            if obj.name.startswith("turtle_")
-        ]
-
-        print(f"Found {len(turtles)} turtle objects:")
         for t in turtles:
-            print(" -", t.name)
+            try:
+                true_raw = t.get_component_property(
+                    'com.kideo.learn.english.TurtleScript',
+                    'turtleLetter.trueOrders', 'Assembly-CSharp')
+                if true_raw is None or true_raw == "null":
+                    print(f"[ACTION] Removing {t.name} (false letter)")
+                    t.tap()
+                    time.sleep(2)
+            except:
+                pass
+
+        # Swap loop with progress tracking
+        MAX_SWAPS = 50
+        locked_turtles = set()  # Track turtles in correct position
+
+        for swap_round in range(MAX_SWAPS):
+            # Refresh turtle list
+            all_objs = altdriver.get_all_elements()
+            turtles = [t for t in all_objs if t.name.startswith("turtle_") and t.name.replace("turtle_", "").isdigit()]
+
+            if not turtles:
+                break
+
+            # Build turtle info with current positions
+            info_list = []
+            for t in turtles:
+                try:
+                    true_raw = t.get_component_property(
+                        'com.kideo.learn.english.TurtleScript',
+                        'turtleLetter.trueOrders', 'Assembly-CSharp')
+                    true_order = parse_true_order(true_raw)
+                except:
+                    true_order = None
+
+                try:
+                    pos = t.get_screen_position()
+                    x = pos["x"] if isinstance(pos, dict) else getattr(pos, "x", pos[0])
+                except:
+                    x = 999999
+
+                info_list.append({
+                    "obj": t,
+                    "name": t.name,
+                    "true": true_order,
+                    "x": x
+                })
+
+            # Sort by visual position (x coordinate)
+            info_list.sort(key=lambda c: c["x"])
+
+            # Assign current visual positions
+            for i, info in enumerate(info_list):
+                info["visual"] = i
+
+            # Lock turtles that are in correct position
+            for info in info_list:
+                if info["true"] is not None and info["true"] == info["visual"]:
+                    locked_turtles.add(info["name"])
+
+            # Find first misplaced turtle (skip locked ones)
+            wrong = None
+            for info in info_list:
+                if info["name"] in locked_turtles:
+                    continue
+                if info["true"] is not None and info["true"] != info["visual"]:
+                    wrong = info
+                    break
+
+            if wrong is None:
+                print("[INFO] All turtles in correct order.")
+                break
+
+            # Find the turtle at wrong's target position (skip locked ones)
+            target = None
+            for info in info_list:
+                if info["name"] in locked_turtles:
+                    continue
+                if info["visual"] == wrong["true"]:
+                    target = info
+                    break
+
+            # If target not found or target is also in correct position, skip
+            if target is None or target["name"] == wrong["name"]:
+                print("[WARN] Cannot find valid swap target.")
+                # Unlock all and retry
+                locked_turtles.clear()
+                continue
+
+            # Double check: don't swap if target is already in correct position
+            if target["true"] == target["visual"]:
+                print(f"[SKIP] Target {target['name']} is already correct, unlocking and retrying")
+                locked_turtles.clear()
+                continue
+
+            print(
+                f"[SWAP] {wrong['name']} (pos={wrong['visual']}, should be={wrong['true']}) ↔ {target['name']} (pos={target['visual']}, should be={target['true']})")
+
+            # Perform swap
+            try:
+                start = wrong["obj"].get_screen_position()
+                end = target["obj"].get_screen_position()
+                altdriver.swipe(start, end, 0.7)
+                time.sleep(1.5)
+            except Exception as e:
+                print(f"[ERROR] Swap failed: {e}")
+                time.sleep(1.5)
+
+        print("[INFO] Word completed.\n")
+
+    print("\n✔✔✔ Turtle Island completed ✔✔✔")
 
 
-# ----------------------------------------------------------------
-# Example: simply call
-# ----------------------------------------------------------------
-# magic_trace(altdriver)
+def parse_true_order(value):
+    """Parse true order from various formats"""
+    if value is None or value == "null":
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, list) and value:
+        return int(value[0])
+    if isinstance(value, str):
+        match = re.search(r"-?\d+", value)
+        if match:
+            return int(match.group(0))
+    return None
+
+def wordle(altdriver):
+    # 1️⃣ Read target word from Gameplay Manager
+    gm = altdriver.find_object(By.NAME, "Gameplay Manager")
+    word = gm.get_component_property(
+        "KaelmixStudioGameAssets.TemplateWordGuess.GameplayManager",
+        "word",
+        "Assembly-CSharp"
+    ).upper()
+
+    print(f"[INFO] Target word: {word}")
+
+    # 2️⃣ Type each character by finding Key(<letter>)
+    for index, letter in enumerate(word):
+        key_name = f"Key ({letter})"   # 🟢 Construct object name dynamically
+
+        print(f"[INFO] Clicking letter {index+1}/{len(word)}: {letter} -> {key_name}")
+
+        key_obj = altdriver.find_object(By.NAME, key_name)
+        key_obj.tap()  # 👈 Click the key
+
+        time.sleep(0.2)  # ⏱️ Small delay for realism
+
+    # 3️⃣ Press ENTER
+    enter_btn = altdriver.find_object(By.NAME, "Enter")
+    enter_btn.tap()
+    print("[INFO] Submitted the word successfully!")
+
+
+
+
+def word_connect(altdriver, words=("HIT", "GET", "EIGHTY", "THEY", "EIGHT"),card_name="WordsConnectCard_4 Variant(Clone)",sleep_after_word=0.25):
+
+    print("[INFO] word_connect: Fetching cards...")
+    cards = altdriver.find_objects(By.NAME, card_name)
+    print(f"[INFO] Found {len(cards)} cards")
+
+    # Build: letter -> [card objects]
+    cards_by_letter = {}
+    for idx, card in enumerate(cards):
+        # IMPORTANT: no ".//*" here ('.' breaks PATH parsing); use "//Letter"
+        letter_obj = card.find_object_from_object(By.PATH, "//Letter")  #
+        letter = letter_obj.get_text().strip().upper()
+        print(f"[INFO] Card[{idx}] = {letter}")
+        cards_by_letter.setdefault(letter, []).append(card)
+
+    print(f"[INFO] Available letters: {sorted(cards_by_letter.keys())}")
+
+    # Swipe each target word
+    for raw_word in words:
+        word = raw_word.strip().upper()
+        if not word:
+            continue
+
+        # For safety, allow repeated letters in a word by "consuming" card instances
+        pool = {k: v[:] for k, v in cards_by_letter.items()}
+
+        positions = []
+        for ch in word:
+            if ch not in pool or not pool[ch]:
+                raise Exception(f"[ERROR] Missing letter '{ch}' on cards. Word='{word}'")
+
+            card = pool[ch].pop(0)
+            positions.append(card.get_screen_position())
+
+        duration = max(4, 1.7 * len(positions))
+        print(f"[INFO] Swiping '{word}' with {len(positions)} points, duration={duration}")
+
+        altdriver.multipoint_swipe(positions, duration=duration, wait=True)  #
+        time.sleep(sleep_after_word)
