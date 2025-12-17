@@ -1980,20 +1980,24 @@ def crosswords(altdriver):
 
     # Get activity and matrix size
     activity = altdriver.find_object(By.NAME, 'CrosswordActivity')
-    activity_panel = activity.get_component_property(
+    number_of_columns = activity.get_component_property(
         'com.kideo.learn.english.CrosswordActivityManager',
-        'activeCrosswordPanel.name',
+        'numberOfColumns',
+        'Assembly-CSharp'
+    )
+    number_of_rows = activity.get_component_property(
+        'com.kideo.learn.english.CrosswordActivityManager',
+        'numberOfRows',
         'Assembly-CSharp'
     )
 
-    # Extract matrix size from panel name (e.g., 'CrosswordPanel_9X9' -> 9)
-    size_match = re.search(r'(\d+)X(\d+)', activity_panel)
-    matrix_size = int(size_match.group(1)) if size_match else 9
+    # Use the actual row/column values from properties
+    matrix_size = number_of_columns  # Assuming square matrix, or use max(number_of_columns, number_of_rows)
 
-    print(f"Matrix size: {matrix_size}x{matrix_size}")
+    print(f"Matrix size: {number_of_rows}x{number_of_columns}")
 
     # Initialize empty matrix and letter panel mapping
-    matrix = [['empty' for _ in range(matrix_size)] for _ in range(matrix_size)]
+    matrix = [['empty' for _ in range(number_of_columns)] for _ in range(number_of_rows)]
     letter_panels = {}
     letter_objects = {}  # Store actual AltDriver objects for swiping
 
@@ -2020,9 +2024,9 @@ def crosswords(altdriver):
 
             # Place letter in matrix and save panel info
             if position is not None:
-                row = position // matrix_size
-                col = position % matrix_size
-                if row < matrix_size and col < matrix_size:
+                row = position // number_of_columns
+                col = position % number_of_columns
+                if row < number_of_rows and col < number_of_columns:
                     matrix[row][col] = letter
                     letter_panels[position] = {
                         'letter': letter,
@@ -2036,10 +2040,10 @@ def crosswords(altdriver):
 
     # Print the matrix
     print("\nCrossword Matrix:")
-    print("-" * (matrix_size * 8))
+    print("-" * (number_of_columns * 8))
     for row in matrix:
         print(" ".join(f"{cell:>6}" for cell in row))
-    print("-" * (matrix_size * 8))
+    print("-" * (number_of_columns * 8))
 
     # Get words to find
     words_to_find_panel = altdriver.find_object(By.NAME, 'WordsToFindPanel')
@@ -2072,10 +2076,10 @@ def crosswords(altdriver):
         word_found = False
 
         # Search in all positions
-        for row in range(matrix_size):
+        for row in range(number_of_rows):
             if word_found:
                 break
-            for col in range(matrix_size):
+            for col in range(number_of_columns):
                 if word_found:
                     break
 
@@ -2085,7 +2089,7 @@ def crosswords(altdriver):
                     end_row = row + dr * (word_len - 1)
                     end_col = col + dc * (word_len - 1)
 
-                    if end_row < 0 or end_row >= matrix_size or end_col < 0 or end_col >= matrix_size:
+                    if end_row < 0 or end_row >= number_of_rows or end_col < 0 or end_col >= number_of_columns:
                         continue
 
                     # Check each letter
@@ -2136,7 +2140,7 @@ def crosswords(altdriver):
     return {
         'matrix': matrix,
         'letter_panels': letter_panels,
-        'matrix_size': matrix_size,
+        'matrix_size': (number_of_rows, number_of_columns),
         'words_to_find': words_to_find_list,
         'found_words': found_words
     }
