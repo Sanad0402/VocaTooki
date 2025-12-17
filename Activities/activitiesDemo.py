@@ -15,28 +15,42 @@ def search(altdriver):
     number_of_words = int(progress.split('/')[1])
 
     for _ in range(number_of_words):
-        time.sleep(2)
-        full_text = altdriver.find_object(By.NAME, "WordPanel")\
+
+        # Wait for screen to settle
+        time.sleep(1)
+
+        full_text = altdriver.find_object(By.NAME, "WordPanel") \
             .get_component_property("WordPanel", "Word.ToLower", "Assembly-CSharp")
-        current_text = altdriver.find_object(By.NAME, "RTLTMPWordPanel")\
+
+        current_text = altdriver.find_object(By.NAME, "RTLTMPWordPanel") \
             .get_component_property("TMProWordPanel", "Text", "Assembly-CSharp")
 
-        differences = [char2 for char1, char2 in zip(current_text, full_text) if char1 == "_" and char2 != "_"]
-
-        letters = altdriver.find_objects(By.NAME, "SearchObj(Clone)")
-        covers = altdriver.find_objects(By.NAME, "CoverObj")
-        letter_obj_pairs = [(l.get_component_property("com.kideo.learn.english.SearchObj", "letter", "Assembly-CSharp"), o)
-                            for l, o in zip(letters, covers)]
+        differences = [char2 for char1, char2 in zip(current_text, full_text)
+                       if char1 == "_" and char2 != "_"]
 
         for letter in differences:
-            for idx, (ltr, obj) in enumerate(letter_obj_pairs):
+
+            # Re-scan before each click → sequential clicking
+            letters = altdriver.find_objects(By.NAME, "SearchObj(Clone)")
+            covers = altdriver.find_objects(By.NAME, "CoverObj")
+
+            letter_obj_pairs = [
+                (l.get_component_property("com.kideo.learn.english.SearchObj", "letter", "Assembly-CSharp").lower(), o)
+                for l, o in zip(letters, covers)
+            ]
+
+            for ltr, obj in letter_obj_pairs:
                 if ltr == letter:
-                    obj.tap(count=1, interval=1.5, wait=True)
-                    letter_obj_pairs.pop(idx)
+                    obj.tap(count=1, interval=0.5, wait=True)
+
+                    # Wait for Unity to update between letters
+                    time.sleep(0.7)
                     break
 
-    print("[INFO] Search activity complete")
+        # ✅ Wait 5 seconds before going to the next word
+        time.sleep(5)
 
+    print("[INFO] Search activity complete")
 
 def find_matching_pairs(items):
     return [(i, j) for i in range(len(items)) for j in range(i+1, len(items)) if items[i] == items[j]]
@@ -906,22 +920,94 @@ def moles(altdriver):
 
 
 def magic_trace(altdriver):
-    """Connects tracing dots between FirstNumber and SecondNumber objects."""
-    total = int(altdriver.find_object(By.NAME, "ProgressText").get_text().split('/')[1])
+    """Traces letters by swiping from FirstNumber to SecondNumber."""
+    total = 8
 
     for i in range(total):
         time.sleep(6)
-        first = altdriver.find_objects(By.NAME, "FirstNumber")
-        second = altdriver.find_objects(By.NAME, "SecondNumber")
 
-        for a, b in zip(first, second):
-            altdriver.swipe(a.get_screen_position(), b.get_screen_position(), duration=0.8)
-            time.sleep(0.5)
+        # Find all FirstNumber and SecondNumber objects
+        first_numbers = altdriver.find_objects(By.NAME, "FirstNumber")
+        second_numbers = altdriver.find_objects(By.NAME, "SecondNumber")
 
-        print(f"[INFO] Traced word {i + 1}/{total}")
+        num_paths = len(first_numbers)
+        print(f"[INFO] Found {num_paths} paths")
+
+        # Find all Curve objects (may be less than num_paths)
+        curves = altdriver.find_objects(By.NAME, "Curve")
+        print(f"[INFO] Found {len(curves)} curves")
+
+        curve_index = 0  # Track which curve we're using
+
+        # Process each path (FirstNumber[i] to SecondNumber[i])
+        for path_idx in range(num_paths):
+            print(f"[INFO] Tracing from FirstNumber[{path_idx}] to SecondNumber[{path_idx}]")
+
+            first_pos = first_numbers[path_idx].get_screen_position()
+            second_pos = second_numbers[path_idx].get_screen_position()
+
+            # Check if there's a curve available for this path
+            # We need to determine if this path has a curve or is just a straight line
+            # For now, let's check if a curve exists
+            if curve_index < len(curves):
+                # Try to use the curve
+                curve = curves[curve_index]
+
+                try:
+                    # Get bezier points from the curve
+                    bezier_points = curve.get_component_property(
+                        'IndieStudio.EnglishTracingBook.Game.Curve',
+                        'bezierPoints',
+                        'Assembly-CSharp'
+                    )
+
+                    if bezier_points and len(bezier_points) > 0:
+                        print(f"[INFO] Path {path_idx} has curve with {len(bezier_points)} bezier points")
+
+                        # Get the curve's screen position and world position for conversion
+                        curve_screen_x, curve_screen_y = curve.get_screen_position()
+                        curve_world_x = curve.worldX
+                        curve_world_y = curve.worldY
+
+                        # Calculate screen positions for bezier points
+                        screen_points = []
+                        for point in bezier_points:
+                            offset_x = point['x'] - curve_world_x
+                            offset_y = point['y'] - curve_world_y
+                            scale = 200
+                            screen_x = curve_screen_x + (offset_x * scale)
+                            screen_y = curve_screen_y + (offset_y * scale)
+                            screen_points.append((screen_x, screen_y))
+
+                        # Swipe point by point through the curve
+                        for j in range(len(screen_points) - 1):
+                            altdriver.swipe(screen_points[j], screen_points[j + 1], duration=0.05)
+
+                        curve_index += 1  # Move to next curve
+                    else:
+                        # No bezier points, do straight line
+                        print(f"[INFO] Path {path_idx} is a straight line (no bezier points)")
+                        altdriver.swipe(first_pos, second_pos, duration=1)
+
+                except Exception as e:
+                    print(f"[INFO] Path {path_idx} is a straight line (no curve): {e}")
+                    altdriver.swipe(first_pos, second_pos, duration=1)
+            else:
+                # No more curves available, do straight line
+                print(f"[INFO] Path {path_idx} is a straight line (no curve available)")
+                altdriver.swipe(first_pos, second_pos, duration=1)
+
+            # Click at the end position (SecondNumber position) to lift finger
+            altdriver.click(second_pos)
+
+            print(f"[INFO] Completed path {path_idx}, finger lifted")
+
+            # Wait 3 seconds before next path
+            time.sleep(5)
+
+        print(f"[INFO] Traced letter {i + 1}/{total}")
 
     print("[INFO] magic_trace activity complete")
-
 
 def signs(altdriver):
     """Performs the Signs activity – finds and clicks all monkeys with the matching letter."""
@@ -1886,3 +1972,171 @@ def word_connect(altdriver, words=("HIT", "GET", "EIGHTY", "THEY", "EIGHT"),card
 
         altdriver.multipoint_swipe(positions, duration=duration, wait=True)  #
         time.sleep(sleep_after_word)
+
+
+def crosswords(altdriver):
+    import re
+    import time
+
+    # Get activity and matrix size
+    activity = altdriver.find_object(By.NAME, 'CrosswordActivity')
+    activity_panel = activity.get_component_property(
+        'com.kideo.learn.english.CrosswordActivityManager',
+        'activeCrosswordPanel.name',
+        'Assembly-CSharp'
+    )
+
+    # Extract matrix size from panel name (e.g., 'CrosswordPanel_9X9' -> 9)
+    size_match = re.search(r'(\d+)X(\d+)', activity_panel)
+    matrix_size = int(size_match.group(1)) if size_match else 9
+
+    print(f"Matrix size: {matrix_size}x{matrix_size}")
+
+    # Initialize empty matrix and letter panel mapping
+    matrix = [['empty' for _ in range(matrix_size)] for _ in range(matrix_size)]
+    letter_panels = {}
+    letter_objects = {}  # Store actual AltDriver objects for swiping
+
+    # Get all letter panels
+    texts = altdriver.find_objects(By.NAME, 'Text - RTLTMP')
+
+    for text in texts:
+        parent = text.get_parent()
+        parent_name = parent.name
+        letter = text.get_text()
+
+        # Only process LetterPanel objects with valid letters
+        if 'LetterPanel' in parent_name and letter.strip():
+            # Parse position from parent name
+            position = None
+            if parent_name == 'LetterPanel':
+                position = 0
+            else:
+                match = re.match(r'LetterPanel \((\d+)\)(?:_(\d+))?', parent_name)
+                if match:
+                    base_num = int(match.group(1))
+                    offset = int(match.group(2)) if match.group(2) else 0
+                    position = base_num + offset
+
+            # Place letter in matrix and save panel info
+            if position is not None:
+                row = position // matrix_size
+                col = position % matrix_size
+                if row < matrix_size and col < matrix_size:
+                    matrix[row][col] = letter
+                    letter_panels[position] = {
+                        'letter': letter,
+                        'panel_name': parent_name,
+                        'row': row,
+                        'col': col,
+                        'position': position,
+                        'object': parent
+                    }
+                    letter_objects[(row, col)] = parent
+
+    # Print the matrix
+    print("\nCrossword Matrix:")
+    print("-" * (matrix_size * 8))
+    for row in matrix:
+        print(" ".join(f"{cell:>6}" for cell in row))
+    print("-" * (matrix_size * 8))
+
+    # Get words to find
+    words_to_find_panel = altdriver.find_object(By.NAME, 'WordsToFindPanel')
+    words_to_find_list = words_to_find_panel.get_component_property(
+        'com.kideo.learn.english.CrossWordToFindManager',
+        'cleanedWordsList_',
+        'Assembly-CSharp'
+    )
+
+    print(f"\nWords to find: {words_to_find_list}")
+
+    # Define all 8 directions
+    directions = {
+        'horizontal': (0, 1),
+        'vertical': (1, 0),
+        'diagonal-down-right': (1, 1),
+        'diagonal-down-left': (1, -1),
+        'horizontal-reverse': (0, -1),
+        'vertical-reverse': (-1, 0),
+        'diagonal-up-right': (-1, 1),
+        'diagonal-up-left': (-1, -1)
+    }
+
+    found_words = []
+
+    # Find and solve each word
+    for word in words_to_find_list:
+        word_lower = word.lower()
+        word_len = len(word)
+        word_found = False
+
+        # Search in all positions
+        for row in range(matrix_size):
+            if word_found:
+                break
+            for col in range(matrix_size):
+                if word_found:
+                    break
+
+                # Try all directions
+                for dir_name, (dr, dc) in directions.items():
+                    # Check if word fits in the matrix
+                    end_row = row + dr * (word_len - 1)
+                    end_col = col + dc * (word_len - 1)
+
+                    if end_row < 0 or end_row >= matrix_size or end_col < 0 or end_col >= matrix_size:
+                        continue
+
+                    # Check each letter
+                    match = True
+                    for i, letter in enumerate(word_lower):
+                        curr_row = row + dr * i
+                        curr_col = col + dc * i
+                        cell_value = matrix[curr_row][curr_col]
+
+                        if cell_value == 'empty' or cell_value.lower() != letter:
+                            match = False
+                            break
+
+                    # If word found, swipe it
+                    if match:
+                        print(f"Found '{word}' at ({row},{col}) going {dir_name}")
+
+                        start_obj = letter_objects.get((row, col))
+                        end_obj = letter_objects.get((end_row, end_col))
+
+                        if start_obj and end_obj:
+                            try:
+                                altdriver.swipe(
+                                    start=start_obj.get_screen_position(),
+                                    end=end_obj.get_screen_position(),
+                                    duration=0.5
+                                )
+                                print(f"✓ Swiped '{word}' successfully")
+
+                                found_words.append({
+                                    'word': word,
+                                    'start': (row, col),
+                                    'end': (end_row, end_col),
+                                    'direction': dir_name
+                                })
+
+                                # Sleep 2 seconds after finding a word
+                                time.sleep(2)
+
+                            except Exception as e:
+                                print(f"✗ Error swiping '{word}': {e}")
+
+                        word_found = True
+                        break
+
+    print(f"\n✓ Solved {len(found_words)} out of {len(words_to_find_list)} words")
+
+    return {
+        'matrix': matrix,
+        'letter_panels': letter_panels,
+        'matrix_size': matrix_size,
+        'words_to_find': words_to_find_list,
+        'found_words': found_words
+    }
