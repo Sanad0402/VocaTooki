@@ -17,7 +17,7 @@ def _report_filename(platform_name: str, username: str) -> str:
     ts = time.strftime("%Y%m%d_%H%M%S")
     return os.path.join(REPORTS_DIR, f"ActivityReport_{platform_name}_{safe_user}_{ts}.txt")
 
-@pytest.mark.sanity2
+@pytest.mark.sanity3
 def test_single_lesson_express(altdriver, user, lesson_numbers):
     """Runs one or more lessons from --lesson or --lessons."""
     driver, platform_name = altdriver

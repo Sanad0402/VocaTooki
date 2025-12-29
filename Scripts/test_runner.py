@@ -157,7 +157,7 @@ def main():
 
     cfg = json.loads(Path(args.config).read_text(encoding="utf-8"))
 
-    tests_path = cfg.get("testsPath", "Sanity")
+    tests_path = cfg.get("testsPath", "Tests")
     report_out = cfg.get("reportOut", [])
 
     error_file = Path(cfg.get("errorFiles") or "")

@@ -715,6 +715,7 @@ def gap_guru(altdriver):
             )
             if normalize_text(word) == normalize_text(correct_word):
                 opt.click()
+                time.sleep(1.5)
                 print(f"[INFO] Clicked: {word}")
                 break
 
@@ -723,7 +724,7 @@ def gap_guru(altdriver):
         time.sleep(1)
         if i < num_words - 1:
             click_by_name(altdriver, "QuizNextButton")
-            time.sleep(1)
+            time.sleep(1.8)
 
     print("\n[INFO] GapGuru completed ✅")
 def bee(altdriver):
@@ -1199,6 +1200,7 @@ def moving(altdriver):
     total = int(altdriver.find_object(By.NAME, "ProgressText").get_text().split('/')[1])
 
     for _ in range(total):
+        time.sleep(3)
         answer_index = altdriver.find_object(By.NAME, "Canvas")\
             .get_component_property("WordsMatchingQuiz", "answerIndex", "Assembly-CSharp")
         options = altdriver.find_objects(By.NAME, "Button")
@@ -1215,10 +1217,11 @@ def moving(altdriver):
 
 def lexi_match(altdriver):
     """Solves the Unscramble Quiz by clicking the correct answer."""
+    time.sleep(3)
     total = int(altdriver.find_object(By.NAME, "ProgressText").get_text().split('/')[1])
 
     for _ in range(total):
-        time.sleep(1.6)
+        time.sleep(2)
         current_word = altdriver.find_object(By.NAME, 'Canvas')
         current_word_text = current_word.get_component_property('UnscrambleQuiz', 'questionWord.Text','Assembly-CSharp')
         print('Current word : ',current_word_text)
@@ -1232,6 +1235,7 @@ def lexi_match(altdriver):
             idx = btn.get_component_property("ChoiceClick", "index", "Assembly-CSharp")
             if idx == correct_idx:
                 btn.click()
+                time.sleep(1)
                 break
 
     print("[INFO] LexiMatch activity complete")
@@ -1975,8 +1979,6 @@ def word_connect(altdriver, words=("HIT", "GET", "EIGHTY", "THEY", "EIGHT"),card
 
 
 def crosswords(altdriver):
-    import re
-    import time
 
     # Get activity and matrix size
     activity = altdriver.find_object(By.NAME, 'CrosswordActivity')

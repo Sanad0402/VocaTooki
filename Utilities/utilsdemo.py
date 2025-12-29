@@ -207,7 +207,7 @@ def run_activity(altdriver, activity):
 
     time.sleep(1)
     activity.click()
-    time.sleep(2)  # small settle time before polling
+    time.sleep(5)  # small settle time before polling
 
     # --- get new scene with retries ---
     scene = _get_current_activity_with_retry(altdriver, prev_scene=prev_scene, max_attempts=10, waits=(5,8,15,40,120,240))
@@ -259,6 +259,7 @@ def run_activity(altdriver, activity):
         'LETTERS_BUBBLES': A.bubbels_activity_3rd,
         'LETTERS_SORTING': A.signs,
         'CROSSWORD2': A.crosswords2,
+        'CROSSWORD':A.crosswords,
         'PUZZLES':A.solve_puzzles
     }
 
