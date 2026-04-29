@@ -1,220 +1,278 @@
-import os
 import time
-import pathlib
 import pytest
-
 from alttester import By
+
+from Pages.LoginPage import LoginPage
 from Utilities import utilsdemo
 
-from Pages.StartScreen import StartScreen
-from Pages.map_page import MapPage  # ok to keep even if unused
+
+_SETUP_DONE = False
 
 
-REPORTS_DIR = os.getenv("REPORTS_DIR", os.path.expanduser("~/Downloads/reports"))
-
-
-def _ensure_reports_dir():
-    pathlib.Path(REPORTS_DIR).mkdir(parents=True, exist_ok=True)
-
-
-def _report_filename(platform_name: str, username: str) -> str:
-    safe_user = "".join(c for c in username if c.isalnum() or c in ("@", "_", "-", ".")).replace("@", "_at_")
-    ts = time.strftime("%Y%m%d_%H%M%S")
-    return os.path.join(REPORTS_DIR, f"ActivityReport_{platform_name}_{safe_user}_{ts}.txt")
-
-
-def _click_if_present(driver, name: str, timeout: float = 1.5) -> bool:
-    try:
-        driver.wait_for_object(By.NAME, name, enabled=True, timeout=timeout).click()
-        return True
-    except Exception:
-        return False
-
-
-def _wait_for_scene_change(driver, from_scene: str, timeout=25, poll=0.5) -> str:
-    """
-    Wait until scene != from_scene, return the new scene.
-    """
-    start = time.time()
-    last_scene = from_scene
-    while time.time() - start < timeout:
-        last_scene = StartScreen.get_current_scene(driver)
-        if last_scene and last_scene != from_scene:
-            return last_scene
-        time.sleep(poll)
-
-    # If no change, return whatever we last saw (might be same as from_scene)
-    return last_scene or from_scene
-
-
-@pytest.mark.sanity2  # ✅ one mark for all test cases
+@pytest.mark.sanity1
+@pytest.mark.Start
 class TestStartScreenNavigation:
-    """
-    StartScreen navigation suite using the static StartScreen POM.
-    - No @staticmethod in tests
-    - wait_for_scene used in all navigations
-    - Scene names are auto-discovered once per run per destination
-    """
 
-    @pytest.fixture(scope="class", autouse=True)
-    def start_session(self, request, altdriver, user):
-        print("\n[SETUP] Logging in for the test session...")
+    @pytest.fixture(autouse=True)
+    def setup_once(self, altdriver, user):
+        global _SETUP_DONE
+        driver, _platform = altdriver
 
-        try:
-            driver, platform_name = altdriver
-        except (ValueError, TypeError):
-            driver = altdriver
-            platform_name = "Unknown"
+        if not _SETUP_DONE:
+            # cleanup once: logout -> login -> wait 5 sec -> ensure GO-Map
+            try:
+                utilsdemo.call_method(driver, "AltTesterUtils", "Logout")
+                time.sleep(2)
+            except Exception:
+                pass
 
-        username = user["username"]
-        password = user["password"]
+            login_page = LoginPage(driver)
+            login_page.wait_until_open(timeout=25)
 
-        # Login (static page)
-        StartScreen.login(driver, username, password, utilsdemo)
+            login_page.login(user["username"], user["password"])
+            time.sleep(5)
 
-        # Ensure StartScreen is open
-        StartScreen.wait_until_open(driver, timeout=25)
+            driver.wait_for_object(By.NAME, "GO-Map", enabled=True, timeout=25)
+            _SETUP_DONE = True
 
-        # Store on class
-        request.cls.driver = driver
-        request.cls.platform_name = platform_name
-        request.cls.username = username
-
-        # runtime discovered scene names for this run
-        request.cls._scene_cache = {}
-
-        yield
-
-        print("\n[TEARDOWN] Generating activity report...")
-        _ensure_reports_dir()
-        report_path = _report_filename(platform_name, username)
-        with open(report_path, "w", encoding="utf-8") as f:
-            StartScreen.write_activity_report(f, utilsdemo)
-        print(f"[INFO] Activity report written: {report_path}")
-
-    def _remember_and_wait_scene(self, key: str, timeout=25, allow_same_scene=False):
-        """
-        Ensures we call StartScreen.wait_for_scene(driver, expected, timeout)
-        for every navigation.
-
-        - If scene for `key` is known (cached) -> wait_for_scene(expected)
-        - Else -> discover by waiting for scene change, cache it, then wait_for_scene(discovered)
-        - If allow_same_scene=True, we accept no scene change and cache current scene.
-        """
-        driver = self.driver
-        before = StartScreen.get_current_scene(driver)
-
-        if key not in self._scene_cache:
-            after = _wait_for_scene_change(driver, before, timeout=timeout)
-
-            if after == before and not allow_same_scene:
-                raise AssertionError(
-                    f"[{key}] Scene did not change. Still '{after}'. "
-                    f"If this destination is a popup (no scene change), set allow_same_scene=True."
-                )
-
-            self._scene_cache[key] = after
-            print(f"[INFO] Discovered scene for '{key}': {after}")
-
-        expected = self._scene_cache[key]
-        StartScreen.wait_for_scene(driver, expected, timeout=timeout)
-
-    def _go_back_to_start_screen(self, special_back_buttons=None, attempts=4):
-        """
-        Navigate back until StartScreen is open.
-        """
-        driver = self.driver
-
-        if StartScreen.is_open(driver):
-            return
-
-        special_back_buttons = tuple(special_back_buttons or ())
-        common_buttons = (
-            "BackButton", "HomeButton",
-            "Back", "prev", "PrevButton",
-            "Exit", "Close", "X",
-        )
-
-        for _ in range(attempts):
-            # Try special first
-            for name in special_back_buttons:
-                if _click_if_present(driver, name, timeout=2):
-                    time.sleep(0.6)
-                    if StartScreen.is_open(driver):
-                        return
-
-            # Then common
-            for name in common_buttons:
-                if _click_if_present(driver, name, timeout=2):
-                    time.sleep(0.6)
+        else:
+            # make sure we are on start screen before each test (no logout)
+            # try a few times to find GO-Map, otherwise click back
+            for _ in range(5):
+                try:
+                    driver.wait_for_object(By.NAME, "GO-Map", enabled=True, timeout=2)
                     break
+                except Exception:
+                    for back_name in ("BackButton", "GO-Back", "PrevButton", "PreviousButton", "NextButton"):
+                        try:
+                            driver.wait_for_object(By.NAME, back_name, enabled=True, timeout=2).click()
+                            time.sleep(2)
+                            break
+                        except Exception:
+                            pass
 
-            if StartScreen.is_open(driver):
-                return
-
-        # Final hard check
-        StartScreen.wait_until_open(driver, timeout=10)
+            driver.wait_for_object(By.NAME, "GO-Map", enabled=True, timeout=10)
 
     # -------------------------
-    # Test cases
+    # One TC per scene
     # -------------------------
 
-    def test_go_to_map(self):
-        StartScreen.go_to_map(self.driver)
-        self._remember_and_wait_scene("map", timeout=25)
-        self._go_back_to_start_screen()
+    def test_go_to_map_opens_map_scene(self, altdriver):
+        time.sleep(5)
+        driver, _platform = altdriver
 
-    def test_go_to_tasks(self):
-        StartScreen.go_to_tasks(self.driver)
+        driver.wait_for_object(By.NAME, "GO-Map", enabled=True, timeout=20).click()
+        time.sleep(6)
 
-        # If you want strict known scene: uncomment next line and remove auto-discovery:
-        # StartScreen.wait_for_scene(self.driver, "TaskManager", timeout=25)
+        current_scene = driver.get_current_scene()
+        print("Current scene:", current_scene)
+        assert current_scene == "MapScene", f"Expected 'MapScene' but got '{current_scene}'"
 
-        # Auto-discover + wait_for_scene (still uses wait_for_scene)
-        self._remember_and_wait_scene("tasks", timeout=25)
+        clicked = False
+        for back_name in ("BackButton", "GO-Back", "PrevButton", "PreviousButton", "NextButton"):
+            try:
+                driver.wait_for_object(By.NAME, back_name, enabled=True, timeout=5).click()
+                clicked = True
+                time.sleep(2)
+                break
+            except Exception:
+                pass
+        assert clicked, "No Back/Prev/Next button found."
 
-        _click_if_present(self.driver, "Button", timeout=2)
+        back_scene = driver.get_current_scene()
+        assert back_scene == "NewStartScene", f"Expected 'NewStartScene' after back, but got '{back_scene}'"
+        driver.wait_for_object(By.NAME, "GO-Map", enabled=True, timeout=15)
 
-        special_buttons = ("prev", "PrevButton", "Back", "BackButton", "HomeButton")
-        self._go_back_to_start_screen(special_back_buttons=special_buttons)
+    def test_go_to_tasks_opens_task_manager_scene(self, altdriver):
+        driver, _platform = altdriver
 
-    def test_go_to_shop(self):
-        StartScreen.go_to_shop(self.driver)
-        self._remember_and_wait_scene("shop", timeout=25)
-        self._go_back_to_start_screen()
+        driver.wait_for_object(By.NAME, "GO-Tasks", enabled=True, timeout=20).click()
+        time.sleep(6)
 
-    def test_go_to_daily_games(self):
-        StartScreen.go_to_daily_games(self.driver)
+        current_scene = driver.get_current_scene()
+        print("Current scene:", current_scene)
+        assert current_scene == "TaskManager", f"Expected 'TaskManager' but got '{current_scene}'"
 
-        # If you want strict known scene: uncomment next line and remove auto-discovery:
-        # StartScreen.wait_for_scene(self.driver, "DailyGamesSelection", timeout=25)
+        # ✅ click Button BEFORE back
+        driver.wait_for_object(By.NAME, "Button", enabled=True, timeout=10).click()
+        time.sleep(1)
 
-        self._remember_and_wait_scene("daily", timeout=25)
+        # back
+        clicked = False
+        for back_name in ("BackButton", "prev", "PrevButton", "NextButton"):
+            try:
+                driver.wait_for_object(By.NAME, back_name, enabled=True, timeout=5).click()
+                clicked = True
+                time.sleep(2)
+                break
+            except Exception:
+                pass
+        assert clicked, "No Back/Prev/Next button found."
 
-        special_buttons = ("prev", "PrevButton", "Back", "BackButton", "HomeButton")
-        self._go_back_to_start_screen(special_back_buttons=special_buttons)
+        back_scene = driver.get_current_scene()
+        assert back_scene == "NewStartScene", f"Expected 'NewStartScene' after back, but got '{back_scene}'"
+        driver.wait_for_object(By.NAME, "GO-Map", enabled=True, timeout=15)
 
-    def test_go_to_dialogue(self):
-        StartScreen.go_to_dialogue(self.driver)
-        self._remember_and_wait_scene("dialogue", timeout=25)
-        self._go_back_to_start_screen()
+    def test_go_to_shop_opens_avatar_builder_scene(self, altdriver):
+        driver, _platform = altdriver
 
-    def test_go_to_competitions(self):
-        StartScreen.go_to_competitions(self.driver)
-        self._remember_and_wait_scene("competitions", timeout=25)
-        self._go_back_to_start_screen()
+        driver.wait_for_object(By.NAME, "GO-Avatar_Builder", enabled=True, timeout=20).click()
+        time.sleep(6)
 
-    def test_go_to_treasure_island(self):
-        StartScreen.go_to_treasure_island(self.driver)
-        self._remember_and_wait_scene("treasure_island", timeout=25)
-        self._go_back_to_start_screen()
+        current_scene = driver.get_current_scene()
+        print("Current scene:", current_scene)
+        assert current_scene == "AvatarBuilderScene", f"Expected 'AvatarBuilderScene' but got '{current_scene}'"
 
-    def test_go_to_wordlist(self):
-        StartScreen.go_to_wordlist(self.driver)
+        clicked = False
+        for back_name in ("BackButton", "GO-Back", "PrevButton", "PreviousButton", "NextButton"):
+            try:
+                driver.wait_for_object(By.NAME, back_name, enabled=True, timeout=5).click()
+                clicked = True
+                time.sleep(2)
+                break
+            except Exception:
+                pass
+        assert clicked, "No Back/Prev/Next button found."
 
-        # Wordlist is often a popup; scene may not change.
-        # We still call wait_for_scene (on current scene) + validate popup button.
-        self._remember_and_wait_scene("wordlist", timeout=10, allow_same_scene=True)
+        back_scene = driver.get_current_scene()
+        assert back_scene == "NewStartScene", f"Expected 'NewStartScene' after back, but got '{back_scene}'"
+        driver.wait_for_object(By.NAME, "GO-Map", enabled=True, timeout=15)
 
-        _click_if_present(self.driver, "nextButton", timeout=2)
-        self._go_back_to_start_screen()
+    def test_go_to_daily_games_opens_daily_games_selection_scene(self, altdriver):
+        driver, _platform = altdriver
+
+        driver.wait_for_object(By.NAME, "GO-Daily", enabled=True, timeout=20).click()
+        time.sleep(6)
+
+        current_scene = driver.get_current_scene()
+        print("Current scene:", current_scene)
+        assert current_scene == "DailyGamesSelection", f"Expected 'DailyGamesSelection' but got '{current_scene}'"
+        time.sleep(2)
+
+        driver.wait_for_object(By.NAME, "prev", enabled=True, timeout=20).click()
+        time.sleep(6)
+
+        back_scene = driver.get_current_scene()
+        assert back_scene == "NewStartScene", f"Expected 'NewStartScene' after back, but got '{back_scene}'"
+        driver.wait_for_object(By.NAME, "GO-Map", enabled=True, timeout=15)
+
+    def test_go_to_dialogue_opens_dialogue_selection_scene(self, altdriver):
+        driver, _platform = altdriver
+
+        driver.wait_for_object(By.NAME, "GO-Dialogue", enabled=True, timeout=20).click()
+        time.sleep(6)
+
+        current_scene = driver.get_current_scene()
+        print("Current scene:", current_scene)
+        assert current_scene == "DialogueSelectionScene", f"Expected 'DialogueSelectionScene' but got '{current_scene}'"
+
+        clicked = False
+        for back_name in ("BackButton", "GO-Back", "PrevButton", "PreviousButton", "NextButton"):
+            try:
+                driver.wait_for_object(By.NAME, back_name, enabled=True, timeout=5).click()
+                clicked = True
+                time.sleep(2)
+                break
+            except Exception:
+                pass
+        assert clicked, "No Back/Prev/Next button found."
+
+        back_scene = driver.get_current_scene()
+        assert back_scene == "NewStartScene", f"Expected 'NewStartScene' after back, but got '{back_scene}'"
+        driver.wait_for_object(By.NAME, "GO-Map", enabled=True, timeout=15)
+
+    def test_go_to_competitions_opens_tournament_selection_scene(self, altdriver):
+        driver, _platform = altdriver
+
+        driver.wait_for_object(By.NAME, "GO-Competitions", enabled=True, timeout=20).click()
+        time.sleep(6)
+
+        current_scene = driver.get_current_scene()
+        print("Current scene:", current_scene)
+        assert current_scene == "TournamentSelectionScene", f"Expected 'TournamentSelectionScene' but got '{current_scene}'"
+
+        clicked = False
+        for back_name in ("BackButton", "GO-Back", "PrevButton", "PreviousButton", "NextButton"):
+            try:
+                driver.wait_for_object(By.NAME, back_name, enabled=True, timeout=5).click()
+                clicked = True
+                time.sleep(2)
+                break
+            except Exception:
+                pass
+        assert clicked, "No Back/Prev/Next button found."
+
+        back_scene = driver.get_current_scene()
+        assert back_scene == "NewStartScene", f"Expected 'NewStartScene' after back, but got '{back_scene}'"
+        driver.wait_for_object(By.NAME, "GO-Map", enabled=True, timeout=15)
+
+    def test_go_to_treasure_island_opens_treasure_island_scene(self, altdriver):
+        driver, _platform = altdriver
+
+        driver.wait_for_object(By.NAME, "GO-Treasure_Island", enabled=True, timeout=20).click()
+        time.sleep(6)
+
+        current_scene = driver.get_current_scene()
+        print("Current scene:", current_scene)
+        assert current_scene == "TreasureIsland", f"Expected 'TreasureIsland' but got '{current_scene}'"
+
+        clicked = False
+        for back_name in ("BackButton", "GO-Back", "PrevButton", "PreviousButton", "NextButton"):
+            try:
+                driver.wait_for_object(By.NAME, back_name, enabled=True, timeout=6).click()
+                clicked = True
+                time.sleep(2)
+                break
+            except Exception:
+                pass
+        assert clicked, "No Back/Prev/Next button found."
+
+        back_scene = driver.get_current_scene()
+        assert back_scene == "NewStartScene", f"Expected 'NewStartScene' after back, but got '{back_scene}'"
+        driver.wait_for_object(By.NAME, "GO-Map", enabled=True, timeout=15)
+
+    def test_go_to_audiobook_opens_audiobook_library_scene(self, altdriver):
+        driver, _platform = altdriver
+
+        driver.wait_for_object(By.NAME, "GO-Audiobook", enabled=True, timeout=20).click()
+        time.sleep(6)
+
+        current_scene = driver.get_current_scene()
+        print("Current scene:", current_scene)
+        assert current_scene == "AudiobookLibraryScene", f"Expected 'AudiobookLibraryScene' but got '{current_scene}'"
+
+        clicked = False
+        for back_name in ("BackButton", "GO-Back", "PrevButton", "PreviousButton", "NextButton"):
+            try:
+                driver.wait_for_object(By.NAME, back_name, enabled=True, timeout=6).click()
+                clicked = True
+                time.sleep(2)
+                break
+            except Exception:
+                pass
+        assert clicked, "No Back/Prev/Next button found."
+
+        back_scene = driver.get_current_scene()
+        assert back_scene == "NewStartScene", f"Expected 'NewStartScene' after back, but got '{back_scene}'"
+        driver.wait_for_object(By.NAME, "GO-Map", enabled=True, timeout=15)
+
+    def test_go_to_wordlist_opens_wordlist_scene(self, altdriver):
+        driver, _platform = altdriver
+
+        driver.wait_for_object(By.NAME, "WordListButton", enabled=True, timeout=20).click()
+        time.sleep(6)
+
+        current_scene = driver.get_current_scene()
+        print("Current scene:", current_scene)
+        assert current_scene == "WordListScene", f"Expected 'WordListScene' but got '{current_scene}'"
+
+        time.sleep(2)
+
+        driver.wait_for_object(By.NAME, "nextButton", enabled=True, timeout=20).click()
+        time.sleep(6)
+
+
+
+        back_scene = driver.get_current_scene()
+        assert back_scene == "NewStartScene", f"Expected 'NewStartScene' after back, but got '{back_scene}'"
+        driver.wait_for_object(By.NAME, "GO-Map", enabled=True, timeout=15)

@@ -1,4 +1,5 @@
-{ "testDomains": ["sanity2"],
+{
+  "testDomains": ["sanity1"],
   "reportOut": ["sanad@kideo.tech"],
   "errorFiles": "C:/Users/sanad/Downloads/reports/errors.txt",
   "screenShotsFolder": "C:/Users/sanad/Downloads/screenshots",
@@ -10,7 +11,5 @@
   "userMode": "single",
   "userIndex": 0,
   "platform": "WindowsEditor",
-  "appId": "846B0000",
   "deviceInstanceId": "73e60e7d6bbb26eb2e71b16c2c479c0f1dadbb48"
 }
-

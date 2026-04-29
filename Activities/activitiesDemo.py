@@ -8,6 +8,11 @@ from langdetect import detect
 from Utilities.utilsdemo import *
 from Utilities.utilsdemo import click_by_name
 import math
+import time
+from alttester import By
+
+from Utilities.utils_audio import say, init_audio  # or wherever you placed it
+
 
 def search(altdriver):
     """Automates the Search activity by matching and tapping letters."""
@@ -811,7 +816,7 @@ def type_it_right(altdriver):
     for i in range(num_words):
         time.sleep(2.5)
 
-        raw_answer = altdriver.find_object(By.NAME, "KL_ContextTypingItQuiz(Clone)") \
+        raw_answer = altdriver.find_object(By.NAME, "ContextTypingItQuiz(Clone)") \
             .get_component_property("com.kideo.learn.english.ContextAudioTypingQuiz", "currentWord_.word",
                                     "Assembly-CSharp")
 
@@ -854,25 +859,52 @@ def hang_words(altdriver):
 
     print("[INFO] HangWords activity complete")
 
-def Cards(altdriver):
+
+def _safe_exists(altdriver, name: str) -> bool:
+    try:
+        altdriver.find_object(By.NAME, name)
+        return True
+    except Exception:
+        return False
+
+
+def _wait_until_exists(altdriver, name: str, timeout: float = 10.0, poll: float = 0.2) -> bool:
+    end = time.time() + timeout
+    while time.time() < end:
+        if _safe_exists(altdriver, name):
+            return True
+        time.sleep(poll)
+    return False
+
+def Cards(altdriver, lang="en-US", max_rounds=8):
     """Speaks all words from cards and exits when done."""
-    while True:
+    init_audio()
+
+    print("[INFO] Cards activity started")
+
+    for _ in range(max_rounds):
         word_objs = altdriver.find_objects(By.NAME, "RTLTMPWordPanel")
+
         for word in word_objs:
             word_text = word.get_component_property("TMProWordPanel", "Word.word", "Assembly-CSharp")
-            print(f"[INFO] Speaking card word: {word_text}")
-            say(word_text)
-            time.sleep(2)
+            word_text = str(word_text).strip()
+            if not word_text:
+                continue
 
+            print(f"[INFO] Speaking card word: {word_text}")
+            say(word_text, lang=lang, wait=True)
+            time.sleep(0.35)  # small settle time for recognition pipeline
+
+        # Try exit
         try:
-            exit_button = altdriver.find_object(By.NAME, "ExitButton")
-            exit_button.click()
-            break
+            altdriver.find_object(By.NAME, "ExitButton").click()
+            print("[INFO] Cards activity complete")
+            return
         except:
             print("[INFO] Waiting for final feedback...")
             time.sleep(0.5)
 
-    print("[INFO] Cards activity complete")
+    raise RuntimeError("[FAIL] Cards did not complete / ExitButton never appeared.")
 
 def Delivery_truck(altdriver):
     """Speaks out loud each new word in the delivery truck boxes."""
@@ -1761,60 +1793,104 @@ def exams_image_for_voices(altdriver):
         except Exception as e:
             print(f"[ERROR] Question {i}: {e}")
 
-### need to fix the duplication issue in turtle_island
+import re
+import time
+
 def turtle_island(altdriver):
 
-    print("[INFO] Starting Turtle Island activity...")
+    def parse_true_order(true_raw):
+        """
+        supports:
+          - "3"
+          - "[1, 2]"
+          - "System.Int32[] { 1, 2 }"
+          - any string containing integers
+        returns:
+          - int if single
+          - list[int] if multiple
+          - None if missing
+        """
+        if true_raw is None:
+            return None
+        s = str(true_raw).strip()
+        if s == "" or s.lower() == "null":
+            return None
 
-    # Get total words
+        nums = [int(n) for n in re.findall(r"-?\d+", s)]
+        if not nums:
+            return None
+        return nums if len(nums) > 1 else nums[0]
+
+    def as_allowed_set(true_order):
+        if true_order is None:
+            return set()
+        if isinstance(true_order, (list, tuple, set)):
+            return set(int(x) for x in true_order)
+        try:
+            return {int(true_order)}
+        except:
+            return set()
+
+    def dist_to_allowed(pos, allowed):
+        if not allowed:
+            return 999999
+        return min(abs(pos - a) for a in allowed)
+
+    print("[info] starting turtle island activity...")
+
+    # get total words
     progress_obj = altdriver.find_object(By.NAME, "ProgressText")
     total = int(progress_obj.get_text().split('/')[1])
-    print(f"[INFO] Total words to solve: {total}")
+    print(f"[info] total words to solve: {total}")
 
-    # Main word loop
+    # main word loop
     for word_i in range(total):
-        print(f"\n====== Solving word {word_i + 1}/{total} ======")
+        print(f"\n====== solving word {word_i + 1}/{total} ======")
         time.sleep(2)
 
-        # Remove false-letter turtles
+        # remove false-letter turtles
         all_objs = altdriver.get_all_elements()
         turtles = [t for t in all_objs if t.name.startswith("turtle_") and t.name.replace("turtle_", "").isdigit()]
 
         for t in turtles:
             try:
                 true_raw = t.get_component_property(
-                    'com.kideo.learn.english.TurtleScript',
-                    'turtleLetter.trueOrders', 'Assembly-CSharp')
-                if true_raw is None or true_raw == "null":
-                    print(f"[ACTION] Removing {t.name} (false letter)")
+                    "com.kideo.learn.english.TurtleScript",
+                    "turtleLetter.trueOrders", "Assembly-CSharp"
+                )
+                if true_raw is None or str(true_raw).strip().lower() == "null":
+                    print(f"[action] removing {t.name} (false letter)")
                     t.tap()
                     time.sleep(2)
             except:
                 pass
 
-        # Swap loop with progress tracking
-        MAX_SWAPS = 50
-        locked_turtles = set()  # Track turtles in correct position
+        # swap loop
+        MAX_SWAPS = 80  # a bit higher for harder/double-letter cases
 
-        for swap_round in range(MAX_SWAPS):
-            # Refresh turtle list
+        for _ in range(MAX_SWAPS):
+            # refresh turtles
             all_objs = altdriver.get_all_elements()
             turtles = [t for t in all_objs if t.name.startswith("turtle_") and t.name.replace("turtle_", "").isdigit()]
-
             if not turtles:
                 break
 
-            # Build turtle info with current positions
+            # build info list with visual positions
             info_list = []
             for t in turtles:
+                # true orders -> allowed set
                 try:
                     true_raw = t.get_component_property(
-                        'com.kideo.learn.english.TurtleScript',
-                        'turtleLetter.trueOrders', 'Assembly-CSharp')
+                        "com.kideo.learn.english.TurtleScript",
+                        "turtleLetter.trueOrders", "Assembly-CSharp"
+                    )
                     true_order = parse_true_order(true_raw)
                 except:
                     true_order = None
 
+                allowed = as_allowed_set(true_order)
+
+                # current x -> visual index
                 try:
                     pos = t.get_screen_position()
                     x = pos["x"] if isinstance(pos, dict) else getattr(pos, "x", pos[0])
@@ -1824,88 +1900,84 @@ def turtle_island(altdriver):
                 info_list.append({
                     "obj": t,
                     "name": t.name,
-                    "true": true_order,
-                    "x": x
+                    "allowed": allowed,
+                    "x": x,
                 })
 
-            # Sort by visual position (x coordinate)
+            # sort by x => visual index
             info_list.sort(key=lambda c: c["x"])
-
-            # Assign current visual positions
             for i, info in enumerate(info_list):
                 info["visual"] = i
+                info["correct"] = (i in info["allowed"]) if info["allowed"] else False
 
-            # Lock turtles that are in correct position
-            for info in info_list:
-                if info["true"] is not None and info["true"] == info["visual"]:
-                    locked_turtles.add(info["name"])
-
-            # Find first misplaced turtle (skip locked ones)
-            wrong = None
-            for info in info_list:
-                if info["name"] in locked_turtles:
-                    continue
-                if info["true"] is not None and info["true"] != info["visual"]:
-                    wrong = info
-                    break
-
-            if wrong is None:
-                print("[INFO] All turtles in correct order.")
+            # if all turtles with known allowed sets are correct -> done
+            wrongs = [i for i in info_list if i["allowed"] and not i["correct"]]
+            if not wrongs:
+                print("[info] all turtles in correct order.")
                 break
 
-            # Find the turtle at wrong's target position (skip locked ones)
-            target = None
-            for info in info_list:
-                if info["name"] in locked_turtles:
+            # pick first wrong turtle
+            wrong = wrongs[0]
+
+            # choose best swap candidate:
+            # 1) maximize correctness delta for the two swapped turtles
+            # 2) if no improvement, minimize wrong distance to allowed after swap
+            best = None
+            best_delta = -999999
+
+            a_vis = wrong["visual"]
+            a_allowed = wrong["allowed"]
+            a_correct_before = a_vis in a_allowed
+
+            for cand in info_list:
+                if cand["name"] == wrong["name"]:
                     continue
-                if info["visual"] == wrong["true"]:
-                    target = info
-                    break
 
-            # If target not found or target is also in correct position, skip
-            if target is None or target["name"] == wrong["name"]:
-                print("[WARN] Cannot find valid swap target.")
-                # Unlock all and retry
-                locked_turtles.clear()
-                continue
+                b_vis = cand["visual"]
+                b_allowed = cand["allowed"]
 
-            # Double check: don't swap if target is already in correct position
-            if target["true"] == target["visual"]:
-                print(f"[SKIP] Target {target['name']} is already correct, unlocking and retrying")
-                locked_turtles.clear()
-                continue
+                b_correct_before = (b_vis in b_allowed) if b_allowed else False
+
+                a_correct_after = (b_vis in a_allowed)
+                b_correct_after = (a_vis in b_allowed) if b_allowed else b_correct_before
+
+                delta = (int(a_correct_after) + int(b_correct_after)) - (int(a_correct_before) + int(b_correct_before))
+
+                if delta > best_delta:
+                    best_delta = delta
+                    best = cand
+
+            # if we found no candidate (shouldn't happen), break
+            if best is None:
+                print("[warn] no swap candidate found.")
+                break
+
+            # if swap doesn't improve correctness, do a "closest" swap to escape duplicates deadlocks
+            if best_delta <= 0:
+                best = min(
+                    (c for c in info_list if c["name"] != wrong["name"]),
+                    key=lambda c: dist_to_allowed(c["visual"], wrong["allowed"])
+                )
+                print("[warn] no improving swap found, using fallback swap (duplicate letters case).")
 
             print(
-                f"[SWAP] {wrong['name']} (pos={wrong['visual']}, should be={wrong['true']}) ↔ {target['name']} (pos={target['visual']}, should be={target['true']})")
+                f"[swap] {wrong['name']} (pos={wrong['visual']}, allowed={sorted(list(wrong['allowed']))}) "
+                f"↔ {best['name']} (pos={best['visual']}, allowed={sorted(list(best['allowed'])) if best['allowed'] else []})"
+            )
 
-            # Perform swap
+            # perform swap
             try:
                 start = wrong["obj"].get_screen_position()
-                end = target["obj"].get_screen_position()
+                end = best["obj"].get_screen_position()
                 altdriver.swipe(start, end, 0.7)
                 time.sleep(1.5)
             except Exception as e:
-                print(f"[ERROR] Swap failed: {e}")
+                print(f"[error] swap failed: {e}")
                 time.sleep(1.5)
 
-        print("[INFO] Word completed.\n")
+        print("[info] word completed.\n")
 
-    print("\n✔✔✔ Turtle Island completed ✔✔✔")
-
-
-def parse_true_order(value):
-    """Parse true order from various formats"""
-    if value is None or value == "null":
-        return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, list) and value:
-        return int(value[0])
-    if isinstance(value, str):
-        match = re.search(r"-?\d+", value)
-        if match:
-            return int(match.group(0))
-    return None
+    print("\n✔✔✔ turtle island completed ✔✔✔")
 
 def wordle(altdriver):
     # 1️⃣ Read target word from Gameplay Manager

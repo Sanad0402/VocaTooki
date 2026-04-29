@@ -1,38 +1,16 @@
-# Utility: Google TTS + Pygame Playback
 import logging
-
-import time
-import traceback
-
 from alttester import By, AltKeyCode, AltDriver
-import pytest
 import requests
-from google.cloud import texttospeech
-from pygame import mixer
-from datetime import datetime
+import io
+import time
 
 
 FAILED_ACTIVITIES = set()
 activity_report = []
 
 
-# Utility: Google TTS + Pygame Playback
 
 
-def say(word, lang="en"):
-    """Speak a word using Google TTS and play it via Pygame."""
-    synthesis_input = texttospeech.SynthesisInput(text=word)
-    voice = texttospeech.VoiceSelectionParams(language_code=lang, ssml_gender=2)
-    audio_config = texttospeech.AudioConfig(audio_encoding=texttospeech.AudioEncoding.LINEAR16)
-    response = client.synthesize_speech(input=synthesis_input, voice=voice, audio_config=audio_config)
-
-    with open("output2.wav", "wb") as out:
-        out.write(response.audio_content)
-
-    mixer.music.unload()
-    time.sleep(1)
-    mixer.music.load("output2.wav")
-    mixer.music.play()
 
 
 # Generic Method Invoker
@@ -207,7 +185,7 @@ def run_activity(altdriver, activity):
 
     time.sleep(1)
     activity.click()
-    time.sleep(5)  # small settle time before polling
+    time.sleep(10)  # small settle time before polling
 
     # --- get new scene with retries ---
     scene = _get_current_activity_with_retry(altdriver, prev_scene=prev_scene, max_attempts=10, waits=(5,8,15,40,120,240))

@@ -5,26 +5,38 @@ import time
 import zipfile
 import tempfile
 import argparse
+import subprocess
+import shutil
 from pathlib import Path
 from datetime import datetime
 from xml.etree import ElementTree as ET
 from typing import List
 
-import pytest
-from dotenv import load_dotenv
+# ---------------------------
+# Optional dependency: dotenv
+# ---------------------------
+try:
+    from dotenv import load_dotenv
+except Exception:
+    load_dotenv = None
+
 
 # --- Load custom env for email ---
 env_path = Path(__file__).parent.parent / "automation_email.env"
-if env_path.exists():
+if load_dotenv and env_path.exists():
     load_dotenv(env_path)
     print(f"[INFO] Loaded email settings from: {env_path}")
-else:
+elif not env_path.exists():
     print("[WARN] automation_email.env not found. Email sending may fail.")
+else:
+    print("[WARN] python-dotenv not installed. Email env loading skipped.")
 
 
 def _mkparents(p: Path):
-    if str(p):
-        p.parent.mkdir(parents=True, exist_ok=True)
+    # Ensure parent folder exists for a file path
+    if p is None:
+        return
+    p.parent.mkdir(parents=True, exist_ok=True)
 
 
 def _normalize_marks(marks: List[str]) -> List[str]:
@@ -41,6 +53,7 @@ def _normalize_marks(marks: List[str]) -> List[str]:
 
 def _marks_expr(marks: List[str]) -> str:
     return " or ".join(marks) if marks else ""
+
 
 def _zip_folder(folder: Path, outzip: Path):
     _mkparents(outzip)
@@ -114,7 +127,6 @@ def _send_email(to_list, subject, body, attachments):
             print(f"[WARN] Email not sent: {e2} (both STARTTLS and SSL failed).")
 
 
-
 def _parse_junit(junit_path: Path):
     if not junit_path.exists():
         return 0, 0, 0, 0, 0, "[WARN] No JUnit XML produced."
@@ -142,12 +154,57 @@ def _parse_junit(junit_path: Path):
 
     return total, passed, failures, skipped, errors, "\n".join(details) if details else ""
 
+
 def _try_write_activity_section(fh):
+    """
+    Don't let activity report break the runner.
+    """
     try:
         from Utilities import utilsdemo
-        utilsdemo.write_activity_report(fh)
+        if hasattr(utilsdemo, "write_activity_report"):
+            utilsdemo.write_activity_report(fh)
+        else:
+            fh.write("[WARN] utilsdemo.write_activity_report not found.\n")
     except Exception as e:
         fh.write(f"[WARN] Could not append activity report: {e}\n")
+
+
+def _run_pytest(pytest_args: List[str]) -> int:
+    """
+    Robust pytest runner:
+    1) Try import pytest and run pytest.main (fast + in-process)
+    2) If pytest isn't importable in this interpreter, fallback to calling the `pytest` executable (or `py -m pytest`)
+    """
+    # 1) In-process
+    try:
+        import pytest  # noqa: F401
+        print("[INFO] Running pytest via import pytest (in-process).")
+        import pytest as _pytest
+        return _pytest.main(pytest_args)
+    except ModuleNotFoundError:
+        print("[WARN] 'import pytest' failed in this Python:", sys.executable)
+
+    # 2) External pytest executable
+    pytest_exe = shutil.which("pytest")
+    if pytest_exe:
+        cmd = [pytest_exe] + pytest_args
+        print("[INFO] Running pytest via executable:", pytest_exe)
+        print("[RUN]", " ".join(cmd))
+        return subprocess.call(cmd)
+
+    # 3) Last resort: python launcher
+    py_launcher = shutil.which("py")
+    if py_launcher:
+        cmd = [py_launcher, "-m", "pytest"] + pytest_args
+        print("[INFO] Running pytest via 'py -m pytest'.")
+        print("[RUN]", " ".join(cmd))
+        return subprocess.call(cmd)
+
+    # 4) Give a clear error
+    print("[ERROR] Could not run pytest. Neither import pytest works nor pytest executable is found.")
+    print("Fix:")
+    print(f'  "{sys.executable}" -m pip install pytest')
+    return 2
 
 
 def main():
@@ -155,29 +212,41 @@ def main():
     ap.add_argument("--config", default="runner.json")
     args = ap.parse_args()
 
-    cfg = json.loads(Path(args.config).read_text(encoding="utf-8"))
+    cfg_path = Path(args.config)
+    if not cfg_path.exists():
+        raise FileNotFoundError(f"Config file not found: {cfg_path.resolve()}")
+
+    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
 
     tests_path = cfg.get("testsPath", "Tests")
     report_out = cfg.get("reportOut", [])
 
-    error_file = Path(cfg.get("errorFiles") or "")
-    shots_dir = Path(cfg.get("screenShotsFolder") or "")
-    report_path = Path(cfg.get("reportFileName") or f"./RunReport_{datetime.now():%Y%m%d_%H%M%S}.txt")
+    # --- safer optional paths ---
+    error_file_str = (cfg.get("errorFiles") or "").strip()
+    shots_dir_str  = (cfg.get("screenShotsFolder") or "").strip()
+    report_path_str = (cfg.get("reportFileName") or "").strip()
+
+    error_file = Path(error_file_str) if error_file_str else None
+    shots_dir  = Path(shots_dir_str) if shots_dir_str else None
+    report_path = Path(report_path_str) if report_path_str else Path(f"./RunReport_{datetime.now():%Y%m%d_%H%M%S}.txt")
 
     user_mode = cfg.get("userMode", "single")
     user_index = str(cfg.get("userIndex", 0))
     levels_only = bool(cfg.get("levelsOnly", False))
 
-
-
     platform = cfg.get("platform", "WindowsEditor")
-    app_id = cfg.get("appId", "")
-    device_instance_id = cfg.get("deviceInstanceId", "")
+
+    # ✅ make appId optional
+    app_id = (cfg.get("appId") or "").strip()
+    device_instance_id = (cfg.get("deviceInstanceId") or "").strip()
+
     marks = _normalize_marks(cfg.get("testDomains", []))
 
     junit_xml = Path(tempfile.gettempdir()) / f"junit_{int(time.time())}.xml"
+
     pytest_args = [
         tests_path,
+        "-s",
         "-q",
         "--maxfail=1",
         "-rA",
@@ -185,16 +254,19 @@ def main():
         f"--user-mode={user_mode}",
         f"--user-index={user_index}",
         f"--platform={platform}",
-        f"--app_id={app_id}",
-        f"--device_instance_id={device_instance_id}",
     ]
+
+    # ✅ only pass if present
+    if app_id:
+        pytest_args.append(f"--app_id={app_id}")
+    if device_instance_id:
+        pytest_args.append(f"--device_instance_id={device_instance_id}")
 
     if marks:
         pytest_args += ["-m", _marks_expr(marks)]
     if levels_only:
         pytest_args.append("--levels-only")
 
-    # 🆕 priority: multiple lessons > single lesson
     lessons = cfg.get("lessons", None)
     if lessons:
         if isinstance(lessons, (list, tuple)):
@@ -208,10 +280,11 @@ def main():
 
     print("[RUN] pytest", " ".join(pytest_args))
 
-    if str(shots_dir):
+    if shots_dir:
         shots_dir.mkdir(parents=True, exist_ok=True)
 
-    retcode = pytest.main(pytest_args)
+    # ✅ robust pytest run
+    retcode = _run_pytest(pytest_args)
 
     total, passed, failed, skipped, errors, details = _parse_junit(junit_xml)
 
@@ -230,13 +303,13 @@ def main():
         f.write("=" * 40 + "\n\n")
         _try_write_activity_section(f)
 
-    if str(error_file):
+    if error_file:
         _mkparents(error_file)
         with open(error_file, "w", encoding="utf-8") as ef:
             ef.write(details or "")
 
     attachments = [report_path]
-    if str(shots_dir) and any(shots_dir.glob("**/*")):
+    if shots_dir and any(shots_dir.glob("**/*")):
         zip_path = report_path.with_suffix(".screens.zip")
         _zip_folder(shots_dir, zip_path)
         attachments.append(zip_path)

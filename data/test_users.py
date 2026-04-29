@@ -1,7 +1,9 @@
 TEST_USERS = [
-    {"username": "vt254006", "password": "9241", "class_id": "2540"},
-    {"username": "vt233615", "password": "4948", "class_id": "2336"}
+    {"username": "vt392702", "password": "4832", "class_id": "3927"},
+    {"username": "vt254008", "password": "7012", "class_id": "2540"}
+
 ]
+
 
 DEFAULT_CLASS_ID = "CLASS_DEFAULT"
 
