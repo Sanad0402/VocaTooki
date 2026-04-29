@@ -1575,6 +1575,7 @@ def solve_puzzles(altdriver):
 
         print("[NEXT] Clicking next button...")
         try:
+            time.sleep(1.5)
             next_btn = altdriver.find_object(By.NAME, "nextButton")
             next_btn.click()
         except Exception:

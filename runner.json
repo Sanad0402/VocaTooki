@@ -1,5 +1,5 @@
 {
-  "testDomains": ["sanity1"],
+  "testDomains": ["sanity2"],
   "reportOut": ["sanad@kideo.tech"],
   "errorFiles": "C:/Users/sanad/Downloads/reports/errors.txt",
   "screenShotsFolder": "C:/Users/sanad/Downloads/screenshots",
@@ -7,7 +7,7 @@
   "testsPath": "Tests",
   "extraPytestArgs": [],
   "levelsOnly": false,
-  "lessons": [0,1,2,3,4,5,6],
+  "lessons": [3,4,5,6],
   "userMode": "single",
   "userIndex": 0,
   "platform": "WindowsEditor",

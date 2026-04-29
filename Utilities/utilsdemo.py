@@ -7,12 +7,6 @@ import time
 
 FAILED_ACTIVITIES = set()
 activity_report = []
-
-
-
-
-
-
 # Generic Method Invoker
 def call_method(altdriver, component_name, method_name, parameters=None, parameter_types=None,
                 game_object=None, game_object_name="AltTesterPrefab", assembly="Assembly-CSharp"):
@@ -183,7 +177,7 @@ def run_activity(altdriver, activity):
         print(f"[WARN] Failed to get previous scene (before click): {e}")
         prev_scene = None
 
-    time.sleep(1)
+    time.sleep(3)
     activity.click()
     time.sleep(10)  # small settle time before polling
 
@@ -238,7 +232,8 @@ def run_activity(altdriver, activity):
         'LETTERS_SORTING': A.signs,
         'CROSSWORD2': A.crosswords2,
         'CROSSWORD':A.crosswords,
-        'PUZZLES':A.solve_puzzles
+        'PUZZLES':A.solve_puzzles,
+        'TURTLE_ISLAND':A.turtle_island
     }
 
     if scene not in activity_map:
@@ -401,6 +396,7 @@ def get_class_map(class_id, map_id):
 
     return {}
 
+
 def get_level(class_id, lesson_number, type="lesson", difficulty=-1):
     logging.info(f"[Level Resolver] Fetching level for class_id={class_id}, lesson={lesson_number}, type={type}, difficulty={difficulty}")
 
@@ -434,6 +430,7 @@ def get_level(class_id, lesson_number, type="lesson", difficulty=-1):
 
     logging.warning(f"[Level Resolver] No matching level found for type='{type}' and difficulty='{difficulty}'")
     return -1
+
 
 def enter_to_level(altdriver, class_id, lesson_number, type="lesson", difficulty=-1):
     logging.info(
@@ -486,6 +483,7 @@ def solve_lesson_levels(altdriver, class_id, lesson_num):
 
         try:
             solve_level(altdriver, diff)
+
             back_button = altdriver.wait_for_object(By.NAME, 'Back')
             back_button.click()
             time.sleep(6)
@@ -526,6 +524,118 @@ def solve_level(altdriver, difficulty):
 
     logging.info(f"[solve_level] Finished solving level for difficulty {difficulty}")
     time.sleep(4)
+
+
+def solve_event_levels(altdriver):
+    """
+    Solves all levels by clicking each LessonLevelIcon Variant(Clone) for each lesson and difficulty.
+    Each lesson has 3 levels: easy, medium, hard.
+
+    Args:
+        altdriver (AltDriver): AltTester driver instance
+    """
+    # Loop through lessons 1 to 8
+    for lesson_num in range(1, 9):  # Lessons 1 to 8
+        logging.info(f"[solve_event_levels] Solving levels for lesson {lesson_num}")
+
+        # Loop through each difficulty: easy, medium, hard
+        for difficulty_num in range(1, 4):  # Difficulty 1 - easy, 2 - medium, 3 - hard
+            level_index = (lesson_num - 1) * 3 + difficulty_num  # Calculate index for the level
+            difficulty = ["easy", "medium", "hard"][difficulty_num - 1]  # Map difficulty_num to difficulty name
+
+            logging.info(
+                f"[solve_event_levels] Solving {difficulty} level for lesson {lesson_num} (Level Index: {level_index})")
+
+            try:
+                # Click on the respective LessonLevelIcon Variant(Clone) based on the level index
+                level_icon = altdriver.wait_for_object(By.NAME, f"LessonLevelIcon Variant(Clone) {level_index}")
+                level_icon.click()
+                logging.info(f"[solve_event_levels] Clicked on level {level_index}")
+
+                # Solve the level by calling solve_level with the corresponding difficulty
+                solve_level(altdriver, difficulty)
+
+                # After solving the level, click 'Back' to go back
+                back_button = altdriver.wait_for_object(By.NAME, 'Back')
+                back_button.click()
+                time.sleep(6)  # Wait for a few seconds before moving to the next level
+
+            except Exception as e:
+                logging.error(f"[solve_event_levels] Error solving level {level_index} for lesson {lesson_num}: {e}")
+                continue  # Continue to the next level if one fails
+
+def solve_specific_event_level(altdriver, level_index):
+    """
+    Solves a specific level based on the provided level index.
+    This function will click the corresponding level icon and solve it.
+
+    Args:
+        altdriver (AltDriver): AltTester driver instance
+        level_index (int): The index of the level to solve (1 to 24).
+    """
+    logging.info(f"[solve_specific_level] Solving specific level {level_index}...")
+
+    try:
+        # Click on the specific LessonLevelIcon Variant(Clone) based on the level index
+        level_icon = altdriver.wait_for_object(By.NAME, f"LessonLevelIcon Variant(Clone) {level_index}")
+        level_icon.click()
+        logging.info(f"[solve_specific_level] Clicked on level {level_index}")
+
+        # Determine the difficulty based on the level index:
+        # 1 → easy, 2 → medium, 3 → hard, 4 → easy, 5 → medium, 6 → hard, etc.
+        difficulty = ["easy", "medium", "hard"][(level_index - 1) % 3]
+        solve_level(altdriver, difficulty)
+
+        # After solving the level, click 'Back' to go back
+        back_button = altdriver.wait_for_object(By.NAME, 'Back')
+        back_button.click()
+        time.sleep(6)  # Wait for a few seconds before moving to the next level
+
+    except Exception as e:
+        logging.error(f"[solve_specific_level] Error solving level {level_index}: {e}")
+        return False  # Return False in case of an error solving the level
+
+    return True  # Return True when level is solved successfully
+
+
+def solve_level(altdriver, difficulty):
+    """
+    Executes the level flow(s) based on difficulty level:
+    - Easy → 3 activities
+    - Medium → 2 activities
+    - Hard → 1 activity
+
+    Args:
+        altdriver (AltDriver): AltTester driver instance
+        difficulty (str): "easy", "medium", "hard"
+    """
+    logging.info(f"[solve_level] Solving level with difficulty: {difficulty}")
+
+    # Normalize difficulty to a numeric value
+    difficulty_map = {"easy": 0, "medium": 1, "hard": 2}
+    difficulty_value = difficulty_map.get(difficulty.lower(), -1)
+
+    if difficulty_value == -1:
+        logging.error(f"[solve_level] Invalid difficulty level: {difficulty}")
+        return
+
+    # Number of repetitions based on difficulty
+    repetitions = {0: 3, 1: 2, 2: 1}[difficulty_value]
+    logging.info(f"[solve_level] Will run {repetitions} open-level flow(s)")
+
+    # Loop through the repetitions and handle each level flow
+    for i in range(repetitions):
+        logging.info(f"[solve_level] Executing flow {i + 1}/{repetitions}")
+        try:
+            handle_level_flow(altdriver)
+        except Exception as e:
+            logging.warning(f"[solve_level] Flow {i + 1} failed: {e}")
+
+    logging.info(f"[solve_level] Finished solving level with difficulty {difficulty}")
+    time.sleep(4)  # Wait before continuing to the next level
+
+
+
 
 
 def detect_exam_type(altdriver):
@@ -802,3 +912,206 @@ def run_all_exams(altdriver, class_id):
         except Exception as e:
             logging.error(f"[Exam Runner] Error at lesson {lesson_number}: {e}")
             continue
+
+import os
+import logging
+import requests
+from datetime import datetime
+
+VT_LOGIN_URL = "https://login.vocatooki.com/access/auth"
+VT_GAME = "vt"
+
+VT_USERNAME = "admin26@vocatooki.com"
+VT_PASSWORD = "Forqan81!!"
+
+
+_TOKEN_CACHE = {
+    "access_token": None
+}
+
+
+def format_exam_timestamp(ms_value):
+    if not ms_value:
+        return None
+    try:
+        return datetime.fromtimestamp(ms_value / 1000).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return ms_value
+
+
+def extract_user_id_from_userid_examid(userid_examid: str) -> str:
+    if "_" not in userid_examid:
+        raise ValueError(f"Invalid userid_examid format: {userid_examid}")
+    return userid_examid.split("_", 1)[0]
+
+
+def login_and_get_vt_token(username=None, password=None, force_refresh=False):
+    """
+    Logs in to Voca Tooki auth service and returns a bearer token.
+    Caches token in memory for reuse during the same test run.
+    """
+    if _TOKEN_CACHE["access_token"] and not force_refresh:
+        return _TOKEN_CACHE["access_token"]
+
+    username = username or VT_USERNAME
+    password = password or VT_PASSWORD
+
+    if not username or not password:
+        raise ValueError("Missing VT credentials. Set VT_USERNAME and VT_PASSWORD.")
+
+    payload = {
+        "username": username,
+        "password": password,
+        "game": VT_GAME
+    }
+
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    }
+
+    logging.info("[login_and_get_vt_token] Requesting auth token")
+
+    response = requests.post(VT_LOGIN_URL, json=payload, headers=headers, timeout=30)
+    response.raise_for_status()
+
+    data = response.json()
+
+    # support a few common token keys
+    token = (
+            data.get("jwtToken")
+            or data.get("token")
+            or data.get("access_token")
+            or data.get("jwt")
+            or data.get("id_token")
+    )
+
+    if not token:
+        raise ValueError(f"Token not found in login response. Response keys: {list(data.keys())}")
+
+    _TOKEN_CACHE["access_token"] = token
+    return token
+
+
+def get_auth_headers(token=None, username=None, password=None, force_refresh=False):
+    """
+    Returns Authorization headers.
+    If token is not supplied, fetches it automatically via login.
+    """
+    bearer = token or login_and_get_vt_token(
+        username=username,
+        password=password,
+        force_refresh=force_refresh
+    )
+
+    if not bearer.startswith("Bearer "):
+        bearer = f"Bearer {bearer}"
+
+    return {
+        "Authorization": bearer,
+        "Accept": "application/json"
+    }
+
+
+def get_user_exam_by_userid_examid(userid_examid, class_id=2336, token=None, username=None, password=None):
+    """
+    Calls:
+    GET https://vtbe.vocatooki.com/data/get-user-exams/{user_id}/{class_id}
+
+    Returns only the matching record for userid_examid.
+    """
+    user_id = extract_user_id_from_userid_examid(userid_examid)
+    url = f"https://vtbe.vocatooki.com/data/get-user-exams/{user_id}/{class_id}"
+
+    headers = get_auth_headers(token=token, username=username, password=password)
+
+    logging.info(
+        f"[get_user_exam_by_userid_examid] Fetching exam for userid_examid={userid_examid}, class_id={class_id}"
+    )
+
+    try:
+        response = requests.get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+
+        if isinstance(data, list):
+            records = data
+        elif isinstance(data, dict):
+            if isinstance(data.get("data"), list):
+                records = data["data"]
+            elif isinstance(data.get("exams"), list):
+                records = data["exams"]
+            else:
+                records = [data]
+        else:
+            logging.warning("[get_user_exam_by_userid_examid] Unexpected response type")
+            return None
+
+        for record in records:
+            if record.get("userid_examid") == userid_examid:
+                return {
+                    "userid_examid": record.get("userid_examid"),
+                    "delivered_date": record.get("delivered_date"),
+                    "delivered_date_readable": format_exam_timestamp(record.get("delivered_date")),
+                    "class_id": record.get("class_id"),
+                    "lesson_id": record.get("lesson_id"),
+                    "name": record.get("name"),
+                    "grade": record.get("grade")
+                }
+
+        logging.warning(f"[get_user_exam_by_userid_examid] No record found for {userid_examid}")
+        return None
+
+    except requests.exceptions.HTTPError as e:
+        logging.error(f"[get_user_exam_by_userid_examid] HTTP error: {e}")
+        try:
+            logging.error(f"[get_user_exam_by_userid_examid] Response text: {response.text}")
+        except Exception:
+            pass
+
+        # optional retry once with fresh token on 401
+        if getattr(response, "status_code", None) == 401 and token is None:
+            logging.info("[get_user_exam_by_userid_examid] Token may be expired, retrying with fresh token")
+            try:
+                fresh_headers = get_auth_headers(
+                    username=username,
+                    password=password,
+                    force_refresh=True
+                )
+                retry_response = requests.get(url, headers=fresh_headers, timeout=30)
+                retry_response.raise_for_status()
+                retry_data = retry_response.json()
+
+                if isinstance(retry_data, list):
+                    retry_records = retry_data
+                elif isinstance(retry_data, dict):
+                    if isinstance(retry_data.get("data"), list):
+                        retry_records = retry_data["data"]
+                    elif isinstance(retry_data.get("exams"), list):
+                        retry_records = retry_data["exams"]
+                    else:
+                        retry_records = [retry_data]
+                else:
+                    return None
+
+                for record in retry_records:
+                    if record.get("userid_examid") == userid_examid:
+                        return {
+                            "userid_examid": record.get("userid_examid"),
+                            "delivered_date": record.get("delivered_date"),
+                            "delivered_date_readable": format_exam_timestamp(record.get("delivered_date")),
+                            "class_id": record.get("class_id"),
+                            "lesson_id": record.get("lesson_id"),
+                            "name": record.get("name")
+                        }
+            except Exception as retry_err:
+                logging.error(f"[get_user_exam_by_userid_examid] Retry failed: {retry_err}")
+
+    except requests.exceptions.RequestException as e:
+        logging.error(f"[get_user_exam_by_userid_examid] Request error: {e}")
+    except ValueError as e:
+        logging.error(f"[get_user_exam_by_userid_examid] JSON parse/token error: {e}")
+
+    return None
+
+# example : exam = get_user_exam_by_userid_examid("49295_3", class_id=2336)
