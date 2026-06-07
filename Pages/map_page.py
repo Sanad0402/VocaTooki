@@ -10,6 +10,10 @@ class MapPage(BasePage):
     def solve_lesson_express_hard(self, class_id, lesson_num):
         """Solve full lesson including all levels and the exam."""
         return utilsdemo.solve_lesson_express_hard(self.driver, class_id, lesson_num)
+
+    def solve_lessons_express_hard(self, class_id, num_lessons, start_lesson=0):
+        """Solve `num_lessons` lessons (hard express), starting at `start_lesson`."""
+        return utilsdemo.solve_lessons_express_hard(self.driver, class_id, num_lessons, start_lesson)
     def solve_lesson(self, class_id, lesson_num):
         return utilsdemo.solve_lesson(self.driver, class_id, lesson_num)
 

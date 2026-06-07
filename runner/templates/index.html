@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Voca Tooki - Test Runner</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=3">
+</head>
+<body>
+  <header>
+    <h1>Voca Tooki · Test Runner</h1>
+    <span id="state-badge" class="badge idle">idle</span>
+  </header>
+
+  <main>
+    <section class="panel config">
+      <h2>Configuration</h2>
+
+      <div class="field">
+        <label>Saved users <span class="hint">(from data/test_users.py)</span></label>
+        <div id="users" class="users"></div>
+      </div>
+
+      <div class="field">
+        <label>Custom users <span class="hint">(username + password, added here)</span></label>
+        <div id="custom-users" class="custom-users"></div>
+        <button id="btn-add-user" type="button" class="small">+ Add user</button>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label for="lesson_from">Lesson from</label>
+          <input type="number" id="lesson_from" min="0" value="0">
+        </div>
+        <div class="field">
+          <label for="lesson_to">Lesson to</label>
+          <input type="number" id="lesson_to" min="0" value="6">
+        </div>
+        <div class="field grow">
+          <label for="mode">Mode</label>
+          <select id="mode"></select>
+        </div>
+      </div>
+      <p id="mode-desc" class="hint"></p>
+
+      <div class="field">
+        <label for="class_id_override">Class ID override <span class="hint">(optional — blank = per-user)</span></label>
+        <input type="text" id="class_id_override" placeholder="e.g. 2336">
+      </div>
+
+      <details class="advanced">
+        <summary>Connection (advanced)</summary>
+        <div class="row">
+          <div class="field"><label for="platform">Platform</label><input type="text" id="platform" value="WindowsEditor"></div>
+          <div class="field"><label for="host">Host</label><input type="text" id="host" value="127.0.0.1"></div>
+          <div class="field"><label for="port">Port</label><input type="number" id="port" value="13000"></div>
+        </div>
+        <div class="row">
+          <div class="field grow"><label for="app_id">App ID</label><input type="text" id="app_id" placeholder="(optional)"></div>
+          <div class="field grow"><label for="device_instance_id">Device instance ID</label><input type="text" id="device_instance_id" placeholder="(optional)"></div>
+        </div>
+      </details>
+
+      <div class="actions">
+        <button id="btn-run" class="primary">▶ Run</button>
+        <button id="btn-dry">Dry-run</button>
+        <button id="btn-stop" class="danger" disabled>■ Stop</button>
+        <span id="reports" class="reports hidden">
+          <a id="link-html" href="/api/report.html" target="_blank">View HTML report</a>
+          <a id="link-txt" href="/api/report.txt">Download .txt</a>
+        </span>
+      </div>
+      <p id="error" class="error hidden"></p>
+    </section>
+
+    <section class="panel run">
+      <h2>Progress</h2>
+      <div class="progress-wrap"><div id="progress-bar"></div></div>
+      <p id="progress-text" class="hint">Not started.</p>
+
+      <h2>Results</h2>
+      <div id="results" class="results"></div>
+
+      <h2>Live log</h2>
+      <pre id="log" class="log"></pre>
+    </section>
+  </main>
+
+  <script src="{{ url_for('static', filename='app.js') }}?v=3"></script>
+</body>
+</html>

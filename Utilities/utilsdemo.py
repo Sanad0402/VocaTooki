@@ -1,5 +1,6 @@
 import logging
 from alttester import By, AltKeyCode, AltDriver
+from alttester.exceptions import ComponentNotFoundException
 import requests
 import io
 import time
@@ -22,19 +23,74 @@ def call_method(altdriver, component_name, method_name, parameters=None, paramet
     if not game_object:
         game_object = altdriver.find_object(By.NAME, game_object_name)
 
-    return game_object.call_component_method(
-        assembly=assembly,
-        component_name=component_name,
-        method_name=method_name,
-        parameters=parameters,
-        type_of_parameters=parameter_types
-    )
+    try:
+        return game_object.call_component_method(
+            assembly=assembly,
+            component_name=component_name,
+            method_name=method_name,
+            parameters=parameters,
+            type_of_parameters=parameter_types
+        )
+    except ComponentNotFoundException as e:
+        # The object exists but the component isn't attached in the current
+        # app state. Most often this means the app is on the login/start
+        # screen (or a scene is still loading), where components like
+        # 'AltTesterUtils' don't exist yet. Re-raise with actionable context.
+        raise ComponentNotFoundException(
+            f"Component '{component_name}' not found on game object "
+            f"'{game_object_name}' when calling '{method_name}'. "
+            f"This usually means the app is not in the expected state "
+            f"(e.g. not logged in, or the scene is still loading). "
+            f"Original error: {e}"
+        ) from e
 
 
 # Login Utility
-def login(altdriver, username=None, password=None):
-    call_method(altdriver, "AltTesterUtils", "Logout")
-    time.sleep(3)
+LOGIN_SCREEN_FIELDS = ("UserInputField", "PasswordInputField", "LoginButton")
+
+
+def _login_screen_visible(altdriver):
+    """True only when all login-screen fields are present (mirrors LoginPage.is_open)."""
+    return all(find_element(altdriver, name) is not None for name in LOGIN_SCREEN_FIELDS)
+
+
+def _wait_for_login_screen(altdriver, timeout=30, poll=0.5):
+    """Poll until the login screen is fully shown, or timeout. Returns bool."""
+    end = time.time() + timeout
+    while time.time() < end:
+        if _login_screen_visible(altdriver):
+            return True
+        time.sleep(poll)
+    return False
+
+
+def login(altdriver, username=None, password=None, timeout=30):
+    # Only log out if we're not already on the login screen.
+    # The "Logout" method lives on the AltTesterUtils component, which only
+    # exists once logged in. Calling it on the login/start screen raises
+    # ComponentNotFoundException, so we guard the call.
+    if not _login_screen_visible(altdriver):
+        try:
+            call_method(altdriver, "AltTesterUtils", "Logout")
+            time.sleep(3)
+        except Exception as e:
+            print(f"[WARN] Logout skipped: {e}")
+
+    # Wait for the login screen to actually render before typing. A fixed sleep
+    # after logout is not enough — the login UI (NewStartScene) can take longer,
+    # and if we never reach it we want a clear error, not a bare WaitTimeOut on
+    # a single field.
+    if not _wait_for_login_screen(altdriver, timeout=timeout):
+        try:
+            current_scene = altdriver.get_current_scene()
+        except Exception:
+            current_scene = "<unknown>"
+        raise AssertionError(
+            f"Login screen did not appear within {timeout}s "
+            f"(current scene: '{current_scene}'). "
+            f"Expected fields: {', '.join(LOGIN_SCREEN_FIELDS)}."
+        )
+
     altdriver.wait_for_object(By.NAME, "UserInputField", enabled=True).set_text(username)
     altdriver.wait_for_object(By.NAME, "PasswordInputField", enabled=True).set_text(password)
     altdriver.wait_for_object(By.NAME, "LoginButton").click()
@@ -823,6 +879,28 @@ def solve_lesson_express_hard(altdriver, class_id, lesson_num):
         time.sleep(3)
     except Exception as e:
         print(f"[ERROR] Failed to solve lesson {lesson_num}: {e}")
+
+
+def solve_lessons_express_hard(altdriver, class_id, num_lessons, start_lesson=0):
+    """
+    Solve a range of lessons (hard express flow).
+
+    Args:
+        altdriver: AltTester driver instance.
+        class_id: Class ID to solve lessons for.
+        num_lessons (int): How many lessons to run.
+        start_lesson (int): First lesson number to start from (default 0).
+
+    Example:
+        # Run lessons 0..6 (7 lessons)
+        solve_lessons_express_hard(altdriver, class_id, num_lessons=7)
+    """
+    end_lesson = start_lesson + num_lessons
+    print(f"[INFO] Solving {num_lessons} lesson(s): {start_lesson}..{end_lesson - 1} for class {class_id}")
+    for lesson_num in range(start_lesson, end_lesson):
+        # solve_lesson_express_hard already guards each lesson with try/except,
+        # so a failure in one lesson won't stop the rest of the run.
+        solve_lesson_express_hard(altdriver, class_id, lesson_num)
 
 def solve_lesson_levels_express(altdriver, class_id, lesson_num):
     difficulties = [("easy", 0), ("medium", 1), ("hard", 2)]

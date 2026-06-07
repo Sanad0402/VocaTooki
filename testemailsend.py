@@ -1,6 +1,14 @@
 # testemailsend.py
-import os, smtplib, socket
+import os, sys, smtplib, socket
 from pathlib import Path
+
+# Windows consoles default to cp1252, which can't encode ✅/❌ — force UTF-8 so
+# success/error prints don't crash after the email is actually sent.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
 try:
     from dotenv import load_dotenv
 except ImportError:

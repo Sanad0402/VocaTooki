@@ -30,6 +30,12 @@ def search(altdriver):
         current_text = altdriver.find_object(By.NAME, "RTLTMPWordPanel") \
             .get_component_property("TMProWordPanel", "Text", "Assembly-CSharp")
 
+        # Hebrew/Arabic: the RTL panel reports its Text in visual (reversed)
+        # order while WordPanel.Word is logical order, so reverse current_text
+        # to align the underscores with full_text before diffing.
+        if is_rtl(full_text):
+            current_text = current_text[::-1]
+
         differences = [char2 for char1, char2 in zip(current_text, full_text)
                        if char1 == "_" and char2 != "_"]
 
