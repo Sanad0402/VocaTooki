@@ -9,21 +9,46 @@ import os
 import io
 import sys
 import html
+import json
 import time
 import logging
+import tempfile
 import threading
+import subprocess
 
 from data.test_users import TEST_USERS, DEFAULT_CLASS_ID
+
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 from Utilities import utilsdemo
 from Pages.StartScreen import StartScreen
 from Pages.map_page import MapPage
 from .modes import MODES, DEFAULT_MODE
+from . import suite
 from . import emailer
 
 
 REPORTS_DIR = os.getenv("REPORTS_DIR", os.path.expanduser("~/Downloads/reports"))
 
 _USERS_BY_NAME = {u["username"]: u for u in TEST_USERS}
+
+
+def _fmt_dur(seconds):
+    seconds = int(round(seconds or 0))
+    h, rem = divmod(seconds, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h:02d}:{m:02d}:{s:02d}"
+
+
+def _import_ref(ref):
+    """Resolve a 'package.module:function' reference to the callable test-case function."""
+    import importlib
+    if not ref or ":" not in ref:
+        raise RuntimeError(f"'code' test case needs a ref like 'module:function', got: {ref!r}")
+    mod_name, fn_name = ref.split(":", 1)
+    fn = getattr(importlib.import_module(mod_name), fn_name, None)
+    if not callable(fn):
+        raise RuntimeError(f"{ref} is not a callable function.")
+    return fn
 
 
 class _StopRun(Exception):
@@ -104,6 +129,7 @@ class RunManager:
             self.error = None
             self.progress = {}
             self.groups = []             # [{username, class_id, lesson_from, lesson_to, start}]
+            self.cases = []              # per-test-case result rows (test_folder/test_case runs)
             self.report_txt = None
             self.report_html_path = None
             self.report_html = None
@@ -112,6 +138,8 @@ class RunManager:
             self._started_at = None
             self._driver = None
             self._driver_closed = False
+            self._proc = None            # pytest subprocess (suite runs)
+            self._email_after = False    # email the report when the run finishes?
 
     def is_running(self):
         return self.state == "running"
@@ -147,6 +175,7 @@ class RunManager:
                 "error": self.error,
                 "progress": dict(self.progress),
                 "results": results,
+                "cases": [dict(c) for c in self.cases],
                 "report_txt": bool(self.report_txt),
                 "report_html": bool(self.report_html),
                 "event_count": len(self.events),
@@ -227,11 +256,15 @@ class RunManager:
         if self.is_running():
             return False, {"error": "A run is already in progress."}
 
+        if cfg.get("run_type") in ("test_folder", "test_case"):
+            return self._start_suite(cfg)
+
         errors = self.validate(cfg)
         if errors:
             return False, {"error": " ".join(errors)}
 
         self.reset()
+        self._email_after = bool(cfg.get("email_report"))
         plan = self.build_plan(cfg)
 
         if cfg.get("dry_run"):
@@ -254,16 +287,308 @@ class RunManager:
         self._thread.start()
         return True, {"steps": plan, "dry_run": False}
 
+    # ---- suite (Test Folder / Test Case) runs ---------------------------
+    def _start_suite(self, cfg):
+        rt = cfg.get("run_type")
+        selection = cfg.get("test_folders") if rt == "test_folder" else cfg.get("test_cases")
+        if not (selection or []):
+            what = "test folder" if rt == "test_folder" else "test case"
+            return False, {"error": f"Select at least one {what}."}
+        cases, warnings = suite.resolve(rt, selection)
+        if not cases:
+            msg = warnings[0] if warnings else "Nothing to run for the current selection."
+            return False, {"error": msg}
+
+        self.reset()
+        self._email_after = bool(cfg.get("email_report"))
+        with self._lock:
+            self.cases = [self._case_row(i, c) for i, c in enumerate(cases)]
+        plan_text = self._suite_plan_text(cfg, cases, warnings)
+
+        if cfg.get("dry_run"):
+            with self._lock:
+                self.state = "done"
+            self._emit("plan", text=plan_text, warnings=warnings, dry_run=True)
+            self._emit("cases", cases=[dict(c) for c in self.cases])
+            for line in plan_text.splitlines():
+                self._log("DRY-RUN " + line if line.strip() else line)
+            self._emit("state", state="done")
+            return True, {"dry_run": True, "cases": len(cases), "plan": plan_text}
+
+        with self._lock:
+            self.state = "running"
+            self._started_at = time.time()
+        self._emit("state", state="running")
+        self._emit("plan", text=plan_text, warnings=warnings, dry_run=False)
+        self._emit("cases", cases=[dict(c) for c in self.cases])
+        for w in warnings:
+            self._log(f"[WARN] {w}")
+
+        self._thread = threading.Thread(target=self._run_suite, args=(cfg, cases), daemon=True)
+        self._thread.start()
+        return True, {"dry_run": False, "cases": len(cases)}
+
+    def _case_row(self, idx, c):
+        action = c.get("action") or {}
+        return {
+            "index": idx, "tc_id": c["id"], "tc_name": c.get("name", c["id"]),
+            "folder": c.get("folder", ""), "username": (c.get("user") or {}).get("username", ""),
+            "action": action.get("kind", "pytest"), "nodeid": action.get("nodeid", ""),
+            "status": "PENDING", "duration": "", "error": "",
+        }
+
+    def _suite_plan_text(self, cfg, cases, warnings):
+        rt = cfg.get("run_type")
+        sel = ", ".join(cfg.get("test_folders") if rt == "test_folder" else cfg.get("test_cases") or [])
+        lines = ["Execution plan:", "",
+                 "Run Type:", "Test Folder" if rt == "test_folder" else "Test Case(s)", "",
+                 f"Selected: {sel or '—'}", "", f"Test cases ({len(cases)}):"]
+        for i, c in enumerate(cases, 1):
+            u = c.get("user") or {}
+            lines.append(f"  {i}. {c['id']} - {c.get('name', '')}  [user: {u.get('username', '-')}]")
+        if warnings:
+            lines += ["", "Warnings:"] + [f"  ! {w}" for w in warnings]
+        return "\n".join(lines)
+
+    def _update_case(self, idx, **changes):
+        with self._lock:
+            if 0 <= idx < len(self.cases):
+                self.cases[idx].update(changes)
+                row = dict(self.cases[idx])
+            else:
+                return
+        self._emit("case", index=idx, case=row)
+
+    def _set_case_progress(self, done, total, label, username=""):
+        prog = {"done": done, "total": total, "label": label, "username": username,
+                "fraction": round(done / total, 3) if total else 0}
+        with self._lock:
+            self.progress = prog
+        self._emit("progress", **prog)
+
+    def _run_suite(self, cfg, cases):
+        """Run the selected test cases via a pytest subprocess (creds live in each test)."""
+        total = len(cases)
+        platform = cfg.get("platform") or "WindowsEditor"
+        host = cfg.get("host") or "127.0.0.1"
+        port = int(cfg.get("port") or 13000)
+
+        # Map nodeid -> case row index; cases without a linked test are skipped up front.
+        nodeid_index, nodeids = {}, []
+        for idx, c in enumerate(cases):
+            nodeid = (c.get("action") or {}).get("nodeid")
+            if nodeid:
+                nodeid_index[nodeid] = idx
+                nodeids.append(nodeid)
+            else:
+                self._update_case(idx, status="SKIPPED", error="No pytest test linked (set a nodeid).")
+        results = os.path.join(REPORTS_DIR, f"_suite_{time.strftime('%Y%m%d_%H%M%S')}.jsonl")
+
+        try:
+            os.makedirs(REPORTS_DIR, exist_ok=True)
+            self._log(f"[INFO] Checking AltTester at {host}:{port} (platform={platform})...")
+            if not self._preflight(host, port):
+                raise RuntimeError(
+                    f"Could not connect to AltTester server at {host}:{port}. "
+                    f"Is the app running and instrumented?")
+            if not nodeids:
+                self._log("[INFO] No linked test cases to run.")
+                self._set_case_progress(total, total, "Finished")
+                self._build_suite_reports(platform)
+                with self._lock:
+                    self.state = "done"
+                self._emit("state", state="done")
+                return
+
+            cmd = [sys.executable, "-u", "-m", "pytest", "-v", *nodeids, "-s",
+                   "-p", "runner.pytest_runner_plugin", "--rally-results", results,
+                   "--host", host, "--port", str(port), "--platform", platform,
+                   "--maxfail=0", "-p", "no:cacheprovider", "-o", "addopts="]
+            app_id = (cfg.get("app_id") or "").strip()
+            device = (cfg.get("device_instance_id") or "").strip()
+            if app_id:
+                cmd += ["--app_id", app_id]
+            if device:
+                cmd += ["--device_instance_id", device]
+
+            env = dict(os.environ, REPORTS_DIR=REPORTS_DIR, PYTHONIOENCODING="utf-8")
+            self._log(f"[INFO] Running {len(nodeids)} test case(s) via pytest...")
+            proc = subprocess.Popen(cmd, cwd=_ROOT, env=env, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, text=True, bufsize=1)
+            with self._lock:
+                self._proc = proc
+            offset = 0
+            for line in proc.stdout:
+                if line.strip():
+                    self._log(line.rstrip())
+                offset = self._drain_case_results(results, offset, nodeid_index)
+                if self._stopped():
+                    self._terminate_proc()
+                    break
+            proc.wait()
+            self._drain_case_results(results, offset, nodeid_index)
+
+            if self._stopped():
+                self._cancel_remaining_cases()
+                final = "stopped"
+            else:
+                final = "done"
+            self._set_case_progress(total, total, "Finished")
+            self._build_suite_reports(platform)
+            with self._lock:
+                self.state = final
+            self._log("[STOPPED] Execution stopped by user" if final == "stopped" else "[INFO] Run done.")
+            self._emit("state", state=final)
+        except Exception as e:
+            if self._stopped():
+                self._cancel_remaining_cases()
+                self._build_suite_reports(platform)
+                with self._lock:
+                    self.state = "stopped"
+                self._log("[STOPPED] Execution stopped by user")
+                self._emit("state", state="stopped")
+            else:
+                self._fail_remaining_cases(f"Automation failed: {e}")
+                with self._lock:
+                    self.state = "error"
+                    self.error = str(e)
+                self._log(f"[FATAL] Automation failed: {e}")
+                self._build_suite_reports(platform)
+                self._emit("state", state="error", error=str(e))
+        finally:
+            with self._lock:
+                self._proc = None
+            try:
+                os.remove(results)
+            except OSError:
+                pass
+
+    def _drain_case_results(self, path, offset, nodeid_index):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                f.seek(offset)
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        rec = json.loads(line)
+                    except ValueError:
+                        continue
+                    idx = nodeid_index.get(rec.get("nodeid"))
+                    if idx is None:
+                        continue
+                    status = {"passed": "PASSED", "failed": "FAILED", "skipped": "SKIPPED"}.get(
+                        rec.get("outcome"), str(rec.get("outcome", "")).upper())
+                    done = sum(1 for c in self.cases if c["status"] not in ("PENDING", "RUNNING"))
+                    self._update_case(idx, status=status, duration=_fmt_dur(rec.get("duration", 0)),
+                                      error=rec.get("error", ""))
+                    self._set_case_progress(done + 1, len(self.cases), self.cases[idx]["tc_name"])
+                offset = f.tell()
+        except FileNotFoundError:
+            pass
+        return offset
+
+    def _cancel_remaining_cases(self):
+        for idx in range(len(self.cases)):
+            if self.cases[idx]["status"] in ("PENDING", "RUNNING"):
+                self._update_case(idx, status="CANCELLED", error="Cancelled — run stopped by user.")
+
+    def _fail_remaining_cases(self, error):
+        for idx in range(len(self.cases)):
+            if self.cases[idx]["status"] in ("PENDING", "RUNNING"):
+                self._update_case(idx, status="FAILED", error=error)
+
+    def _build_suite_reports(self, platform):
+        os.makedirs(REPORTS_DIR, exist_ok=True)
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        base = os.path.join(REPORTS_DIR, f"suite_report_{platform}_{ts}")
+        totals = {"PASSED": 0, "FAILED": 0, "SKIPPED": 0, "CANCELLED": 0}
+        for c in self.cases:
+            totals[c["status"]] = totals.get(c["status"], 0) + 1
+        try:
+            with open(base + ".txt", "w", encoding="utf-8") as f:
+                f.write("TEST CASE EXECUTION REPORT\n" + "=" * 40 + "\n\n")
+                f.write(f"Platform: {platform}   {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"Passed {totals['PASSED']}  Failed {totals['FAILED']}  "
+                        f"Cancelled {totals['CANCELLED']}\n" + "-" * 40 + "\n")
+                for c in self.cases:
+                    f.write(f"{c['tc_id']} - {c['tc_name']}\n")
+                    f.write(f"  User    : {c['username']}\n")
+                    f.write(f"  Status  : {c['status']}   Duration: {c['duration']}\n")
+                    if c["error"]:
+                        f.write(f"  Error   : {c['error']}\n")
+                    f.write("-" * 40 + "\n")
+            self.report_txt = base + ".txt"
+            self._log(f"[REPORT] Text report: {self.report_txt}")
+        except Exception as e:
+            self._log(f"[WARN] Failed to write text report: {e}")
+        try:
+            self.report_html = self._render_suite_html(platform, totals)
+            with open(base + ".html", "w", encoding="utf-8") as f:
+                f.write(self.report_html)
+            self.report_html_path = base + ".html"
+            self._log(f"[REPORT] HTML report: {self.report_html_path}")
+        except Exception as e:
+            self._log(f"[WARN] Failed to build HTML report: {e}")
+        self._email_report(platform, ts)
+
+    def _render_suite_html(self, platform, totals):
+        rows = []
+        for c in self.cases:
+            st = c["status"]
+            err = html.escape(c.get("error", "") or "")
+            err_html = f'<details><summary>error</summary><pre>{err}</pre></details>' if err else ""
+            rows.append(
+                f'<tr class="s-{html.escape(st.lower())}">'
+                f'<td>{html.escape(c["tc_id"])}</td><td>{html.escape(c["tc_name"])}</td>'
+                f'<td>{html.escape(c["username"])}</td><td>{html.escape(st)}</td>'
+                f'<td>{html.escape(c["duration"])}</td><td>{err_html}</td></tr>')
+        summary = (f'Passed: {totals["PASSED"]} &nbsp; Failed: {totals["FAILED"]} &nbsp; '
+                   f'Cancelled: {totals["CANCELLED"]}')
+        return f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Test Case Report</title>
+<style>
+  body {{ font-family: system-ui, Segoe UI, Arial, sans-serif; margin: 24px; color: #1f2933; }}
+  table {{ border-collapse: collapse; width: 100%; }}
+  th, td {{ border: 1px solid #d2d6dc; padding: 6px 10px; text-align: left; vertical-align: top; }}
+  th {{ background: #f5f7fa; }}
+  .summary {{ margin: 8px 0 16px; font-weight: 600; }}
+  tr.s-passed td:nth-child(4) {{ color: #057a55; font-weight: 600; }}
+  tr.s-failed td:nth-child(4) {{ color: #c81e1e; font-weight: 600; }}
+  tr.s-cancelled td:nth-child(4) {{ color: #6b7280; font-weight: 600; }}
+  pre {{ white-space: pre-wrap; margin: 4px 0; font-size: 12px; }}
+</style></head><body>
+  <h1>Test Case Execution Report</h1>
+  <div>Platform: {html.escape(platform)} &nbsp;|&nbsp; {time.strftime("%Y-%m-%d %H:%M:%S")}</div>
+  <div class="summary">{summary}</div>
+  <table><thead><tr><th>TC ID</th><th>Test Case Name</th><th>User</th>
+  <th>Status</th><th>Duration</th><th>Error</th></tr></thead>
+  <tbody>{''.join(rows) or '<tr><td colspan=6>No test cases.</td></tr>'}</tbody></table>
+</body></html>"""
+
     def stop(self):
         if not self.is_running():
             return False
         self._stop_event.set()
-        self._log("[STOP] Stopping now — severing AltTester connection...")
-        # Force-close the driver from this (request) thread. This makes any
-        # in-flight/next AltTester call in the run thread raise immediately,
-        # so the run unwinds instead of finishing the current lesson.
+        self._log("[STOP] Stopping now — ending the current run...")
+        # Sever the lesson-range driver and/or kill the pytest subprocess so the
+        # run unwinds immediately instead of finishing the current item.
         self._close_driver()
+        self._terminate_proc()
         return True
+
+    def _terminate_proc(self):
+        proc = self._proc
+        if proc is None:
+            return
+        try:
+            proc.terminate()
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
 
     def _close_driver(self):
         """Close the active AltDriver once (safe to call from any thread / twice)."""
@@ -488,8 +813,11 @@ class RunManager:
         self._email_report(platform, ts)
 
     def _email_report(self, platform, ts):
-        """Email the report files when a run finishes. Never raises."""
+        """Email the report files when a run finishes (only if requested). Never raises."""
         try:
+            if not self._email_after:
+                self._log("[EMAIL] Skipped — email report not requested for this run.")
+                return
             if not emailer.email_configured():
                 self._log("[EMAIL] Skipped — SMTP not configured (automation_email.env).")
                 return

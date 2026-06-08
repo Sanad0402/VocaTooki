@@ -73,6 +73,8 @@ def _reset_activity_report():
 # -----------------------------
 def pytest_addoption(parser):
     parser.addoption("--platform", action="store", default="WindowsEditor", help="Platform name")
+    parser.addoption("--host", action="store", default="127.0.0.1", help="AltTester host")
+    parser.addoption("--port", action="store", type=int, default=13000, help="AltTester port")
 
     # These are optional. Empty string means "not provided".
     parser.addoption("--app_id", action="store", default="", help="App ID (optional)")
@@ -118,8 +120,8 @@ def altdriver(request):
     device_instance_id = (request.config.getoption("--device_instance_id") or "").strip()
 
     driver_kwargs = dict(
-        host="127.0.0.1",
-        port=13000,
+        host=request.config.getoption("--host"),
+        port=request.config.getoption("--port"),
         platform=platform,
         enable_logging=True,  # keep True if you still want your own logs; AltTester logs are disabled above
     )

@@ -42,6 +42,7 @@ from flask import Flask, request, jsonify, render_template, Response, send_file,
 
 from runner.core import manager, REPORTS_DIR
 from runner.modes import mode_list, DEFAULT_MODE
+from runner import suite
 from data.test_users import TEST_USERS, DEFAULT_CLASS_ID
 
 app = Flask(
@@ -64,7 +65,14 @@ def api_config():
             for u in TEST_USERS
         ],
         "modes": mode_list(),
+        "run_types": [
+            {"key": "lesson_range", "label": "Lesson Range (users)"},
+            {"key": "test_folder", "label": "Test Folder"},
+            {"key": "test_case", "label": "Test Case(s)"},
+        ],
+        "suite": suite.tree(),
         "defaults": {
+            "run_type": "lesson_range",
             "mode": DEFAULT_MODE,
             "lesson_from": 0,
             "lesson_to": 6,
@@ -76,6 +84,56 @@ def api_config():
         },
         "reports_dir": REPORTS_DIR,
     })
+
+
+@app.route("/api/suite")
+def api_suite():
+    return jsonify(suite.tree())
+
+
+@app.route("/api/suite/folder", methods=["POST"])
+def api_suite_folder():
+    d = request.get_json(force=True, silent=True) or {}
+    try:
+        if d.get("_action") == "update":
+            tree = suite.update_folder(d.get("id"), name=d.get("name"), parent=d.get("parent"))
+        else:
+            tree = suite.add_folder(d.get("id"), d.get("name"), d.get("parent"))
+    except suite.SuiteError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify(tree)
+
+
+@app.route("/api/suite/folder/<folder_id>", methods=["DELETE"])
+def api_suite_folder_delete(folder_id):
+    cascade = request.args.get("cascade") in ("1", "true", "yes")
+    try:
+        tree = suite.delete_folder(folder_id, cascade=cascade)
+    except suite.SuiteError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify(tree)
+
+
+@app.route("/api/suite/case", methods=["POST"])
+def api_suite_case():
+    d = request.get_json(force=True, silent=True) or {}
+    try:
+        if d.get("_action") == "update":
+            tree = suite.update_case(d.get("id"), d)
+        else:
+            tree = suite.add_case(d)
+    except suite.SuiteError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify(tree)
+
+
+@app.route("/api/suite/case/<tc_id>", methods=["DELETE"])
+def api_suite_case_delete(tc_id):
+    try:
+        tree = suite.delete_case(tc_id)
+    except suite.SuiteError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify(tree)
 
 
 @app.route("/api/run", methods=["POST"])

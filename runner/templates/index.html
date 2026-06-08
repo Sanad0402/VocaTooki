@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Voca Tooki - Test Runner</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=3">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=8">
 </head>
 <body>
   <header>
@@ -17,35 +17,48 @@
       <h2>Configuration</h2>
 
       <div class="field">
-        <label>Saved users <span class="hint">(from data/test_users.py)</span></label>
-        <div id="users" class="users"></div>
+        <label for="run_type">Run Type</label>
+        <select id="run_type"></select>
       </div>
 
-      <div class="field">
-        <label>Custom users <span class="hint">(username + password, added here)</span></label>
-        <div id="custom-users" class="custom-users"></div>
-        <button id="btn-add-user" type="button" class="small">+ Add user</button>
-      </div>
-
-      <div class="row">
+      <!-- Lesson Range (users) mode ---------------------------------------- -->
+      <div id="lesson-config">
         <div class="field">
-          <label for="lesson_from">Lesson from</label>
-          <input type="number" id="lesson_from" min="0" value="0">
+          <label>Saved users <span class="hint">(from data/test_users.py)</span></label>
+          <div id="users" class="users"></div>
         </div>
+
         <div class="field">
-          <label for="lesson_to">Lesson to</label>
-          <input type="number" id="lesson_to" min="0" value="6">
+          <label>Custom users <span class="hint">(username + password, added here)</span></label>
+          <div id="custom-users" class="custom-users"></div>
+          <button id="btn-add-user" type="button" class="small">+ Add user</button>
         </div>
-        <div class="field grow">
-          <label for="mode">Mode</label>
-          <select id="mode"></select>
+
+        <div class="row">
+          <div class="field"><label for="lesson_from">Lesson from</label><input type="number" id="lesson_from" min="0" value="0"></div>
+          <div class="field"><label for="lesson_to">Lesson to</label><input type="number" id="lesson_to" min="0" value="6"></div>
+          <div class="field grow"><label for="mode">Mode</label><select id="mode"></select></div>
+        </div>
+        <p id="mode-desc" class="hint"></p>
+
+        <div class="field">
+          <label for="class_id_override">Class ID override <span class="hint">(optional — blank = per-user)</span></label>
+          <input type="text" id="class_id_override" placeholder="e.g. 2336">
         </div>
       </div>
-      <p id="mode-desc" class="hint"></p>
 
-      <div class="field">
-        <label for="class_id_override">Class ID override <span class="hint">(optional — blank = per-user)</span></label>
-        <input type="text" id="class_id_override" placeholder="e.g. 2336">
+      <!-- Test Folder / Test Case modes ------------------------------------ -->
+      <div id="suite-config" class="hidden">
+        <div class="field">
+          <label id="suite-label">Test Folders</label>
+          <p class="hint" id="suite-hint">Select folder(s) to run. The user is taken from each test case (hard-coded).</p>
+          <div id="suite-tree" class="suite-tree"></div>
+        </div>
+        <div class="suite-toolbar">
+          <button id="btn-add-folder" type="button" class="small">+ Add folder</button>
+          <button id="btn-add-case" type="button" class="small">+ Add test case</button>
+        </div>
+        <div id="suite-form" class="suite-form hidden"></div>
       </div>
 
       <details class="advanced">
@@ -65,6 +78,9 @@
         <button id="btn-run" class="primary">▶ Run</button>
         <button id="btn-dry">Dry-run</button>
         <button id="btn-stop" class="danger" disabled>■ Stop</button>
+        <label class="email-opt" title="Email the report to the configured address when the run finishes">
+          <input type="checkbox" id="email_report"> Email report after run
+        </label>
         <span id="reports" class="reports hidden">
           <a id="link-html" href="/api/report.html" target="_blank">View HTML report</a>
           <a id="link-txt" href="/api/report.txt">Download .txt</a>
@@ -86,6 +102,6 @@
     </section>
   </main>
 
-  <script src="{{ url_for('static', filename='app.js') }}?v=3"></script>
+  <script src="{{ url_for('static', filename='app.js') }}?v=8"></script>
 </body>
 </html>

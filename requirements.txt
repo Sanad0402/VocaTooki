@@ -1,1 +1,19 @@
+# Runtime dependencies for the AltTester automation + HTML runner panel.
+# Install with:  python -m venv .venv && .venv\Scripts\python -m pip install -r requirements.txt
+# (dev/test tools live in requirements-dev.txt)
+
+# HTML runner panel
 flask>=3.0
+
+# AltTester driver (module is `alttester`)
+AltTester-Driver
+
+# Automation framework helpers
+requests
+inflect
+langdetect
+loguru
+
+# Audio activities (Utilities/utils_audio.py): TTS + playback
+google-cloud-texttospeech
+pygame
