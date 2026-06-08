@@ -25,5 +25,8 @@ reports/
 screenshots/
 
 # Sensitive config
+.env
+.env.*
+*.env
 automation_email.env
 debug_*.py
