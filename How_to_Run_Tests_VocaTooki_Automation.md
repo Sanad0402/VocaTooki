@@ -187,4 +187,53 @@ python scripts/test_runner.py --config runner.json
   "userMode": "single", or  'all'
   "lessons": [-1,0,1,2,3,4,5], or   "lesson": 2
 
+---
+
+## 🖥️ Server config — Runner Panel (`run_panel.py`)
+
+The control panel is a Flask app served at **http://localhost:5000**
+(`run_panel.py`, last line: `app.run(host="127.0.0.1", port=5000, ...)`).
+Users are entered in the panel's **Users** block; the AltTester
+host/port the runs connect to (default `127.0.0.1:13000`) is set per run
+under **Connection (advanced)**.
+
+### Start
+
+Double-click `run_panel.bat`, or from the project root:
+```bat
+.venv\Scripts\python.exe run_panel.py
+```
+`run_panel.bat` is smart: if port 5000 is already listening it just opens
+the browser; otherwise it starts the server, waits, then opens it.
+
+### Restart (stop the running instance, then start again)
+
+**cmd:**
+```bat
+for /f "tokens=5" %a in ('netstat -ano ^| findstr ":5000 " ^| findstr LISTENING') do taskkill /PID %a /F
+run_panel.bat
+```
+(inside a `.bat` file, double the percent signs: `%%a`)
+
+**PowerShell:**
+```powershell
+Get-NetTCPConnection -LocalPort 5000 -State Listen |
+  Select-Object -ExpandProperty OwningProcess |
+  ForEach-Object { Stop-Process -Id $_ -Force }
+.\.venv\Scripts\python.exe run_panel.py
+```
+
+### Stop only
+```bat
+for /f "tokens=5" %a in ('netstat -ano ^| findstr ":5000 " ^| findstr LISTENING') do taskkill /PID %a /F
+```
+
+### Change the panel port
+Edit the `port=5000` in the last line of `run_panel.py`, then update the
+`:5000` checks in `run_panel.bat` to match.
+
+> Note: this is Flask's built-in **development** server, bound to
+> `127.0.0.1` (this machine only). It does not auto-start on boot — run it
+> with one of the commands above.
+
 

@@ -3,7 +3,7 @@ Console bootstrap: import the whole project into the Python console.
 
 Usage in the PyCharm Python Console (or any REPL started at the project root):
 
-    >>> from console_imports import *
+from console_imports import *
 
 altdriver = AltDriver(
 
@@ -11,6 +11,10 @@ altdriver = AltDriver(
     port=13000,
     enable_logging=False
 )
+altdriver = AltDriver
+from alttester import By, AltKeyCode, AltDriver
+
+from Activities.activitiesDemo import *
 
 This puts the project root on sys.path, imports every project module, and
 pulls all of their public names (functions, classes, constants) into the

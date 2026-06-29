@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Voca Tooki - Test Runner</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=8">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=9">
 </head>
 <body>
   <header>
@@ -24,12 +24,7 @@
       <!-- Lesson Range (users) mode ---------------------------------------- -->
       <div id="lesson-config">
         <div class="field">
-          <label>Saved users <span class="hint">(from data/test_users.py)</span></label>
-          <div id="users" class="users"></div>
-        </div>
-
-        <div class="field">
-          <label>Custom users <span class="hint">(username + password, added here)</span></label>
+          <label>Users <span class="hint">(username + password, added here)</span></label>
           <div id="custom-users" class="custom-users"></div>
           <button id="btn-add-user" type="button" class="small">+ Add user</button>
         </div>
@@ -40,11 +35,6 @@
           <div class="field grow"><label for="mode">Mode</label><select id="mode"></select></div>
         </div>
         <p id="mode-desc" class="hint"></p>
-
-        <div class="field">
-          <label for="class_id_override">Class ID override <span class="hint">(optional — blank = per-user)</span></label>
-          <input type="text" id="class_id_override" placeholder="e.g. 2336">
-        </div>
       </div>
 
       <!-- Test Folder / Test Case modes ------------------------------------ -->
@@ -102,6 +92,6 @@
     </section>
   </main>
 
-  <script src="{{ url_for('static', filename='app.js') }}?v=8"></script>
+  <script src="{{ url_for('static', filename='app.js') }}?v=9"></script>
 </body>
 </html>

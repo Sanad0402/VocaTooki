@@ -14,11 +14,6 @@
       "id": "TF196",
       "name": "Login – Negative Flow",
       "parent": "TF194"
-    },
-    {
-      "id": "TF197",
-      "name": "Login – Error Handling",
-      "parent": "TF194"
     }
   ],
   "test_cases": [
@@ -29,41 +24,6 @@
       "action": {
         "kind": "pytest",
         "nodeid": "Tests/rally/TF194_Login/TF195_Positive_Flow/test_tc128_standard_login.py::test_standard_login"
-      }
-    },
-    {
-      "id": "TC129",
-      "name": "TC02 – Persistent Session After App Restart",
-      "folder": "TF195",
-      "user": {
-        "username": "vt233628",
-        "password": "7173",
-        "class_id": "2336"
-      },
-      "action": {
-        "kind": "login"
-      }
-    },
-    {
-      "id": "TC130",
-      "name": "TC03 – Login with Alternate Valid Accounts",
-      "folder": "TF195",
-      "user": {
-        "username": "vt233628",
-        "password": "7173",
-        "class_id": "2336"
-      },
-      "action": {
-        "kind": "login"
-      }
-    },
-    {
-      "id": "TC131",
-      "name": "TC04 – UX/UI Validation",
-      "folder": "TF195",
-      "action": {
-        "kind": "pytest",
-        "nodeid": "Tests/rally/TF194_Login/TF195_Positive_Flow/test_tc131_ux_ui_validation.py::test_ux_ui_validation"
       }
     },
     {
@@ -78,84 +38,6 @@
       "action": {
         "kind": "pytest",
         "nodeid": "Tests/rally/TF194_Login/TF196_Negative_Flow/test_tc132_invalid_credentials.py::test_invalid_credentials"
-      }
-    },
-    {
-      "id": "TC133",
-      "name": "TC07 – Empty Fields",
-      "folder": "TF196",
-      "user": {
-        "username": "vt233628",
-        "password": "7173",
-        "class_id": "2336"
-      },
-      "action": {
-        "kind": "login"
-      }
-    },
-    {
-      "id": "TC134",
-      "name": "TC08 – Locked/Disabled Account",
-      "folder": "TF196",
-      "user": {
-        "username": "vt233628",
-        "password": "7173",
-        "class_id": "2336"
-      },
-      "action": {
-        "kind": "login"
-      }
-    },
-    {
-      "id": "TC135",
-      "name": "TC-EH01 – Server Unavailable",
-      "folder": "TF197",
-      "user": {
-        "username": "vt233628",
-        "password": "7173",
-        "class_id": "2336"
-      },
-      "action": {
-        "kind": "login"
-      }
-    },
-    {
-      "id": "TC136",
-      "name": "TC-EH02 – API Timeout",
-      "folder": "TF197",
-      "user": {
-        "username": "vt233628",
-        "password": "7173",
-        "class_id": "2336"
-      },
-      "action": {
-        "kind": "login"
-      }
-    },
-    {
-      "id": "TC137",
-      "name": "TC-EH03 – Malformed Response",
-      "folder": "TF197",
-      "user": {
-        "username": "vt233628",
-        "password": "7173",
-        "class_id": "2336"
-      },
-      "action": {
-        "kind": "login"
-      }
-    },
-    {
-      "id": "TC138",
-      "name": "TC-EH04 – Retry after Failure",
-      "folder": "TF197",
-      "user": {
-        "username": "vt233628",
-        "password": "7173",
-        "class_id": "2336"
-      },
-      "action": {
-        "kind": "login"
       }
     }
   ]

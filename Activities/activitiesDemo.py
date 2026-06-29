@@ -415,6 +415,8 @@ def exams_audio_to_meaning(altdriver):
     if not audio_shapes:
         audio_shapes = altdriver.find_objects(By.NAME, 'KL_WordAudioShape(Clone)')
     if not audio_shapes:
+        audio_shapes = altdriver.find_objects(By.NAME, 'WordAudioShape_RTL(Clone)')
+    if not audio_shapes:
         raise Exception("[ERROR] No audio shapes found. Not an audio-to-meaning exam.")
 
     # --- Click each shape once to activate audio ---
@@ -429,6 +431,8 @@ def exams_audio_to_meaning(altdriver):
     words = altdriver.find_objects(By.NAME, 'WordAudioObject(Clone)')
     if not words:
         words = altdriver.find_objects(By.NAME, 'KL_WordAudioObject(Clone)')
+    if not words:
+        words = altdriver.find_objects(By.NAME, 'WordAudioObject_RTL(Clone)')
     if not words:
         raise Exception("[ERROR] No word objects found.")
 
@@ -615,8 +619,12 @@ def translation_wiz(altdriver):
 
     for _ in range(num_words):
         time.sleep(2.5)
-        sentence = altdriver.find_object(By.NAME, 'ContextTranslationWizQuiz(Clone)')\
-            .get_component_property('com.kideo.learn.english.ContextBuilderQuiz', 'correctAnswer_', 'Assembly-CSharp')
+        try:
+            sentence = altdriver.find_object(By.NAME, 'ContextTranslationWizQuiz(Clone)')\
+                .get_component_property('com.kideo.learn.english.ContextBuilderQuiz', 'correctAnswer_', 'Assembly-CSharp')
+        except:
+            sentence = altdriver.find_object(By.NAME, 'KL_ContextTranslationWizQuiz(Clone)')\
+                .get_component_property('com.kideo.learn.english.ContextBuilderQuiz', 'correctAnswer_', 'Assembly-CSharp')
         words_in_order = sentence.split(' ')
 
         text_objects = altdriver.find_objects(By.NAME, "Text")
@@ -1804,6 +1812,14 @@ import re
 import time
 
 def turtle_island(altdriver):
+    # Detect app using RTLTMPWordPanel (indicates kideo land with Hebrew)
+    is_kideo_land_hebrew = False
+    try:
+        altdriver.find_object(By.NAME, "RTLTMPWordPanel")
+        is_kideo_land_hebrew = True
+        print(f"[INFO] Detected Kideo Land (Hebrew)")
+    except:
+        print(f"[INFO] Detected Voca Tooki (or non-Hebrew)")
 
     def parse_true_order(true_raw):
         """
@@ -1913,9 +1929,17 @@ def turtle_island(altdriver):
 
             # sort by x => visual index
             info_list.sort(key=lambda c: c["x"])
-            for i, info in enumerate(info_list):
-                info["visual"] = i
-                info["correct"] = (i in info["allowed"]) if info["allowed"] else False
+
+            # For kideo land (Hebrew): reverse visual indices (position 0 should be rightmost)
+            if is_kideo_land_hebrew:
+                for i, info in enumerate(info_list):
+                    info["visual"] = len(info_list) - 1 - i
+                    info["correct"] = (info["visual"] in info["allowed"]) if info["allowed"] else False
+            else:
+                # For voca tooki: normal left-to-right indexing
+                for i, info in enumerate(info_list):
+                    info["visual"] = i
+                    info["correct"] = (i in info["allowed"]) if info["allowed"] else False
 
             # if all turtles with known allowed sets are correct -> done
             wrongs = [i for i in info_list if i["allowed"] and not i["correct"]]

@@ -30,17 +30,6 @@ async function init() {
   rtEl.value = (CONFIG.defaults && CONFIG.defaults.run_type) || "lesson_range";
   rtEl.addEventListener("change", () => { onRunTypeChange(); saveCfg(); });
 
-  // Saved users
-  const usersEl = $("users");
-  usersEl.innerHTML = "";
-  if (!CONFIG.users.length) usersEl.innerHTML = '<span class="muted">No users in data/test_users.py</span>';
-  CONFIG.users.forEach((u, i) => {
-    const lbl = document.createElement("label");
-    lbl.innerHTML = `<input type="checkbox" value="${u.username}" ${i === 0 ? "checked" : ""}>
-      ${u.username} <span class="muted">· class ${u.class_id}</span>`;
-    usersEl.appendChild(lbl);
-  });
-
   // Modes
   const modeEl = $("mode");
   modeEl.innerHTML = "";
@@ -322,10 +311,8 @@ function gatherConfig(dryRun) {
   };
   if (rt === "test_folder") return { ...base, test_folders: [...SEL_FOLDERS] };
   if (rt === "test_case") return { ...base, test_cases: [...SEL_CASES] };
-  const picked = [...document.querySelectorAll("#users input:checked")].map((c) => c.value);
   return {
-    ...base, users: [...picked, ...getCustomUsersForRun()],
-    class_id_override: $("class_id_override").value.trim(),
+    ...base, users: getCustomUsersForRun(),
     lesson_from: parseInt($("lesson_from").value, 10),
     lesson_to: parseInt($("lesson_to").value, 10),
     mode: $("mode").value,
@@ -347,15 +334,10 @@ function restoreConfig() {
   const set = (id, v) => { if (v !== undefined && v !== null && $(id)) $(id).value = v; };
   if (s.run_type && CONFIG.run_types.some((r) => r.key === s.run_type)) $("run_type").value = s.run_type;
   set("lesson_from", s.lesson_from); set("lesson_to", s.lesson_to);
-  set("class_id_override", s.class_id_override);
   set("platform", s.platform); set("host", s.host); set("port", s.port);
   set("app_id", s.app_id); set("device_instance_id", s.device_instance_id);
   if (typeof s.email_report === "boolean") $("email_report").checked = s.email_report;
   if (s.mode && MODES.some((m) => m.key === s.mode)) $("mode").value = s.mode;
-  if (Array.isArray(s.users)) {
-    const names = s.users.filter((u) => typeof u === "string");
-    document.querySelectorAll("#users input").forEach((c) => { c.checked = names.includes(c.value); });
-  }
   if (Array.isArray(s.sel_folders)) SEL_FOLDERS = new Set(s.sel_folders);
   if (Array.isArray(s.sel_cases)) SEL_CASES = new Set(s.sel_cases);
 }
@@ -364,7 +346,7 @@ function restoreConfig() {
 function clientValidate(cfg) {
   if (cfg.run_type === "test_folder" && !(cfg.test_folders || []).length) return "Select at least one test folder.";
   if (cfg.run_type === "test_case" && !(cfg.test_cases || []).length) return "Select at least one test case.";
-  if (cfg.run_type === "lesson_range" && !(cfg.users || []).length) return "Select or add at least one user.";
+  if (cfg.run_type === "lesson_range" && !(cfg.users || []).length) return "Add at least one user.";
   return null;
 }
 
