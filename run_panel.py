@@ -15,6 +15,9 @@ import os
 import sys
 import json
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Make sure the project root is importable when launched directly.
 _ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -37,6 +40,7 @@ def _load_env_file(path):
 
 
 _load_env_file(os.path.join(_ROOT, "automation_email.env"))
+_load_env_file(os.path.join(_ROOT, "rally.env"))
 
 from flask import Flask, request, jsonify, render_template, Response, send_file, abort
 
@@ -57,8 +61,52 @@ def index():
     return render_template("index.html")
 
 
+def _pick_auto_project(projects):
+    """Pick the project Auto-detect would sync: first whose name contains 'dev',
+    else the first project. Returns (project_id, project_name) or (None, None)."""
+    for proj in projects:
+        if "dev" in proj.get("Name", "").lower():
+            return proj.get("_ref", "").split("/")[-1], proj.get("Name", "Unknown")
+    if projects:
+        return projects[0].get("_ref", "").split("/")[-1], projects[0].get("Name", "Unknown")
+    return None, None
+
+
+def _last_sync_info():
+    """Read data/rally_suite.json metadata so the UI can show last-synced info.
+
+    Returns None if the suite was never synced from Rally."""
+    try:
+        with open(os.path.join(_ROOT, "data", "rally_suite.json"), "r", encoding="utf-8") as f:
+            meta = (json.load(f) or {}).get("metadata") or {}
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not meta.get("synced_at"):
+        return None
+    return {
+        "synced_at": meta.get("synced_at"),
+        "total_cases": meta.get("total_cases"),
+        "project_id": meta.get("project_id"),
+    }
+
+
+def _get_rally_config():
+    """Get Rally configuration from environment."""
+    rally_token = os.getenv("RALLY_API_TOKEN", "")
+
+    # Only needs API token (URL and project ID auto-detected)
+    has_config = bool(rally_token)
+
+    return {
+        "has_config": has_config,
+        "last_sync": _last_sync_info(),
+    }
+
+
 @app.route("/api/config")
 def api_config():
+    rally_config = _get_rally_config()
+
     return jsonify({
         "users": [
             {"username": u["username"], "class_id": u.get("class_id", DEFAULT_CLASS_ID)}
@@ -71,6 +119,7 @@ def api_config():
             {"key": "test_case", "label": "Test Case(s)"},
         ],
         "suite": suite.tree(),
+        "rally": rally_config,
         "defaults": {
             "run_type": "lesson_range",
             "mode": DEFAULT_MODE,
@@ -89,6 +138,127 @@ def api_config():
 @app.route("/api/suite")
 def api_suite():
     return jsonify(suite.tree())
+
+
+@app.route("/api/rally/projects")
+def api_rally_projects():
+    """List Rally projects for the UI picker (readable names, no IDs to type).
+
+    Returns {configured, projects: [{id, name}], auto_detected} so the UI can
+    offer an 'Auto-detect' default plus a dropdown of real project names."""
+    from runner.rally_api import create_client_from_env
+
+    client = create_client_from_env("rally.env")
+    if not client:
+        return jsonify({"configured": False, "projects": [], "auto_detected": ""})
+
+    try:
+        projects = client.get_projects()
+    except Exception:
+        logger.exception("Failed to list Rally projects")
+        return jsonify({"configured": True, "projects": [], "auto_detected": ""})
+
+    auto_id, _ = _pick_auto_project(projects)
+    return jsonify({
+        "configured": True,
+        "projects": [
+            {"id": p.get("_ref", "").split("/")[-1], "name": p.get("Name", "Unknown")}
+            for p in projects
+        ],
+        "auto_detected": auto_id or "",
+    })
+
+
+@app.route("/api/rally/test", methods=["POST"])
+def api_rally_test():
+    """Quick connectivity check — verifies the API key without running a sync."""
+    from runner.rally_api import create_client_from_env
+
+    client = create_client_from_env("rally.env")
+    if not client:
+        return jsonify({"ok": False, "message": "No API token — add RALLY_API_TOKEN to rally.env"}), 200
+
+    if not client.test_connection():
+        return jsonify({"ok": False, "message": "Rally rejected the API key (check rally.env)"}), 200
+
+    try:
+        n = len(client.get_projects())
+    except Exception:
+        n = None
+    msg = "Connected to Rally" + (f" · {n} project{'' if n == 1 else 's'}" if n is not None else "")
+    return jsonify({"ok": True, "message": msg}), 200
+
+
+@app.route("/api/rally/sync", methods=["POST"])
+def api_rally_sync():
+    """Sync test cases from Rally and reload suite.
+
+    Accepts an optional ``project_id`` in the POST body. When omitted (empty),
+    the project is auto-detected (first named '…dev…', else the first project)."""
+    from runner.rally_api import create_client_from_env
+    from runner.test_generator import RallyTestGenerator
+
+    body = request.get_json(force=True, silent=True) or {}
+    requested_id = (body.get("project_id") or "").strip()
+
+    try:
+        # Create Rally client
+        client = create_client_from_env("rally.env")
+        if not client:
+            return jsonify({
+                "error": "Rally not configured. Set RALLY_API_TOKEN in rally.env"
+            }), 400
+
+        # Test connection
+        if not client.test_connection():
+            return jsonify({
+                "error": "Failed to connect to Rally. Check RALLY_API_TOKEN in rally.env"
+            }), 400
+
+        if requested_id:
+            # Explicit choice from the UI dropdown — use it directly.
+            project_id = requested_id
+            project_name = next(
+                (p.get("Name", "Unknown") for p in client.get_projects()
+                 if p.get("_ref", "").split("/")[-1] == requested_id),
+                requested_id,
+            )
+            logger.info(f"Using selected project: {project_name} ({project_id})")
+        else:
+            # Auto-detect a project.
+            project_id, project_name = _pick_auto_project(client.get_projects())
+            if not project_id:
+                return jsonify({"error": "No projects found in Rally"}), 400
+            logger.info(f"Auto-detected project: {project_name} ({project_id})")
+
+        # Sync to JSON
+        output_file = os.path.join(_ROOT, "data", "rally_suite.json")
+        success = client.sync_to_json(project_id, output_file, automated_only=True)
+
+        if not success:
+            return jsonify({"error": "Failed to sync from Rally"}), 500
+
+        # Generate tests
+        generator = RallyTestGenerator(_ROOT)
+        generated = generator.generate_all_tests()
+
+        # Reload suite tree
+        new_suite = suite.tree()
+
+        logger.info(f"Synced {len(generated)} test cases from {project_name}")
+
+        return jsonify({
+            "success": True,
+            "message": f"Synced {len(generated)} test cases from {project_name}",
+            "suite": new_suite,
+            "project_name": project_name,
+            "count": len(generated),
+            "synced_at": (_last_sync_info() or {}).get("synced_at"),
+        })
+
+    except Exception as e:
+        logger.exception("Rally sync error")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/suite/folder", methods=["POST"])

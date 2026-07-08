@@ -147,3 +147,39 @@ td pre { white-space: pre-wrap; font-size: 11px; margin: 4px 0; max-height: 160p
 .log .l-warn { color: #fcd34d; }
 .log .l-ok { color: #86efac; }
 .log .ts { color: #64748b; }
+
+/* Rally Sync Card */
+.rally-card {
+  margin: 10px 0 16px; padding: 10px 12px;
+  background: #f0f9ff; border: 1px solid #bfdbfe; border-radius: 8px;
+}
+.rally-head { display: flex; align-items: center; gap: 8px; }
+.rally-title { font-size: 13px; font-weight: 700; color: #0369a1; display: inline-flex; align-items: center; gap: 6px; }
+.rally-dot { width: 8px; height: 8px; border-radius: 999px; background: #94a3b8; display: inline-block; }
+.rally-dot.ok { background: #059669; }
+.rally-last { margin-left: auto; font-size: 12px; color: #64748b; }
+
+.rally-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+button.rally {
+  background: #0284c7; color: white; border: none; padding: 7px 14px; font-size: 13px;
+  cursor: pointer; border-radius: 7px; font-weight: 600;
+}
+button.rally:hover:not(:disabled) { background: #0369a1; }
+button.rally:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.rally-project-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.rally-project-row label { margin: 0; font-size: 12px; color: #475569; }
+.rally-project-row select { flex: 1; padding: 6px 8px; font-size: 13px; }
+
+.rally-status { font-size: 12px; font-weight: 600; }
+.rally-status.syncing { color: #ea580c; }
+.rally-status.success { color: #059669; }
+.rally-status.error { color: #dc2626; }
+
+.rally-empty { margin: 8px 0 0; font-size: 12px; color: #64748b; line-height: 1.5; }
+.rally-empty code { background: #e2e8f0; padding: 1px 5px; border-radius: 4px; font-size: 11px; }
+
+.rally-badge {
+  display: inline-block; background: #dbeafe; color: #0284c7; font-size: 11px;
+  padding: 2px 6px; border-radius: 3px; margin-left: 6px; font-weight: 500;
+}

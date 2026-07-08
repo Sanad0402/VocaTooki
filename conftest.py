@@ -149,6 +149,40 @@ def altdriver(request):
 
 
 # -----------------------------
+# Screenshot on failure
+# -----------------------------
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_makereport(item, call):
+    if call.when == "call" and call.excinfo is not None:
+        try:
+            # Try to get altdriver from fixtures
+            if hasattr(item, "funcargs") and "altdriver" in item.funcargs:
+                altdriver = item.funcargs["altdriver"]
+                driver, platform = altdriver
+
+                # Get or create screenshots directory
+                reports_dir = item.config.getoption("--reports_dir")
+                screenshots_dir = os.path.join(reports_dir, "screenshots")
+                os.makedirs(screenshots_dir, exist_ok=True)
+
+                # Generate screenshot filename
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+                test_name = item.name.replace("::", "_")
+                screenshot_path = os.path.join(
+                    screenshots_dir, f"{test_name}_{timestamp}.png"
+                )
+
+                # Capture screenshot via AltTester
+                screenshot = driver.get_screenshot()
+                if screenshot:
+                    with open(screenshot_path, "wb") as f:
+                        f.write(screenshot)
+                    logging.info(f"Screenshot saved: {screenshot_path}")
+        except Exception as e:
+            logging.debug(f"Failed to capture screenshot on failure: {e}")
+
+
+# -----------------------------
 # Collect per-test results
 # -----------------------------
 def pytest_runtest_logreport(report):
@@ -203,7 +237,12 @@ def pytest_generate_tests(metafunc):
         mode = metafunc.config.getoption("--user-mode")
         idx = metafunc.config.getoption("--user-index")
 
-        if mode == "single":
+        if not TEST_USERS:
+            # No users configured (credentials now come from Rally). Parametrize
+            # with an empty set so these legacy user-driven tests are cleanly
+            # skipped instead of crashing collection with an IndexError.
+            users = []
+        elif mode == "single":
             if idx < 0 or idx >= len(TEST_USERS):
                 print(f"[WARN] --user-index {idx} out of range. Using 0.")
                 idx = 0

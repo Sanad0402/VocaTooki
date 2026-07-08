@@ -1,44 +1,196 @@
 {
   "folders": [
     {
-      "id": "TF194",
-      "name": "Login",
+      "id": "TF181",
+      "name": "Voca Tooki (Client Side)",
       "parent": null
     },
     {
+      "id": "TF185",
+      "name": "Map & Lesson Flow",
+      "parent": "TF181"
+    },
+    {
+      "id": "TF186",
+      "name": "Activities ",
+      "parent": "TF181"
+    },
+    {
+      "id": "TF187",
+      "name": "Exams",
+      "parent": "TF181"
+    },
+    {
+      "id": "TF188",
+      "name": "Daily Games",
+      "parent": "TF181"
+    },
+    {
+      "id": "TF190",
+      "name": "Rewards & Economy",
+      "parent": "TF181"
+    },
+    {
+      "id": "TF191",
+      "name": "Help & Instructions (Parrot)",
+      "parent": "TF181"
+    },
+    {
+      "id": "TF192",
+      "name": "Notifications",
+      "parent": "TF181"
+    },
+    {
+      "id": "TF193",
+      "name": "Treasure Island",
+      "parent": "TF181"
+    },
+    {
+      "id": "TF194",
+      "name": "Login",
+      "parent": "TF181"
+    },
+    {
       "id": "TF195",
-      "name": "Login – Positive Flow",
+      "name": "Login \u2013 Positive Flow",
       "parent": "TF194"
     },
     {
       "id": "TF196",
-      "name": "Login – Negative Flow",
+      "name": "Login \u2013 Negative Flow",
       "parent": "TF194"
+    },
+    {
+      "id": "TF197",
+      "name": "Login \u2013 Error Handling",
+      "parent": "TF194"
+    },
+    {
+      "id": "TF198",
+      "name": "Login \u2013 Security & Compliance",
+      "parent": "TF194"
+    },
+    {
+      "id": "TF199",
+      "name": "Start Scene ",
+      "parent": "TF181"
+    },
+    {
+      "id": "TF200",
+      "name": "\ud83d\udcc2Start Scene \u2013 Positive Flow",
+      "parent": "TF199"
+    },
+    {
+      "id": "TF201",
+      "name": "\ud83d\udcc2Start Scene \u2013 Negative Flow",
+      "parent": "TF199"
+    },
+    {
+      "id": "TF202",
+      "name": "\ud83d\udcc2Start Scene \u2013 Error Handling",
+      "parent": "TF199"
+    },
+    {
+      "id": "TF203",
+      "name": "\ud83d\udcc2 Start Scene \u2013 Usability & Accessibility",
+      "parent": "TF199"
+    },
+    {
+      "id": "TF204",
+      "name": "\ud83d\udcc2 Treasure Island \u2013 Positive Flow",
+      "parent": "TF193"
+    },
+    {
+      "id": "RALLY_UNGROUPED",
+      "name": "Ungrouped",
+      "parent": null
     }
   ],
   "test_cases": [
     {
       "id": "TC128",
-      "name": "TC01 – Standard Login with Valid Credentials",
+      "name": "TC01 \u2013 Standard Login with Valid Credentials",
       "folder": "TF195",
+      "description": "<p><strong>Verify that a user with valid credentials can log in successfully and access the Map Scene. Ensures proper authentication and active session creation.</strong></p>",
+      "owner": "Sanad",
+      "status": "",
+      "user": {},
       "action": {
         "kind": "pytest",
-        "nodeid": "Tests/rally/TF194_Login/TF195_Positive_Flow/test_tc128_standard_login.py::test_standard_login"
+        "nodeid": "Tests/rally/TF194_Login/TF195_Login__Positive_Flow/test_tc128_tc01_standard_login_with_valid_credentials.py::test_tc128_tc01_standard_login_with_valid_credentials"
+      }
+    },
+    {
+      "id": "TC130",
+      "name": "TC03 \u2013 Login with Alternate Valid Accounts",
+      "folder": "TF195",
+      "description": "<p>Validate that the system allows successful login using different valid pupil accounts. This ensures login functionality is consistent across multiple pupils and not limited to a single user credential.</p>",
+      "owner": "Sanad",
+      "status": "",
+      "user": {},
+      "action": {
+        "kind": "pytest",
+        "nodeid": "Tests/rally/TF194_Login/TF195_Login__Positive_Flow/test_tc130_tc03_login_with_alternate_valid_accounts.py::test_tc130_tc03_login_with_alternate_valid_accounts"
       }
     },
     {
       "id": "TC132",
-      "name": "TC06 – Invalid Credentials",
+      "name": "TC06 \u2013 Invalid Credentials",
       "folder": "TF196",
-      "user": {
-        "username": "vt233628",
-        "password": "7173",
-        "class_id": "2336"
-      },
+      "description": "<p>Verify login fails with wrong username/password.</p>",
+      "owner": "Sanad",
+      "status": "",
+      "user": {},
       "action": {
         "kind": "pytest",
-        "nodeid": "Tests/rally/TF194_Login/TF196_Negative_Flow/test_tc132_invalid_credentials.py::test_invalid_credentials"
+        "nodeid": "Tests/rally/TF194_Login/TF196_Login__Negative_Flow/test_tc132_tc06_invalid_credentials.py::test_tc132_tc06_invalid_credentials"
+      }
+    },
+    {
+      "id": "TC133",
+      "name": "TC07 \u2013 Empty Fields",
+      "folder": "TF196",
+      "description": "<p>Validate system response when fields are empty.</p>",
+      "owner": "Sanad",
+      "status": "",
+      "user": {},
+      "action": {
+        "kind": "pytest",
+        "nodeid": "Tests/rally/TF194_Login/TF196_Login__Negative_Flow/test_tc133_tc07_empty_fields.py::test_tc133_tc07_empty_fields"
+      }
+    },
+    {
+      "id": "TC134",
+      "name": "TC08 \u2013 Locked/Disabled Account",
+      "folder": "TF196",
+      "description": "<p>Verify that locked pupil accounts cannot log in.</p>",
+      "owner": "Sanad",
+      "status": "",
+      "user": {},
+      "action": {
+        "kind": "pytest",
+        "nodeid": "Tests/rally/TF194_Login/TF196_Login__Negative_Flow/test_tc134_tc08_locked_disabled_account.py::test_tc134_tc08_locked_disabled_account"
+      }
+    },
+    {
+      "id": "TC452",
+      "name": "EVT_01: Open Events page successfully",
+      "folder": "RALLY_UNGROUPED",
+      "description": "<p><b>Test Overview:</b></p><p>This foundational smoke test validates that the VT-CRM Events management page loads correctly and displays all essential UI components required for event administration.</p><p><b>Business Value:</b></p><p>Ensures administrators can access the primary Events interface to manage educational events, which is critical for coordinating student competitions and learning activities across schools.</p><p><b>Components Validated:</b></p><p>\u2022 Events page title and navigation<br>\u2022 View Published Events navigation button<br>\u2022 Select Event dropdown functionality<br>\u2022 New Event creation link<br>\u2022 Schools/Classes selection grid<br>\u2022 Publish Event action button</p><p><b>Test Classification:</b></p><p>\u2022 Test Type: Smoke (Critical Path)<br>\u2022 Priority: High<br>\u2022 Execution Method: Manual verification</p><p><b>Dependencies:</b></p><p>\u2022 Admin user authentication<br>\u2022 VT-CRM system availability<br>\u2022 Database connectivity for event data</p><p><b>Notes:</b></p><p>Based on provided UI screenshots. This test serves as a prerequisite for all other event management test cases.</p>",
+      "owner": "",
+      "status": "",
+      "user": {},
+      "action": {
+        "kind": "pytest",
+        "nodeid": "Tests/rally/test_tc452_evt_01_open_events_page_successfully.py::test_tc452_evt_01_open_events_page_successfully"
       }
     }
-  ]
+  ],
+  "metadata": {
+    "project_id": "622679112169",
+    "total_cases": 6,
+    "automated_only": true,
+    "synced_from": "Rally API",
+    "synced_at": "2026-07-06T10:20:29.979375+00:00"
+  }
 }

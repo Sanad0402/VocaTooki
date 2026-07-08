@@ -996,11 +996,33 @@ import logging
 import requests
 from datetime import datetime
 
-VT_LOGIN_URL = "https://login.vocatooki.com/access/auth"
-VT_GAME = "vt"
+def _load_project_env():
+    """Populate env vars from a local, gitignored .env (or rally/email env) if
+    they aren't already set. Mirrors run_panel's minimal loader so direct pytest
+    runs pick up credentials too. Never overrides values already in the env."""
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for name in (".env", "rally.env", "automation_email.env"):
+        try:
+            with open(os.path.join(root, name), "r", encoding="utf-8") as fh:
+                for raw in fh:
+                    line = raw.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    k, v = line.split("=", 1)
+                    os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+        except FileNotFoundError:
+            continue
 
-VT_USERNAME = "admin26@vocatooki.com"
-VT_PASSWORD = "Forqan81!!"
+
+_load_project_env()
+
+VT_LOGIN_URL = os.getenv("VT_LOGIN_URL", "https://login.vocatooki.com/access/auth")
+VT_GAME = os.getenv("VT_GAME", "vt")
+
+# Credentials are read from the environment (see .env.template). Never hard-code
+# secrets here — this file is tracked in git.
+VT_USERNAME = os.getenv("VT_USERNAME")
+VT_PASSWORD = os.getenv("VT_PASSWORD")
 
 
 _TOKEN_CACHE = {

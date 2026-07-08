@@ -1,3 +1,10 @@
+# Cleanup backup (staged for review before permanent deletion)
+_cleanup_backup/
+
+# Local machine-specific / junk artifacts
+.claude/settings.local.json
+*.stackdump
+
 # Python cache
 __pycache__/
 *.py[cod]
@@ -28,5 +35,8 @@ screenshots/
 .env
 .env.*
 *.env
+!*.env.template
+rally.env
 automation_email.env
 debug_*.py
+data/test_users.py

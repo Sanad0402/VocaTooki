@@ -9,7 +9,7 @@ flask>=3.0
 AltTester-Driver
 
 # Automation framework helpers
-requests
+requests                # HTTP requests (Rally API)
 inflect
 langdetect
 loguru

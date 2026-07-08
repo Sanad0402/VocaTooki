@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Voca Tooki - Test Runner</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=9">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=14">
 </head>
 <body>
   <header>
@@ -19,6 +19,29 @@
       <div class="field">
         <label for="run_type">Run Type</label>
         <select id="run_type"></select>
+      </div>
+
+      <!-- Rally sync card — always visible when configured; imports the test suite.
+           No project ID to type; auto-detects, override optional. -->
+      <div id="rally-card" class="rally-card hidden">
+        <div class="rally-head">
+          <span class="rally-title"><span id="rally-dot" class="rally-dot"></span> Rally</span>
+          <span id="rally-last" class="rally-last"></span>
+        </div>
+        <div id="rally-controls" class="rally-controls hidden">
+          <button id="btn-sync-rally" type="button" class="rally">↻ Sync from Rally</button>
+          <button id="btn-rally-test" type="button" class="link">Test connection</button>
+          <button id="btn-rally-project" type="button" class="link">Change project</button>
+          <span id="rally-status" class="rally-status"></span>
+        </div>
+        <div id="rally-project-row" class="rally-project-row hidden">
+          <label for="rally-project">Project</label>
+          <select id="rally-project"><option value="">⚡ Auto-detect</option></select>
+        </div>
+        <p id="rally-empty" class="rally-empty hidden">
+          Rally isn’t connected. Add <code>RALLY_API_TOKEN</code> to <code>rally.env</code>
+          (see <code>RALLY_SETUP.md</code>), then reload.
+        </p>
       </div>
 
       <!-- Lesson Range (users) mode ---------------------------------------- -->
@@ -40,7 +63,7 @@
       <!-- Test Folder / Test Case modes ------------------------------------ -->
       <div id="suite-config" class="hidden">
         <div class="field">
-          <label id="suite-label">Test Folders</label>
+          <label id="suite-label">Test Folders <span id="rally-badge" class="rally-badge hidden">from Rally</span></label>
           <p class="hint" id="suite-hint">Select folder(s) to run. The user is taken from each test case (hard-coded).</p>
           <div id="suite-tree" class="suite-tree"></div>
         </div>
@@ -92,6 +115,6 @@
     </section>
   </main>
 
-  <script src="{{ url_for('static', filename='app.js') }}?v=9"></script>
+  <script src="{{ url_for('static', filename='app.js') }}?v=14"></script>
 </body>
 </html>

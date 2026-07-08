@@ -3,6 +3,7 @@
 const $ = (id) => document.getElementById(id);
 const LS_KEY = "vt_runner_cfg";
 const LS_USERS = "vt_runner_custom_users";
+const LS_RALLY_PROJECT = "vt_runner_rally_project";
 
 let CONFIG = null;
 let MODES = [];
@@ -57,11 +58,25 @@ async function init() {
   $("btn-add-folder").addEventListener("click", () => showFolderForm(null));
   $("btn-add-case").addEventListener("click", () => showCaseForm(null));
 
+  // Rally event listeners (safe — only attach if elements exist)
+  const syncBtn = $("btn-sync-rally");
+  const testBtn = $("btn-rally-test");
+  const projectBtn = $("btn-rally-project");
+  const projectSel = $("rally-project");
+  if (syncBtn) syncBtn.addEventListener("click", syncRally);
+  if (testBtn) testBtn.addEventListener("click", testRally);
+  if (projectBtn) projectBtn.addEventListener("click", toggleProjectPicker);
+  if (projectSel) projectSel.addEventListener("change", () => {
+    try { localStorage.setItem(LS_RALLY_PROJECT, projectSel.value); } catch (e) {}
+  });
+
   restoreConfig();
   restoreCustomUsers();
   updateModeDesc();
   renderSuiteTree();
   onRunTypeChange();
+
+  initRallyCard();
 
   $("btn-run").addEventListener("click", () => startRun(false));
   $("btn-dry").addEventListener("click", () => startRun(true));
@@ -508,4 +523,141 @@ function escapeHtml(s) {
 }
 function escapeAttr(s) { return escapeHtml(s); }
 
-init();
+// ---------------------------------------------------------------- Rally sync
+function initRallyCard() {
+  const rally = CONFIG.rally || {};
+  // Always show the card + the Sync button. Connection state is reflected by
+  // the dot colour and messaging — never by hiding the button (that was too
+  // fragile and left users staring at an empty card).
+  $("rally-card").classList.remove("hidden");
+  $("rally-controls").classList.remove("hidden");
+
+  if (rally.has_config) {
+    $("rally-dot").classList.add("ok");
+    $("rally-empty").classList.add("hidden");
+    renderLastSync(rally.last_sync);
+    loadRallyProjects();   // lazily fill the dropdown from Rally
+  } else {
+    $("rally-dot").classList.remove("ok");
+    $("rally-last").textContent = "Not connected";
+    $("rally-empty").classList.remove("hidden");
+  }
+}
+
+function renderLastSync(info) {
+  const el = $("rally-last");
+  if (!info || !info.synced_at) { el.textContent = "Never synced"; return; }
+  const when = formatRelativeTime(info.synced_at);
+  const n = info.total_cases;
+  el.textContent = `Last synced ${when}` + (n != null ? ` · ${n} case${n === 1 ? "" : "s"}` : "");
+}
+
+async function loadRallyProjects() {
+  let data;
+  try { data = await (await fetch("/api/rally/projects")).json(); } catch (e) { return; }
+  if (!data || !data.configured || !Array.isArray(data.projects)) return;
+
+  const sel = $("rally-project");
+  const autoName = (data.projects.find((p) => p.id === data.auto_detected) || {}).name;
+  sel.innerHTML = "";
+  const auto = document.createElement("option");
+  auto.value = "";
+  auto.textContent = "⚡ Auto-detect" + (autoName ? ` (${autoName})` : "");
+  sel.appendChild(auto);
+  data.projects.forEach((p) => {
+    const o = document.createElement("option");
+    o.value = p.id; o.textContent = p.name;
+    sel.appendChild(o);
+  });
+
+  // Restore remembered choice (only if it still exists).
+  let saved = null;
+  try { saved = localStorage.getItem(LS_RALLY_PROJECT); } catch (e) {}
+  if (saved && data.projects.some((p) => p.id === saved)) sel.value = saved;
+}
+
+function toggleProjectPicker() {
+  $("rally-project-row").classList.toggle("hidden");
+}
+
+async function testRally() {
+  const statusEl = $("rally-status");
+  const btn = $("btn-rally-test");
+  statusEl.textContent = "Testing…";
+  statusEl.className = "rally-status syncing";
+  btn.disabled = true;
+  try {
+    const r = await (await fetch("/api/rally/test", { method: "POST" })).json();
+    statusEl.textContent = (r.ok ? "✓ " : "✕ ") + r.message;
+    statusEl.className = "rally-status " + (r.ok ? "success" : "error");
+    $("rally-dot").classList.toggle("ok", !!r.ok);
+  } catch (err) {
+    statusEl.textContent = "✕ " + err.message;
+    statusEl.className = "rally-status error";
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function syncRally() {
+  const statusEl = $("rally-status");
+  const syncBtn = $("btn-sync-rally");
+  const projectId = $("rally-project") ? $("rally-project").value : "";
+
+  statusEl.textContent = "Syncing…";
+  statusEl.className = "rally-status syncing";
+  syncBtn.disabled = true;
+
+  try {
+    const response = await fetch("/api/rally/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ project_id: projectId }),
+    });
+
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Sync failed");
+
+    statusEl.textContent = "✓ " + (result.message || "Synced");
+    statusEl.className = "rally-status success";
+
+    if (result.suite) { SUITE = result.suite; renderSuiteTree(); }
+    // Surface the freshly imported tree: switch to the Test Folder view.
+    if ($("run_type").value === "lesson_range") {
+      $("run_type").value = "test_folder";
+      onRunTypeChange();
+      saveCfg();
+    }
+    if (result.synced_at) {
+      renderLastSync({ synced_at: result.synced_at, total_cases: result.count });
+    }
+    hideError();
+
+    setTimeout(() => {
+      statusEl.textContent = "";
+      statusEl.className = "rally-status";
+      syncBtn.disabled = false;
+    }, 4000);
+
+  } catch (err) {
+    statusEl.textContent = "✕ " + err.message;
+    statusEl.className = "rally-status error";
+    syncBtn.disabled = false;
+  }
+}
+
+function formatRelativeTime(iso) {
+  const then = Date.parse(iso);
+  if (isNaN(then)) return "recently";
+  const secs = Math.round((Date.now() - then) / 1000);
+  if (secs < 60) return "just now";
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs} hr${hrs === 1 ? "" : "s"} ago`;
+  const days = Math.round(hrs / 24);
+  if (days < 30) return `${days} day${days === 1 ? "" : "s"} ago`;
+  return new Date(then).toLocaleDateString();
+}
+
+init().catch((err) => console.error("Init error:", err));
