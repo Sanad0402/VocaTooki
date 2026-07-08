@@ -1,11 +1,16 @@
 """
 TC130 — TC03 – Login with Alternate Valid Accounts
 
-Auto-generated from Rally test case.
-Expected: Successful login and redirect to home screen.
+Auto-generated from Rally (Method = Automated).
+
+Description:
+    Validate that the system allows successful login using different valid pupil accounts. This ensures login functionality is consistent across multiple pupils and not limited to a single user credential.
+
+(No test steps recorded in Rally — add them to the case, then re-sync.)
 """
 
 import time
+import pytest
 from Pages.LoginPage import LoginPage
 from Pages.StartScreen import StartScreen
 
@@ -15,6 +20,8 @@ TC_ID = "TC130"
 MANUAL_EDIT = False
 
 
+@pytest.mark.stub
+@pytest.mark.skip(reason="TC130: no credentials on the Rally case. Add Username/Password to the case, then re-sync.")
 def test_tc130_tc03_login_with_alternate_valid_accounts(altdriver):
     driver, _platform = altdriver
     login_page = LoginPage(driver)

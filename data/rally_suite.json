@@ -115,6 +115,7 @@
       "owner": "Sanad",
       "status": "",
       "user": {},
+      "steps": [],
       "action": {
         "kind": "pytest",
         "nodeid": "Tests/rally/TF194_Login/TF195_Login__Positive_Flow/test_tc128_tc01_standard_login_with_valid_credentials.py::test_tc128_tc01_standard_login_with_valid_credentials"
@@ -128,6 +129,7 @@
       "owner": "Sanad",
       "status": "",
       "user": {},
+      "steps": [],
       "action": {
         "kind": "pytest",
         "nodeid": "Tests/rally/TF194_Login/TF195_Login__Positive_Flow/test_tc130_tc03_login_with_alternate_valid_accounts.py::test_tc130_tc03_login_with_alternate_valid_accounts"
@@ -141,6 +143,7 @@
       "owner": "Sanad",
       "status": "",
       "user": {},
+      "steps": [],
       "action": {
         "kind": "pytest",
         "nodeid": "Tests/rally/TF194_Login/TF196_Login__Negative_Flow/test_tc132_tc06_invalid_credentials.py::test_tc132_tc06_invalid_credentials"
@@ -154,6 +157,7 @@
       "owner": "Sanad",
       "status": "",
       "user": {},
+      "steps": [],
       "action": {
         "kind": "pytest",
         "nodeid": "Tests/rally/TF194_Login/TF196_Login__Negative_Flow/test_tc133_tc07_empty_fields.py::test_tc133_tc07_empty_fields"
@@ -167,6 +171,7 @@
       "owner": "Sanad",
       "status": "",
       "user": {},
+      "steps": [],
       "action": {
         "kind": "pytest",
         "nodeid": "Tests/rally/TF194_Login/TF196_Login__Negative_Flow/test_tc134_tc08_locked_disabled_account.py::test_tc134_tc08_locked_disabled_account"
@@ -180,6 +185,7 @@
       "owner": "",
       "status": "",
       "user": {},
+      "steps": [],
       "action": {
         "kind": "pytest",
         "nodeid": "Tests/rally/test_tc452_evt_01_open_events_page_successfully.py::test_tc452_evt_01_open_events_page_successfully"
@@ -191,6 +197,6 @@
     "total_cases": 6,
     "automated_only": true,
     "synced_from": "Rally API",
-    "synced_at": "2026-07-06T10:20:29.979375+00:00"
+    "synced_at": "2026-07-08T12:29:16.385230+00:00"
   }
 }

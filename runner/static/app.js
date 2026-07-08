@@ -57,6 +57,8 @@ async function init() {
 
   $("btn-add-folder").addEventListener("click", () => showFolderForm(null));
   $("btn-add-case").addEventListener("click", () => showCaseForm(null));
+  const liveBtn = $("btn-live-skeleton");
+  if (liveBtn) liveBtn.addEventListener("click", generateFromLiveApp);
 
   // Rally event listeners (safe — only attach if elements exist)
   const syncBtn = $("btn-sync-rally");
@@ -150,6 +152,19 @@ function restoreCustomUsers() {
 // ---------------------------------------------------------------- suite manager
 function setSuite(tree) { SUITE = tree || { folders: [] }; renderSuiteTree(); }
 
+// Implementation-status badge for a test case: real / stub / unlinked.
+// Makes it obvious which cases actually test something vs. auto-generated
+// stubs (which skip) vs. cases with no pytest linked yet.
+function implBadge(impl) {
+  const map = {
+    real:     { cls: "impl-real",     txt: "real",      title: "Implemented test — runs against the app" },
+    stub:     { cls: "impl-stub",     txt: "stub",      title: "Auto-generated stub — skips until implemented" },
+    unlinked: { cls: "impl-unlinked", txt: "no test",   title: "No pytest test linked — runs as SKIPPED" },
+  };
+  const b = map[impl] || map.unlinked;
+  return `<span class="impl-badge ${b.cls}" title="${b.title}">${b.txt}</span>`;
+}
+
 function toggleFolder(id) {
   EXPANDED.has(id) ? EXPANDED.delete(id) : EXPANDED.add(id);
   renderSuiteTree();
@@ -183,14 +198,18 @@ function renderSuiteTree() {
       <span class="twisty"></span>
       <input type="checkbox" class="sel-c" value="${escapeAttr(c.id)}" ${SEL_CASES.has(c.id) ? "checked" : ""}>
       <span class="ico">🧪</span><b>${escapeHtml(c.id)}</b> <span class="nm">${escapeHtml(c.name)}</span>
-      <span class="muted">· ${c.nodeid ? "pytest" : "⚠ no test linked"}</span>
+      ${implBadge(c.impl)}
       <span class="row-actions">
+        ${c.impl === "unlinked" ? "" :
+          `<button type="button" class="link c-impl">${c.impl === "stub" ? "make real" : "make stub"}</button>`}
         <button type="button" class="link c-edit">edit</button>
         <button type="button" class="link danger c-del">delete</button>
       </span>`;
     row.querySelector(".sel-c").addEventListener("change", (e) => {
       e.target.checked ? SEL_CASES.add(c.id) : SEL_CASES.delete(c.id); saveCfg();
     });
+    const implBtn = row.querySelector(".c-impl");
+    if (implBtn) implBtn.addEventListener("click", () => toggleImpl(c));
     row.querySelector(".c-edit").addEventListener("click", () => showCaseForm(c));
     row.querySelector(".c-del").addEventListener("click", () => deleteCase(c));
     el.appendChild(row);
@@ -313,6 +332,68 @@ async function deleteCase(c) {
   const data = await res.json();
   if (!res.ok) { showError(data.error || "Delete failed."); return; }
   SEL_CASES.delete(c.id); setSuite(data);
+}
+
+function setSkeletonMsg(text, isErr) {
+  const el = $("skeleton-msg");
+  if (!el) return;
+  el.textContent = text || "";
+  el.style.color = isErr ? "#b91c1c" : "#475569";
+}
+
+// Manually flip a case between 'real' and 'stub' (edits the test file's markers,
+// locks MANUAL_EDIT=True so a re-sync keeps the choice).
+async function toggleImpl(c) {
+  const target = c.impl === "stub" ? "real" : "stub";
+  if (target === "real" && !confirm(
+    `Mark ${c.id} as REAL? It will run instead of skipping. If it isn't implemented yet it may pass without testing anything.`)) return;
+  try {
+    const res = await fetch("/api/suite/case/impl", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: c.id, impl: target }),
+    });
+    const data = await res.json();
+    if (!res.ok) { setSkeletonMsg(data.error || "Could not change status.", true); return; }
+    if (data.suite) { SUITE = data.suite; renderSuiteTree(); }
+    setSkeletonMsg(`${c.id} → ${data.impl}` + (data.warning ? " · " + data.warning : ""), !!data.warning);
+  } catch (e) {
+    setSkeletonMsg("Request failed: " + e.message, true);
+  }
+}
+
+// #4 — discover elements on the LIVE app and turn selected stub cases into real
+// skeletons. Needs the game + AltTester running (uses the Connection settings).
+async function generateFromLiveApp() {
+  const ids = [...SEL_CASES];
+  if (!ids.length) {
+    setSkeletonMsg("Tick at least one test case (checkbox) first — this reads the running app's current scene.", true);
+    return;
+  }
+  const cfg = gatherConfig(false);
+  const btn = $("btn-live-skeleton");
+  btn.disabled = true;
+  setSkeletonMsg(`Connecting to ${cfg.host}:${cfg.port} and discovering elements…`, false);
+  try {
+    const res = await fetch("/api/suite/skeleton", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        test_cases: ids, host: cfg.host, port: cfg.port, platform: cfg.platform,
+        app_id: cfg.app_id, device_instance_id: cfg.device_instance_id,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) { setSkeletonMsg(data.error || "Generation failed.", true); return; }
+    if (data.suite) { SUITE = data.suite; renderSuiteTree(); }
+    const failed = (data.results || []).filter((r) => !r.ok);
+    let msg = data.message || "Done.";
+    if (failed.length) msg += " · Failed: " + failed.map((r) => `${r.id} (${r.error})`).join(", ");
+    setSkeletonMsg(msg, failed.length > 0);
+  } catch (e) {
+    setSkeletonMsg("Request failed: " + e.message, true);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // ---------------------------------------------------------------- config

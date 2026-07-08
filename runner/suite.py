@@ -16,6 +16,8 @@ import os
 import json
 import threading
 
+from runner import rally_naming
+
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SUITE_PATH = os.path.join(_ROOT, "data", "rally_suite.json")
 ACTION_KINDS = ("pytest", "login", "lesson", "code")
@@ -85,8 +87,29 @@ def tree():
     return {"folders": out}
 
 
+def impl_status(nodeid):
+    """Implementation status of a case's linked pytest test:
+
+    'unlinked' -> no nodeid recorded (nothing to run)
+    'stub'     -> linked file is an auto-generated, not-yet-implemented stub
+                  (``@pytest.mark.stub`` → skips) or the file is missing
+    'real'     -> an implemented test that actually runs against the app
+    """
+    nodeid = _norm_id(nodeid)
+    if not nodeid:
+        return "unlinked"
+    file_part = nodeid.split("::", 1)[0]
+    try:
+        with open(os.path.join(_ROOT, file_part), "r", encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return "stub"  # linked but the file isn't on disk → not runnable yet
+    return "stub" if rally_naming.is_stub(text) else "real"
+
+
 def _public_case(c):
     u = c.get("user") or {}
+    nodeid = (c.get("action") or {}).get("nodeid")
     return {
         "id": c["id"], "name": c.get("name", c["id"]), "folder": c.get("folder"),
         "username": u.get("username", ""), "password": u.get("password", ""),
@@ -95,7 +118,8 @@ def _public_case(c):
         "lesson": (c.get("action") or {}).get("lesson"),
         "mode": (c.get("action") or {}).get("mode"),
         "ref": (c.get("action") or {}).get("ref"),
-        "nodeid": (c.get("action") or {}).get("nodeid"),
+        "nodeid": nodeid,
+        "impl": impl_status(nodeid),
     }
 
 

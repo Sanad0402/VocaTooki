@@ -95,8 +95,10 @@ class RallyTestGenerator:
                 pass
 
         test_type = self._infer_test_type(tc_name)
+        description = test_case.get("description", "")
+        steps = test_case.get("steps", [])
         test_code = self._generate_test_code(
-            tc_id, tc_name, test_type, user_data, func_name
+            tc_id, tc_name, test_type, user_data, func_name, description, steps
         )
         test_code = self._inject_manual_marker(test_code)
 
@@ -109,6 +111,53 @@ class RallyTestGenerator:
 
         return output_path
 
+    def generate_skeleton(self, test_case: Dict[str, Any],
+                          elements: Dict[str, Any]) -> Path:
+        """#4 — build a test from elements discovered on the LIVE app (via
+        ``ElementInspector``) instead of an empty stub.
+
+        ``elements`` = ``{"scene": str, "inputs": [names], "buttons": [names]}``.
+        A fully-inferable case (positive login with the login controls present
+        and credentials on the Rally case) is written as a COMPLETE real test
+        (``MANUAL_EDIT = True``). Everything else is written as a *populated*
+        stub — the real discovered element calls are pre-wired in the body, but
+        it still skips until a human finishes and unlocks it. Never a false pass.
+
+        A file already locked with ``MANUAL_EDIT = True`` is left untouched.
+        Returns the written Path.
+        """
+        tc_id = test_case["id"]
+        tc_name = test_case["name"]
+        nodeid = (test_case.get("action") or {}).get("nodeid") or ""
+        if "::" in nodeid:
+            file_part, func_name = nodeid.split("::", 1)
+            output_path = self.project_root / file_part
+        else:
+            func_name = self._get_test_func_name(tc_id, tc_name)
+            output_path = self._determine_output_path(tc_id, tc_name, test_case.get("folder"))
+
+        if output_path.exists():
+            try:
+                if rally_naming.is_manual(output_path.read_text(encoding="utf-8")):
+                    logger.info(f"Preserved manual edit (MANUAL_EDIT=True): {output_path}")
+                    return output_path
+            except Exception:
+                pass
+
+        test_type = self._infer_test_type(tc_name)
+        code = self._gen_skeleton_from_elements(
+            tc_id, tc_name, test_type, func_name,
+            test_case.get("description", ""), test_case.get("steps", []),
+            test_case.get("user", {}), elements or {},
+        )
+        # Complete skeletons declare MANUAL_EDIT = True themselves; populated
+        # stubs get MANUAL_EDIT = False injected here.
+        code = self._inject_manual_marker(code)
+        self._remove_stale_for_tc(tc_id, output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(code, encoding="utf-8")
+        return output_path
+
     @staticmethod
     def _inject_manual_marker(test_code: str) -> str:
         """Add the ``MANUAL_EDIT`` lock flag right after the ``TC_ID`` line.
@@ -116,7 +165,10 @@ class RallyTestGenerator:
         Kept here (not in each template) so all generated files get it uniformly.
         Set the flag to True in a file to protect it from the next Rally sync.
         """
-        if "MANUAL_EDIT" in test_code:
+        # Only skip if a real MANUAL_EDIT assignment already exists (line-anchored),
+        # not merely an instructional comment mentioning it (stubs reference it in a
+        # comment, and must still get the actual MANUAL_EDIT = False line injected).
+        if re.search(r"^\s*MANUAL_EDIT\s*=", test_code, re.MULTILINE):
             return test_code
         return re.sub(
             r'(TC_ID\s*=\s*"[^"]*"\n)',
@@ -180,14 +232,20 @@ class RallyTestGenerator:
     def _infer_test_type(self, tc_name: str) -> str:
         """Infer test type from test case name."""
         lower = tc_name.lower()
-        if "login" in lower:
-            if "invalid" in lower or "negative" in lower:
-                return "login_negative"
+        negative_words = ("invalid", "incorrect", "wrong", "empty", "locked",
+                          "disabled", "negative", "failure")
+        is_login = any(k in lower for k in ("login", "log in", "sign in", "credential"))
+        is_negative = any(w in lower for w in negative_words)
+        if is_login and is_negative:
+            return "login_negative"
+        if is_login:
             return "login_positive"
-        if "logout" in lower:
+        # Negative flows whose name omits "login" but clearly concern auth
+        # (e.g. "Empty Fields", "Locked/Disabled Account", "Invalid Credentials").
+        if is_negative and any(k in lower for k in ("account", "field", "password", "credential", "user")):
+            return "login_negative"
+        if any(k in lower for k in ("logout", "log out", "sign out")):
             return "logout"
-        if "navigation" in lower:
-            return "navigation"
         return "generic"
 
     def _generate_test_code(
@@ -197,18 +255,72 @@ class RallyTestGenerator:
         test_type: str,
         user_data: Dict[str, str],
         func_name: str,
+        description: str = "",
+        steps: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
         """Generate pytest code based on test type."""
+        steps = steps or []
         if test_type == "login_positive":
-            return self._gen_login_positive(tc_id, tc_name, user_data, func_name)
+            return self._gen_login_positive(tc_id, tc_name, user_data, func_name, description, steps)
         elif test_type == "login_negative":
-            return self._gen_login_negative(tc_id, tc_name, user_data, func_name)
+            return self._gen_login_negative(tc_id, tc_name, user_data, func_name, description, steps)
         elif test_type == "logout":
-            return self._gen_logout(tc_id, tc_name, func_name)
-        elif test_type == "navigation":
-            return self._gen_navigation(tc_id, tc_name, func_name)
+            return self._gen_logout(tc_id, tc_name, func_name, description, steps)
         else:
-            return self._gen_generic(tc_id, tc_name, func_name)
+            return self._gen_stub(tc_id, tc_name, func_name, description, steps)
+
+    # -----------------------------------------------------------------
+    # Shared content helpers — turn the Rally case into readable content
+    # so generated files are never "empty".
+    # -----------------------------------------------------------------
+    @staticmethod
+    def _clean_html(text: str) -> str:
+        """Strip HTML/entities from a Rally rich-text field to plain text."""
+        if not text:
+            return ""
+        t = re.sub(r"<[^>]+>", " ", str(text))
+        for a, b in (("&nbsp;", " "), ("&amp;", "&"), ("&lt;", "<"),
+                     ("&gt;", ">"), ("&#39;", "'"), ("&quot;", '"')):
+            t = t.replace(a, b)
+        return re.sub(r"\s+", " ", t).strip()
+
+    @classmethod
+    def _doc_block(cls, tc_id: str, tc_name: str, description: str,
+                   steps: List[Dict[str, Any]]) -> str:
+        """Docstring body: Rally description + numbered steps."""
+        lines = [f"{tc_id} — {tc_name}", "",
+                 "Auto-generated from Rally (Method = Automated)."]
+        desc = cls._clean_html(description)
+        if desc:
+            lines += ["", "Description:", f"    {desc}"]
+        step_lines = []
+        for i, s in enumerate(steps or [], 1):
+            inp = cls._clean_html(s.get("input", ""))
+            exp = cls._clean_html(s.get("expected", ""))
+            if not inp and not exp:
+                continue
+            step_lines.append(f"    {i}. {inp}" if inp else f"    {i}.")
+            if exp:
+                step_lines.append(f"       Expected: {exp}")
+        if step_lines:
+            lines += ["", "Steps (from Rally):"] + step_lines
+        else:
+            lines += ["", "(No test steps recorded in Rally — add them to the case, then re-sync.)"]
+        return "\n".join(lines)
+
+    @classmethod
+    def _body_scaffold(cls, steps: List[Dict[str, Any]]) -> str:
+        """Body comments listing the real Rally steps for the implementer."""
+        out = []
+        for i, s in enumerate(steps or [], 1):
+            inp = cls._clean_html(s.get("input", ""))
+            exp = cls._clean_html(s.get("expected", ""))
+            out.append(f"    # Step {i}: {inp}" if inp else f"    # Step {i}:")
+            if exp:
+                out.append(f"    #   Expected: {exp}")
+        if not out:
+            out = ["    # (No steps recorded in Rally — add them to the case and re-sync.)"]
+        return "\n".join(out)
 
     def _get_test_func_name(self, tc_id: str, tc_name: str) -> str:
         """Canonical test function name (matches the file stem and nodeid).
@@ -218,23 +330,28 @@ class RallyTestGenerator:
         """
         return rally_naming.test_identifier(tc_id, tc_name)
 
-    def _gen_login_positive(self, tc_id: str, tc_name: str, user_data: Dict[str, str], test_func_name: str) -> str:
-        """Generate positive login test."""
-        # Credentials are hard-coded per Rally test case (this framework's model:
-        # each case carries its own user). Fill them via the Flask UI (edit case
-        # → username/password) or by editing the file and setting MANUAL_EDIT=True.
+    def _gen_login_positive(self, tc_id, tc_name, user_data, test_func_name,
+                            description="", steps=None) -> str:
+        """Generate positive login test. Skips honestly if the Rally case has
+        no credentials (rather than running with a 'CHANGE_ME' placeholder)."""
         username = user_data.get("username") or "CHANGE_ME"
         password = user_data.get("password") or ""
-        cred_source = f'username = "{username}"\n    password = "{password}"'
+        creds_missing = username == "CHANGE_ME"
+        doc = self._doc_block(tc_id, tc_name, description, steps or [])
+        # Guard rather than run a meaningless login when no credentials exist.
+        guard = "@pytest.mark.stub\n" if creds_missing else ""
+        guard += (
+            f'@pytest.mark.skip(reason="{tc_id}: no credentials on the Rally case. '
+            f'Add Username/Password to the case, then re-sync.")\n'
+            if creds_missing else ""
+        )
 
         return f'''"""
-{tc_id} — {tc_name}
-
-Auto-generated from Rally test case.
-Expected: Successful login and redirect to home screen.
+{doc}
 """
 
 import time
+import pytest
 from Pages.LoginPage import LoginPage
 from Pages.StartScreen import StartScreen
 
@@ -242,7 +359,7 @@ from Pages.StartScreen import StartScreen
 TC_ID = "{tc_id}"
 
 
-def {test_func_name}(altdriver):
+{guard}def {test_func_name}(altdriver):
     driver, _platform = altdriver
     login_page = LoginPage(driver)
 
@@ -256,7 +373,8 @@ def {test_func_name}(altdriver):
 
     login_page.wait_until_open(timeout=20)
 
-    {cred_source}
+    username = "{username}"
+    password = "{password}"
 
     login_page.set_username(username)
     login_page.set_password(password)
@@ -267,18 +385,18 @@ def {test_func_name}(altdriver):
         f"Login failed: GO-Map not found after login ({{TC_ID}})"
 '''
 
-    def _gen_login_negative(
-        self, tc_id: str, tc_name: str, user_data: Dict[str, str], test_func_name: str
-    ) -> str:
-        """Generate negative login test."""
-        username = user_data.get("username", "invalid_user")
-        password = user_data.get("password", "invalid_pass")
+    def _gen_login_negative(self, tc_id, tc_name, user_data, test_func_name,
+                            description="", steps=None) -> str:
+        """Generate negative login test — a real check that login is rejected."""
+        if "empty" in tc_name.lower():
+            username, password = "", ""
+        else:
+            username = user_data.get("username") or "invalid_user"
+            password = user_data.get("password") or "invalid_pass"
+        doc = self._doc_block(tc_id, tc_name, description, steps or [])
 
         return f'''"""
-{tc_id} — {tc_name}
-
-Auto-generated from Rally test case.
-Expected: Login fails with invalid credentials.
+{doc}
 """
 
 import time
@@ -310,17 +428,21 @@ def {test_func_name}(altdriver):
     login_page.click_login()
     time.sleep(3)
 
-    assert login_page.is_open() or login_page.error_visible(), \\
-        f"Login should fail with invalid credentials ({{TC_ID}})"
+    # Negative expectation: login must be rejected. Either we stay on the login
+    # screen, or an error/notification is shown. (LoginPage exposes get_notif_text()
+    # and is_open(); there is no error_visible().)
+    still_on_login = login_page.is_open()
+    notif = login_page.get_notif_text()
+    assert still_on_login or notif, \\
+        f"Expected login to be rejected but it was accepted ({{TC_ID}})"
 '''
 
-    def _gen_logout(self, tc_id: str, tc_name: str, test_func_name: str) -> str:
+    def _gen_logout(self, tc_id, tc_name, test_func_name,
+                    description="", steps=None) -> str:
         """Generate logout test."""
+        doc = self._doc_block(tc_id, tc_name, description, steps or [])
         return f'''"""
-{tc_id} — {tc_name}
-
-Auto-generated from Rally test case.
-Expected: Logout succeeds and returns to login screen.
+{doc}
 """
 
 import time
@@ -341,47 +463,121 @@ def {test_func_name}(altdriver):
         f"Logout failed: not on login screen ({{TC_ID}})"
 '''
 
-    def _gen_navigation(self, tc_id: str, tc_name: str, test_func_name: str) -> str:
-        """Generate navigation test."""
+    def _gen_stub(self, tc_id, tc_name, test_func_name,
+                  description="", steps=None) -> str:
+        """Generate an HONEST stub: carries the real Rally description + steps,
+        and SKIPS (never 'assert True') so it can't masquerade as passing.
+        The @pytest.mark.skip also prevents the altdriver fixture from starting,
+        so unimplemented stubs don't try to connect to the game."""
+        doc = self._doc_block(tc_id, tc_name, description, steps or [])
+        scaffold = self._body_scaffold(steps or [])
         return f'''"""
-{tc_id} — {tc_name}
+{doc}
+"""
 
-Auto-generated from Rally test case.
-Expected: Navigation succeeds to target screen.
+import pytest
+
+# Rally test case ID (for sync and maintenance)
+TC_ID = "{tc_id}"
+
+
+@pytest.mark.stub
+@pytest.mark.skip(reason="{tc_id}: auto-generated from Rally, not implemented yet. "
+                         "Implement the steps below, remove this skip, then set MANUAL_EDIT = True.")
+def {test_func_name}(altdriver):
+    driver, _platform = altdriver
+
+    # TODO: implement the Rally steps below against the live app (AltTester):
+{scaffold}
+
+    # When implemented: delete the @pytest.mark.skip above and set MANUAL_EDIT = True
+    # so the next Rally sync keeps your code.
+'''
+
+    def _gen_skeleton_from_elements(self, tc_id, tc_name, test_type, func_name,
+                                    description, steps, user_data, elements) -> str:
+        """Render a test using elements discovered on the live app (see #4)."""
+        scene = elements.get("scene") or "?"
+        inputs = [n for n in (elements.get("inputs") or []) if n]
+        buttons = [n for n in (elements.get("buttons") or []) if n]
+        doc = self._doc_block(tc_id, tc_name, description, steps or [])
+        disc = (f"Generated from the LIVE app via AltTester element discovery.\n"
+                f"Scene: {scene} | inputs: {inputs or 'none'} | buttons: {buttons or 'none'}")
+
+        # Can we produce a COMPLETE positive-login test? Needs the login
+        # controls on screen and real credentials from the Rally case.
+        username = (user_data or {}).get("username") or ""
+        password = (user_data or {}).get("password") or ""
+        user_field = next((i for i in inputs if "user" in i.lower()), None)
+        pass_field = next((i for i in inputs if "pass" in i.lower()), None)
+        login_btn = next((b for b in buttons if "login" in b.lower()), buttons[0] if buttons else None)
+        login_ready = (test_type == "login_positive" and username and username != "CHANGE_ME"
+                       and user_field and pass_field and login_btn)
+
+        if login_ready:
+            return f'''"""
+{doc}
+
+{disc}
 """
 
 import time
+from alttester import By
+from Pages.StartScreen import StartScreen
 
 # Rally test case ID (for sync and maintenance)
 TC_ID = "{tc_id}"
+MANUAL_EDIT = True
 
 
-def {test_func_name}(altdriver):
+def {func_name}(altdriver):
     driver, _platform = altdriver
 
-    # TODO: Customize navigation steps for this test
-    time.sleep(2)
-    assert True, "Navigation test placeholder"
+    driver.wait_for_object(By.NAME, "{user_field}", enabled=True).set_text("{username}")
+    driver.wait_for_object(By.NAME, "{pass_field}", enabled=True).set_text("{password}")
+    driver.wait_for_object(By.NAME, "{login_btn}").click()
+    time.sleep(5)
+
+    assert StartScreen(driver).is_present("GO-Map"), \\
+        f"Login failed: GO-Map not found after login ({{TC_ID}})"
 '''
 
-    def _gen_generic(self, tc_id: str, tc_name: str, test_func_name: str) -> str:
-        """Generate generic placeholder test."""
+        # Otherwise: a populated but still-skipped stub. Real element calls are
+        # pre-wired (commented) so a human just fills values + asserts.
+        set_lines = "\n".join(
+            f'    # driver.wait_for_object(By.NAME, "{n}", enabled=True).set_text("<value>")'
+            for n in inputs
+        ) or "    # (no input fields discovered on this scene)"
+        click_lines = "\n".join(
+            f'    # driver.wait_for_object(By.NAME, "{n}").click()' for n in buttons
+        ) or "    # (no buttons discovered on this scene)"
+        scaffold = self._body_scaffold(steps or [])
         return f'''"""
-{tc_id} — {tc_name}
+{doc}
 
-Auto-generated from Rally test case.
-TODO: Customize based on actual test steps.
+{disc}
 """
+
+import time
+import pytest
+from alttester import By
 
 # Rally test case ID (for sync and maintenance)
 TC_ID = "{tc_id}"
 
 
-def {test_func_name}(altdriver):
+@pytest.mark.stub
+@pytest.mark.skip(reason="{tc_id}: skeleton pre-wired from live elements, not finished. "
+                         "Complete the interactions/asserts, remove this skip, then set MANUAL_EDIT = True.")
+def {func_name}(altdriver):
     driver, _platform = altdriver
 
-    # TODO: Implement test steps
-    assert True
+    # --- Elements discovered on the live app (uncomment + set real values) ---
+{set_lines}
+{click_lines}
+
+    # --- Rally steps to assert ---
+{scaffold}
 '''
 
     def _determine_output_path(

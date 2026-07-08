@@ -1,9 +1,16 @@
 """
 TC133 — TC07 – Empty Fields
 
-Auto-generated from Rally test case.
-TODO: Customize based on actual test steps.
+Auto-generated from Rally (Method = Automated).
+
+Description:
+    Validate system response when fields are empty.
+
+(No test steps recorded in Rally — add them to the case, then re-sync.)
 """
+
+import time
+from Pages.LoginPage import LoginPage
 
 # Rally test case ID (for sync and maintenance)
 TC_ID = "TC133"
@@ -13,6 +20,30 @@ MANUAL_EDIT = False
 
 def test_tc133_tc07_empty_fields(altdriver):
     driver, _platform = altdriver
+    login_page = LoginPage(driver)
 
-    # TODO: Implement test steps
-    assert True
+    if not login_page.is_open():
+        try:
+            from Utilities import utilsdemo
+            utilsdemo.call_method(driver, "AltTesterUtils", "Logout")
+            time.sleep(2)
+        except Exception:
+            pass
+
+    login_page.wait_until_open(timeout=20)
+
+    username = ""
+    password = ""
+
+    login_page.set_username(username)
+    login_page.set_password(password)
+    login_page.click_login()
+    time.sleep(3)
+
+    # Negative expectation: login must be rejected. Either we stay on the login
+    # screen, or an error/notification is shown. (LoginPage exposes get_notif_text()
+    # and is_open(); there is no error_visible().)
+    still_on_login = login_page.is_open()
+    notif = login_page.get_notif_text()
+    assert still_on_login or notif, \
+        f"Expected login to be rejected but it was accepted ({TC_ID})"

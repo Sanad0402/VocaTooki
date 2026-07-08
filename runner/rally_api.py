@@ -256,6 +256,19 @@ class RallyAPIClient:
                 # Extract credentials from description if provided
                 user_data = self._extract_credentials(tc_description)
 
+                # Fetch the Rally test steps so generated files carry the real
+                # procedure (not an empty stub). ObjectID is the last _ref segment.
+                tc_oid = tc.get("_ref", "").split("/")[-1]
+                raw_steps = self.get_test_steps(tc_oid)
+                steps_out = [
+                    {
+                        "index": s.get("StepIndex"),
+                        "input": s.get("Input", ""),
+                        "expected": s.get("ExpectedResult", ""),
+                    }
+                    for s in sorted(raw_steps, key=lambda x: (x.get("StepIndex") or 0))
+                ]
+
                 # Canonical identifier shared with test_generator (file stem == function name).
                 ident = rally_naming.test_identifier(tc_id, tc_name)
 
@@ -293,6 +306,7 @@ class RallyAPIClient:
                         "owner": (tc.get("Owner") or {}).get("_refObjectName", ""),
                         "status": tc.get("Status", ""),
                         "user": user_data,
+                        "steps": steps_out,
                         "action": {
                             "kind": "pytest",
                             "nodeid": nodeid,

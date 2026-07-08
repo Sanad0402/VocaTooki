@@ -54,6 +54,10 @@ app = Flask(
     template_folder=os.path.join(_ROOT, "runner", "templates"),
     static_folder=os.path.join(_ROOT, "runner", "static"),
 )
+# Re-read templates from disk each request so UI edits show on a plain refresh
+# (without this, Jinja caches the compiled template while debug=False).
+app.config["TEMPLATES_AUTO_RELOAD"] = True
+app.jinja_env.auto_reload = True
 
 
 @app.route("/")
@@ -284,6 +288,48 @@ def api_suite_folder_delete(folder_id):
     return jsonify(tree)
 
 
+@app.route("/api/suite/skeleton", methods=["POST"])
+def api_suite_skeleton():
+    """Generate real test skeletons for selected cases by discovering elements
+    on the LIVE app (AltTester). Requires the game running and reachable at the
+    given host/port. Upgrades honest stubs into real/pre-wired skeletons."""
+    from runner.live_skeleton import generate_skeletons_live
+
+    d = request.get_json(force=True, silent=True) or {}
+    tc_ids = [str(t).strip() for t in (d.get("test_cases") or []) if str(t).strip()]
+    if not tc_ids:
+        return jsonify({"error": "Select at least one test case first."}), 400
+
+    try:
+        results, elements = generate_skeletons_live(
+            tc_ids,
+            host=d.get("host") or "127.0.0.1",
+            port=int(d.get("port") or 13000),
+            platform=d.get("platform") or "WindowsEditor",
+            app_id=d.get("app_id") or "",
+            device_instance_id=d.get("device_instance_id") or "",
+        )
+    except Exception as e:
+        # Almost always: the app/AltTester isn't running or is unreachable.
+        logger.exception("Live skeleton generation failed")
+        return jsonify({
+            "error": f"Could not connect to the app for element discovery: {e}. "
+                     f"Is the game running and AltTester reachable?"
+        }), 502
+
+    ok = sum(1 for r in results if r.get("ok"))
+    return jsonify({
+        "results": results,
+        "scene": elements.get("scene"),
+        "inputs": elements.get("inputs", []),
+        "buttons": elements.get("buttons", []),
+        "message": f"Generated {ok}/{len(results)} skeleton(s) from scene "
+                   f"'{elements.get('scene')}' ({len(elements.get('inputs', []))} inputs, "
+                   f"{len(elements.get('buttons', []))} buttons).",
+        "suite": suite.tree(),
+    })
+
+
 @app.route("/api/suite/case", methods=["POST"])
 def api_suite_case():
     d = request.get_json(force=True, silent=True) or {}
@@ -295,6 +341,30 @@ def api_suite_case():
     except suite.SuiteError as e:
         return jsonify({"error": str(e)}), 400
     return jsonify(tree)
+
+
+@app.route("/api/suite/case/impl", methods=["POST"])
+def api_suite_case_impl():
+    """Manually flip a case's linked test between 'real' and 'stub'.
+
+    Edits the test file's markers (and locks MANUAL_EDIT=True so a re-sync keeps
+    the choice). Body: {"id": "TC452", "impl": "real"|"stub"}."""
+    from runner.impl_toggle import set_case_impl
+
+    d = request.get_json(force=True, silent=True) or {}
+    tc_id = (d.get("id") or "").strip()
+    target = (d.get("impl") or "").strip().lower()
+    if not tc_id:
+        return jsonify({"error": "Missing test case id."}), 400
+    try:
+        res = set_case_impl(tc_id, target)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.exception("Impl toggle failed")
+        return jsonify({"error": str(e)}), 500
+    res["suite"] = suite.tree()
+    return jsonify(res)
 
 
 @app.route("/api/suite/case/<tc_id>", methods=["DELETE"])

@@ -122,11 +122,15 @@ th { background: #f8fafc; font-size: 12px; }
 .suite-row.folder { cursor: pointer; }
 .suite-row .twisty { width: 16px; display: inline-block; text-align: center; color: #64748b; user-select: none; }
 .suite-row .count { color: #94a3b8; font-size: 12px; }
-.suite-row .sel-f { width: 18px; height: 18px; }
-/* Test-case checkbox: larger / easier to click */
-.suite-row .sel-c { width: 22px; height: 22px; cursor: pointer; accent-color: #2563eb; }
+/* Folder + test-case checkboxes: large and easy to click, never squeezed by flex. */
+.suite-row .sel-f,
+.suite-row .sel-c { width: 22px; height: 22px; flex: 0 0 auto; margin: 0 2px; cursor: pointer; accent-color: #2563eb; }
 .suite-row.case { padding: 5px 4px; }
 .suite-row .row-actions { margin-left: auto; display: flex; gap: 8px; }
+.impl-badge { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; padding: 1px 6px; border-radius: 999px; border: 1px solid transparent; white-space: nowrap; }
+.impl-real { color: #059669; background: #ecfdf5; border-color: #a7f3d0; }
+.impl-stub { color: #b45309; background: #fffbeb; border-color: #fde68a; }
+.impl-unlinked { color: #64748b; background: #f1f5f9; border-color: #e2e8f0; }
 button.link { border: none; background: none; color: #2563eb; cursor: pointer; font-size: 12px; padding: 0; }
 button.link.danger { color: #b91c1c; }
 button.link:hover { text-decoration: underline; }

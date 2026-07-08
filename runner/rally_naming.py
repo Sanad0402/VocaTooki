@@ -22,6 +22,11 @@ TC_ID_RE = re.compile(r"""TC_ID\s*=\s*["']([^"']+)["']""")
 # assignment but NOT the instructional ``# Set MANUAL_EDIT = True ...`` comment.
 MANUAL_RE = re.compile(r"""^\s*MANUAL_EDIT\s*=\s*True\b""", re.MULTILINE)
 
+# A generated file carrying ``@pytest.mark.stub`` is an unimplemented stub: it
+# skips at runtime (never a false-green ``assert True``). Line-anchored so a
+# mention inside a comment/string does not count.
+STUB_RE = re.compile(r"""^\s*@pytest\.mark\.stub\b""", re.MULTILINE)
+
 
 def slugify(name: str) -> str:
     """Turn a Rally test-case name into a lowercase identifier fragment.
@@ -55,3 +60,9 @@ def read_tc_id(text: str):
 def is_manual(text: str) -> bool:
     """True if the file has been locked against re-sync (``MANUAL_EDIT = True``)."""
     return bool(MANUAL_RE.search(text or ""))
+
+
+def is_stub(text: str) -> bool:
+    """True if the file is an auto-generated, not-yet-implemented stub
+    (``@pytest.mark.stub`` → skipped at runtime, never a false pass)."""
+    return bool(STUB_RE.search(text or ""))
