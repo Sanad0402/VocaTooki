@@ -54,7 +54,9 @@ def discover_elements(driver):
     except Exception:
         scene = None
 
-    return {"scene": scene, "inputs": inputs, "buttons": buttons}
+    # 'all' lets the generator match Rally step text to any object on the scene
+    # when deriving assertions/interactions (not just inputs/buttons).
+    return {"scene": scene, "inputs": inputs, "buttons": buttons, "all": names}
 
 
 def generate_live_skeleton(tc_id, host="127.0.0.1", port=13000, platform="WindowsEditor",

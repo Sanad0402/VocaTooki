@@ -10,6 +10,7 @@ Reads Rally test cases and generates fully functional pytest code with:
 import json
 import os
 import re
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 import logging
@@ -542,6 +543,36 @@ def {func_name}(altdriver):
         f"Login failed: GO-Map not found after login ({{TC_ID}})"
 '''
 
+        # Next best: derive real interactions + assertions from the Rally steps
+        # matched against the discovered elements. If we can produce at least one
+        # assertion, this becomes a real (runnable, checked) test.
+        all_names = [n for n in (elements.get("all") or (inputs + buttons)) if n]
+        derived_body, has_assert = self._derive_body(steps or [], description, all_names, inputs)
+        if has_assert:
+            return f'''"""
+{doc}
+
+{disc}
+
+Interactions/assertions auto-derived from the Rally steps + live elements.
+REVIEW: matched elements come from the scene shown at generation time — adjust
+navigation/waits as needed.
+"""
+
+import time
+from alttester import By
+
+# Rally test case ID (for sync and maintenance)
+TC_ID = "{tc_id}"
+MANUAL_EDIT = True
+
+
+def {func_name}(altdriver):
+    driver, _platform = altdriver
+
+{derived_body}
+'''
+
         # Otherwise: a populated but still-skipped stub. Real element calls are
         # pre-wired (commented) so a human just fills values + asserts.
         set_lines = "\n".join(
@@ -579,6 +610,97 @@ def {func_name}(altdriver):
     # --- Rally steps to assert ---
 {scaffold}
 '''
+
+    @staticmethod
+    def _best_element(text, candidates):
+        """Best-matching object name for a Rally step phrase, or None if the
+        match is too weak (keeps auto-derivation honest — no confident match,
+        no fabricated assertion)."""
+        words = [w for w in re.findall(r"[a-z0-9]+", (text or "").lower()) if len(w) > 2]
+        if not words or not candidates:
+            return None
+        best, best_score = None, 0.0
+        for name in candidates:
+            nl = name.lower()
+            nwords = set(re.findall(r"[a-z0-9]+", nl))
+            overlap = sum(1 for w in words if w in nwords or w in nl)
+            score = overlap + SequenceMatcher(None, (text or "").lower(), nl).ratio()
+            if score > best_score:
+                best_score, best = score, name
+        return best if best_score >= 1.6 else None
+
+    @classmethod
+    def _description_checks(cls, description):
+        """Pull likely 'expected UI component' phrases out of a free-text Rally
+        description (many cases put steps/expected in the Description instead of
+        the structured Input/ExpectedResult fields). Returns a list of phrases."""
+        text = cls._clean_html(description)
+        if not text:
+            return []
+        # Prefer the region after a cue like "Components Validated:" / "Verify".
+        m = re.search(r"(?:components?\s+validated|verif\w*|expected|checks?|ensures?|displays?)\s*[:\-]?\s*(.*)",
+                      text, re.IGNORECASE)
+        region = m.group(1) if m else text
+        frags = re.split(r"[•▪◦·\n;:]|\s\-\s|\s\*\s|,| and | & ", region)
+        ui_words = ("button", "page", "title", "link", "field", "dropdown", "grid", "icon",
+                    "menu", "tab", "panel", "label", "text", "screen", "scene", "list",
+                    "checkbox", "toggle", "image", "popup", "dialog", "banner", "navigation", "header")
+        out = []
+        for f in frags:
+            f = f.strip(" .:\t")
+            if 3 <= len(f) <= 60 and f not in out and any(
+                re.search(rf"\b{u}\b", f.lower()) for u in ui_words):
+                out.append(f)
+        return out[:12]
+
+    def _derive_body(self, steps, description, all_names, inputs):
+        """Build a test body from BOTH structured Rally steps and check phrases
+        pulled from the Description. Input -> click; Expected/component -> assert
+        (wait_for_object fails if absent). Unmatched parts stay TODO comments.
+
+        Returns (body_text, has_assertion)."""
+        lines, has_assert = [], False
+
+        for i, s in enumerate(steps or [], 1):
+            inp = self._clean_html(s.get("input", ""))
+            exp = self._clean_html(s.get("expected", ""))
+            lines.append(f"    # Step {i}: {inp}" if inp else f"    # Step {i}:")
+
+            el = self._best_element(inp, all_names) if inp else None
+            if el and el in inputs:
+                lines.append(f'    driver.wait_for_object(By.NAME, "{el}", enabled=True)'
+                             f'  # TODO: .set_text(<value>) if this step types')
+            elif el:
+                lines.append(f'    driver.wait_for_object(By.NAME, "{el}").click()')
+                lines.append("    time.sleep(1)")
+            elif inp:
+                lines.append("    # TODO: perform this action (no matching element discovered)")
+
+            if exp:
+                ael = self._best_element(exp, all_names)
+                if ael:
+                    lines.append(f'    assert driver.wait_for_object(By.NAME, "{ael}", timeout=10), '
+                                 f'"Expected: {exp.replace(chr(34), chr(39))[:100]}"')
+                    has_assert = True
+                else:
+                    lines.append(f"    #   Expected (add assertion): {exp}")
+            lines.append("")
+
+        # Description-derived presence checks (for cases whose steps/expected
+        # live in the Description rather than the structured step fields).
+        checks = self._description_checks(description)
+        if checks:
+            lines.append("    # --- Checks derived from the Rally description ---")
+            for phrase in checks:
+                el = self._best_element(phrase, all_names)
+                if el:
+                    lines.append(f'    assert driver.wait_for_object(By.NAME, "{el}", timeout=10), '
+                                 f'"Expected: {phrase.replace(chr(34), chr(39))[:100]}"')
+                    has_assert = True
+                else:
+                    lines.append(f"    # TODO: assert present -> {phrase}")
+
+        return "\n".join(lines).rstrip() or "    pass", has_assert
 
     def _determine_output_path(
         self, tc_id: str, tc_name: str, folder_id: Optional[str]
