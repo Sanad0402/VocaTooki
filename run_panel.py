@@ -437,6 +437,6 @@ def api_report_html():
 
 
 if __name__ == "__main__":
-    print("Runner panel: http://localhost:5000")
+    print("Runner panel: http://127.0.0.1:5000")
     # threaded=True so SSE streaming + background run thread coexist with requests.
     app.run(host="127.0.0.1", port=5000, threaded=True, debug=False)

@@ -2,9 +2,9 @@
 REM ============================================================
 REM  Voca Tooki - Test Runner launcher
 REM  Double-click this file to start the runner panel and open
-REM  it in your browser at http://localhost:5000
+REM  it in your browser at http://127.0.0.1:5000
 REM ============================================================
-setlocal
+setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
 set "PY=.venv\Scripts\python.exe"
@@ -15,16 +15,40 @@ if not exist "%PY%" (
     exit /b 1
 )
 
-REM If the panel is already running on port 5000, just open the browser.
+REM If the panel is already listening on port 5000, just open the browser.
 netstat -ano | findstr ":5000 " | findstr LISTENING >nul
 if %errorlevel%==0 (
-    echo Runner already running on http://localhost:5000
-) else (
-    echo Starting Voca Tooki Test Runner...
-    start "Voca Tooki Runner" "%PY%" -u run_panel.py
-    REM Give the server a moment to come up before opening the browser.
-    timeout /t 3 /nobreak >nul
+    echo Runner already running on http://127.0.0.1:5000
+    start "" http://127.0.0.1:5000/
+    endlocal
+    exit /b 0
 )
 
-start "" http://localhost:5000/
+echo Starting Voca Tooki Test Runner...
+REM Launch in its own window via "cmd /k" so that if the server crashes on
+REM startup the traceback stays visible instead of the window vanishing.
+start "Voca Tooki Runner" cmd /k "%PY%" -u run_panel.py
+
+REM Wait until the server is actually listening (up to ~20s) before opening the
+REM browser, so a slow cold start doesn't show "can't reach this page".
+echo Waiting for the server to come up...
+set "UP="
+for /L %%i in (1,1,20) do (
+    timeout /t 1 /nobreak >nul
+    netstat -ano | findstr ":5000 " | findstr LISTENING >nul
+    if !errorlevel!==0 (
+        set "UP=1"
+        goto :ready
+    )
+)
+
+:ready
+if defined UP (
+    echo Server is up.
+    start "" http://127.0.0.1:5000/
+) else (
+    echo [ERROR] The server did not start within 20 seconds.
+    echo Check the "Voca Tooki Runner" window for a Python error/traceback.
+    pause
+)
 endlocal
