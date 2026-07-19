@@ -2088,7 +2088,7 @@ def rings(altdriver):
     print(f"[done] rings finished at {done}/{total}")
 
 
-def _pipes_trace(altdriver, path):
+def _pipes_trace(altdriver, path, difficulty=""):
     """Trace one sentence along its pipes. Returns True if a stroke was made.
 
     Four things about this activity are not obvious, all found against the live
@@ -2123,8 +2123,13 @@ def _pipes_trace(altdriver, path):
     """
     HEAD_GAPS, HEAD_MIN, HEAD_MAX = 4.0, 40.0, 140.0
     TAIL_GAPS, TAIL_MIN, TAIL_MAX = 8.0, 90.0, 300.0
+    # On easy the final pipe runs much further past its last letter than on the
+    # other boards, so the stroke stops short of the closing junction unless the
+    # last tail is driven harder. Easy only -- medium and hard are correct as is.
+    LAST_TAIL_GAPS, LAST_TAIL_MAX = 20.0, 700.0
     JUNCTION_RADIUS = 120.0
     STEP_PX, STEP_DUR = 10.0, 0.03
+    easy = "easy" in (difficulty or "").lower()
 
     pipes_at, letters, junctions = {}, [], []
     for e in altdriver.get_all_elements(enabled=True):
@@ -2192,7 +2197,10 @@ def _pipes_trace(altdriver, path):
         gap_px = (((run[-1][0] - run[0][0]) ** 2 +
                    (run[-1][1] - run[0][1]) ** 2) ** 0.5 / max(1, len(run) - 1))
         head_ext = max(HEAD_MIN, min(HEAD_MAX, gap_px * HEAD_GAPS))
-        tail_ext = max(TAIL_MIN, min(TAIL_MAX, gap_px * TAIL_GAPS))
+        if easy and i == len(runs) - 1:
+            tail_ext = max(TAIL_MIN, min(LAST_TAIL_MAX, gap_px * LAST_TAIL_GAPS))
+        else:
+            tail_ext = max(TAIL_MIN, min(TAIL_MAX, gap_px * TAIL_GAPS))
 
         if i == 0:
             # only the first pipe needs its own start cap covered
@@ -2319,7 +2327,7 @@ def pipes(altdriver):
                 continue
             print("[act] [%s] %s" % (panel, sentence[:52]))
             try:
-                if not _pipes_trace(altdriver, path):
+                if not _pipes_trace(altdriver, path, panel):
                     continue
             except Exception as e:
                 print("[warn] drag failed: %s" % e)
