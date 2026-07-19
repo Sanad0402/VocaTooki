@@ -2088,6 +2088,159 @@ def rings(altdriver):
     print(f"[done] rings finished at {done}/{total}")
 
 
+def _pipes_trace(altdriver, path):
+    """Trace one sentence along its pipes. Returns True if a stroke was made.
+
+    Four things about this activity are not obvious, all found against the live
+    build. They apply to every difficulty -- the world-segment touch drag this
+    replaced scored 0 on hard and medium as well as easy:
+
+    1. The stroke needs BOTH input systems. The pipes carry an EventTrigger
+       listening for Drag/EndDrag; `move_touch` never reaches that handler
+       (`beingHeld` stays False for every point on the path), while `move_mouse`
+       alone just slides an unpressed pointer around. Holding a touch open sets
+       `beingHeld` and the handler then follows the mouse, so `begin_touch`
+       latches, `move_mouse` steers, `end_touch` releases. The press must land
+       ON a pipe, so it is anchored to the first letter.
+
+    2. `pipesPositions` is only a straight nominal segment (both endpoints share
+       one y) while the pipes are drawn as S-curves, so following that line
+       leaves the pipe. The real curve is spelled out by the letter tiles
+       (`PipeTextPref(Clone)`) lying along it. They stop short of the end caps,
+       so each run is extended along its own tangent -- ending early scores
+       nothing -- by an amount scaled to the letter spacing, because the board
+       is laid out at different sizes between rounds.
+
+    3. The wheels joining consecutive pipes are named Junction, Junction_1,
+       Junction_2 ... and the path only counts if the stroke passes through
+       them, so each gap is crossed via the nearest wheel, and a pipe that feeds
+       a wheel is followed all the way into it.
+
+    4. Only the FIRST pipe gets a head extension. A later pipe is entered from
+       the wheel it comes out of; extrapolating backwards from its first letter
+       lands outside the pipe and drops the latch mid-stroke, which is what made
+       medium trace two pipes and then stall on the third.
+    """
+    HEAD_GAPS, HEAD_MIN, HEAD_MAX = 4.0, 40.0, 140.0
+    TAIL_GAPS, TAIL_MIN, TAIL_MAX = 8.0, 90.0, 300.0
+    JUNCTION_RADIUS = 120.0
+    STEP_PX, STEP_DUR = 10.0, 0.03
+
+    pipes_at, letters, junctions = {}, [], []
+    for e in altdriver.get_all_elements(enabled=True):
+        name = e.name
+        try:
+            if name.startswith("Pipe_") and name.split("_")[-1].isdigit():
+                pipes_at[name] = e.get_screen_position()
+            elif "PipeTextPref" in name:
+                text = (e.get_text() or "").strip()
+                if text:
+                    p = e.get_screen_position()
+                    letters.append((p[0], p[1], text))
+            elif name.startswith("Junction"):
+                junctions.append(e.get_screen_position())
+        except Exception:
+            continue
+
+    by_pipe = {}
+    for x, y, text in letters:
+        best, best_d = None, float("inf")
+        for name, centre in pipes_at.items():
+            d2 = (centre[0] - x) ** 2 + (centre[1] - y) ** 2
+            if d2 < best_d:
+                best, best_d = name, d2
+        by_pipe.setdefault(best, []).append((x, y, text))
+
+    # order each pipe's tiles so they spell the sentence; that also confirms the
+    # right tiles were picked, since decoy words sit on the other pipes
+    want = re.sub(r"\s+", "", path.get("sentence") or "")
+    runs, spelled = [], ""
+    for name in path.get("pipesNames") or []:
+        tiles = sorted(by_pipe.get(name) or [], key=lambda r: r[0])
+        for candidate in (tiles, list(reversed(tiles))):
+            if want[len(spelled):].startswith("".join(r[2] for r in candidate)):
+                tiles = candidate
+                break
+        spelled += "".join(r[2] for r in tiles)
+        runs.append([(r[0], r[1]) for r in tiles])
+
+    if spelled != want or not runs or not runs[0]:
+        print("[warn] letters do not spell the sentence yet — waiting")
+        return False
+
+    def beyond(end, prev, dist):
+        dx, dy = end[0] - prev[0], end[1] - prev[1]
+        mag = (dx * dx + dy * dy) ** 0.5 or 1.0
+        return (end[0] + dx / mag * dist, end[1] + dy / mag * dist)
+
+    def wheel_between(a, b):
+        """The junction joining two points, if there is one."""
+        mid = ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
+        gap = ((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5
+        near = [j for j in junctions
+                if ((j[0] - mid[0]) ** 2 + (j[1] - mid[1]) ** 2) ** 0.5
+                <= max(gap, JUNCTION_RADIUS)]
+        if not near:
+            return None
+        return min(near, key=lambda q: (q[0] - mid[0]) ** 2 + (q[1] - mid[1]) ** 2)
+
+    way = []
+    for i, run in enumerate(runs):
+        if len(run) < 2:
+            way.extend(run)
+            continue
+        gap_px = (((run[-1][0] - run[0][0]) ** 2 +
+                   (run[-1][1] - run[0][1]) ** 2) ** 0.5 / max(1, len(run) - 1))
+        head_ext = max(HEAD_MIN, min(HEAD_MAX, gap_px * HEAD_GAPS))
+        tail_ext = max(TAIL_MIN, min(TAIL_MAX, gap_px * TAIL_GAPS))
+
+        if i == 0:
+            # only the first pipe needs its own start cap covered
+            way.append(beyond(run[0], run[1], head_ext))
+        else:
+            # Entry to any later pipe is the wheel it comes out of.
+            # Extrapolating backwards from its first letter (as the first pipe
+            # does) lands outside the pipe and drops the latch mid-stroke.
+            j = wheel_between(way[-1], run[0])
+            if j is not None:
+                way.append((j[0], j[1]))
+
+        way.extend(run)
+
+        # The letters stop well short of where the pipe actually ends, so run
+        # past them -- and when this pipe feeds a wheel, carry on into it so the
+        # stroke cannot stop short of the connection.
+        way.append(beyond(run[-1], run[-2], tail_ext))
+        if i + 1 < len(runs) and runs[i + 1]:
+            j = wheel_between(run[-1], runs[i + 1][0])
+            if j is not None:
+                way.append((j[0], j[1]))
+
+    if len(way) < 2:
+        return False
+
+    samples = []
+    for a, b in zip(way, way[1:]):
+        dist = ((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5
+        steps = max(1, int(dist / STEP_PX))
+        for i in range(steps):
+            samples.append((a[0] + (b[0] - a[0]) * i / steps,
+                            a[1] + (b[1] - a[1]) * i / steps))
+    samples.append(way[-1])
+
+    anchor = runs[0][0]
+    altdriver.move_mouse(anchor, duration=0.1)
+    finger = altdriver.begin_touch(anchor)
+    try:
+        time.sleep(0.3)
+        for p in samples:
+            altdriver.move_mouse(p, duration=STEP_DUR)
+        time.sleep(0.3)
+    finally:
+        altdriver.end_touch(finger)
+    return True
+
+
 def pipes(altdriver):
     """Solves PIPES by dragging along each correct pipe path.
 
@@ -2101,36 +2254,15 @@ def pipes(altdriver):
     them as it progresses. Rather than hardcode the thresholds, every panel is
     checked and whichever actually holds paths is used.
 
-    Two things about this activity are not obvious, and both were found the hard
-    way against the live build:
-
-    1. The stroke needs BOTH input systems. The pipes carry an EventTrigger
-       listening for Drag/EndDrag; `move_touch` never reaches that handler
-       (`beingHeld` stays False for every point on the path), while `move_mouse`
-       alone just slides an unpressed pointer around. Holding a touch open sets
-       `beingHeld`, and the handler then follows the mouse for the stroke -- so
-       `begin_touch` latches, `move_mouse` steers, `end_touch` releases.
-
-    2. `pipesPositions` is only a straight nominal segment (both endpoints share
-       one y), but the pipes are drawn as S-curves. Following that straight line
-       leaves the pipe. The real curve is spelled out by the letter tiles
-       (`PipeTextPref(Clone)`) lying along it, so the route is built from those.
-       The letters stop short of each pipe's end caps, so each run is extended
-       along its own tangent -- ending early scores nothing.
+    The key gives the pipes in order but not a usable route through them --
+    `_pipes_trace` works that out from what is on screen. See its docstring for
+    why the coordinates in the key cannot be followed directly.
 
     NOTE: the app must have OS focus while this runs -- Unity pauses play mode
     when the window is in the background.
     """
     SH_C = "com.kideo.learn.english.Pipes.PipesStructureHandler"
     ASM = "Assembly-CSharp"
-    END_EXT_GAPS = 4.0     # extend past the end letter by this many letter gaps
-    END_EXT_MIN = 40.0     # px, floor for that extension
-    END_EXT_MAX = 140.0    # px, ceiling for that extension
-    JUNCTION_RADIUS = 120.0  # px, how far off the gap midpoint a wheel may sit
-    STEP_PX = 12.0         # px between mouse samples along the route
-    STEP_DUR = 0.03        # sec per move_mouse call
-    LEGACY_STEPS = 15      # interpolation points per segment (fallback route)
-    LEGACY_PAUSE = 0.02    # sec between move_touch calls (fallback route)
 
     def progress():
         try:
@@ -2140,12 +2272,11 @@ def pipes(altdriver):
             return 0, 0
 
     def answer_key():
-        """(paths, panel_name) straight from the game.
+        """([{sentence, pipesNames, pipesPositions}, ...], difficulty).
 
         The key sits on whichever difficulty panel is currently live, so check
         them all -- reading only the hard panel finds nothing once the round
-        moves to medium or easy. The panel name is returned too, because easy
-        needs a different route (see the note above).
+        moves to medium or easy.
         """
         for e in altdriver.get_all_elements(enabled=True):
             if not (e.name.startswith("Pipes_") and e.name.endswith("_Panel")):
@@ -2153,213 +2284,16 @@ def pipes(altdriver):
             try:
                 v = e.get_component_property(SH_C, "correctPathsAutomationInfo", ASM)
                 if v:
-                    return v, e.name
+                    return v, e.name.replace("Pipes_", "").replace("_Panel", "")
             except Exception:
                 pass
         return [], ""
 
-    def screen_pos(name):
-        try:
-            p = altdriver.find_object(By.NAME, name).get_screen_position()
-            return (p[0], p[1])
-        except Exception:
-            return None
-
-    def _fit(pairs):
-        """Least-squares slope/intercept for a list of (world, screen) pairs."""
-        n = len(pairs)
-        mw = sum(p[0] for p in pairs) / n
-        ms = sum(p[1] for p in pairs) / n
-        num = sum((p[0] - mw) * (p[1] - ms) for p in pairs)
-        den = sum((p[0] - mw) ** 2 for p in pairs) or 1e-9
-        a = num / den
-        return a, ms - a * mw
-
-    def world_to_screen(key):
-        """Fit the transform from the pipes currently on screen."""
-        xs, ys = [], []
-        for path in key:
-            for name, seg in zip(path.get("pipesNames") or [],
-                                 path.get("pipesPositions") or []):
-                sp = screen_pos(name)
-                if not sp:
-                    continue
-                try:
-                    x1, y1, x2, y2 = [float(v) for v in seg.split(",")]
-                except Exception:
-                    continue
-                xs.append(((x1 + x2) / 2.0, sp[0]))
-                ys.append(((y1 + y2) / 2.0, sp[1]))
-        if len(xs) < 2:
-            return None
-        ax, bx = _fit(xs)
-        ay, by = _fit(ys)
-        return lambda wx, wy: (ax * wx + bx, ay * wy + by)
-
-    def segment_drag(path, w2s):
-        """Legacy route: touch-drag through each segment's world endpoints.
-
-        Kept because this is what hard and medium were verified on (12/12 and
-        6/6). Only easy needed the letter-curve route, so this stays as the
-        fallback rather than being replaced.
-        """
-        way = []
-        for seg in path.get("pipesPositions") or []:
-            try:
-                x1, y1, x2, y2 = [float(v) for v in seg.split(",")]
-            except Exception:
-                continue
-            way.append(w2s(x1, y1))
-            way.append(w2s(x2, y2))
-        if len(way) < 2:
-            return False
-        finger = altdriver.begin_touch(way[0])
-        try:
-            time.sleep(0.25)
-            for a, b in zip(way, way[1:]):
-                for i in range(1, LEGACY_STEPS + 1):
-                    altdriver.move_touch(
-                        finger, (a[0] + (b[0] - a[0]) * i / LEGACY_STEPS,
-                                 a[1] + (b[1] - a[1]) * i / LEGACY_STEPS))
-                    time.sleep(LEGACY_PAUSE)
-            time.sleep(0.25)
-        finally:
-            altdriver.end_touch(finger)
-        return True
-
-    def board():
-        """One pass over the scene: pipe centres, letter tiles, junctions."""
-        pipes, letters, junctions = {}, [], []
-        for e in altdriver.get_all_elements(enabled=True):
-            name = e.name
-            try:
-                if name.startswith("Pipe_") and name.split("_")[-1].isdigit():
-                    pipes[name] = e.get_screen_position()
-                elif "PipeTextPref" in name:
-                    text = (e.get_text() or "").strip()
-                    if text:
-                        p = e.get_screen_position()
-                        letters.append((p[0], p[1], text))
-                elif name.startswith("Junction"):
-                    # they are Junction, Junction_1, Junction_2 ... -- matching
-                    # only "Junction" finds the first wheel and the stroke then
-                    # misses every later one
-                    junctions.append(e.get_screen_position())
-            except Exception:
-                continue
-        return pipes, letters, junctions
-
-    def letter_runs(path, pipes, letters):
-        """Split the sentence's letters into one ordered run per pipe.
-
-        Each tile is assigned to its nearest pipe, then the run is ordered so the
-        letters spell the sentence -- that also confirms we picked the right
-        tiles, since decoy words sit on the other pipes.
-        """
-        by_pipe = {}
-        for x, y, text in letters:
-            best, best_d = None, float("inf")
-            for name, centre in pipes.items():
-                d2 = (centre[0] - x) ** 2 + (centre[1] - y) ** 2
-                if d2 < best_d:
-                    best, best_d = name, d2
-            by_pipe.setdefault(best, []).append((x, y, text))
-
-        want = re.sub(r"\s+", "", path.get("sentence") or "")
-        runs, spelled = [], ""
-        for name in path.get("pipesNames") or []:
-            tiles = sorted(by_pipe.get(name) or [], key=lambda r: r[0])
-            for candidate in (tiles, list(reversed(tiles))):
-                if want[len(spelled):].startswith("".join(r[2] for r in candidate)):
-                    tiles = candidate
-                    break
-            spelled += "".join(r[2] for r in tiles)
-            runs.append([(r[0], r[1]) for r in tiles])
-        return runs, spelled == want
-
-    def route(runs, junctions):
-        """Letter runs -> a full route, extended past each pipe's end caps."""
-        def beyond(end, prev, dist):
-            dx, dy = end[0] - prev[0], end[1] - prev[1]
-            mag = (dx * dx + dy * dy) ** 0.5 or 1.0
-            return (end[0] + dx / mag * dist, end[1] + dy / mag * dist)
-
-        def overshoot(run):
-            """How far past the last letter the pipe's end cap sits.
-
-            Scaled from the letter spacing rather than fixed: the board is laid
-            out at different sizes between rounds, and an extension tuned for a
-            big layout lands well outside a small pipe.
-            """
-            span = ((run[-1][0] - run[0][0]) ** 2 +
-                    (run[-1][1] - run[0][1]) ** 2) ** 0.5
-            gap = span / max(1, len(run) - 1)
-            return max(END_EXT_MIN, min(END_EXT_MAX, gap * END_EXT_GAPS))
-
-        way = []
-        for i, run in enumerate(runs):
-            if len(run) < 2:
-                way.extend(run)
-                continue
-            ext = overshoot(run)
-            head = beyond(run[0], run[1], ext)
-            tail = beyond(run[-1], run[-2], ext)
-            # Consecutive pipes meet at a junction wheel and the path only
-            # counts if the stroke actually goes through it, so steer to the
-            # wheel sitting nearest the midpoint of the gap being crossed.
-            if i and way:
-                prev = way[-1]
-                mid = ((prev[0] + head[0]) / 2.0, (prev[1] + head[1]) / 2.0)
-                gap = ((head[0] - prev[0]) ** 2 + (head[1] - prev[1]) ** 2) ** 0.5
-                near = [j for j in junctions
-                        if ((j[0] - mid[0]) ** 2 + (j[1] - mid[1]) ** 2) ** 0.5
-                        <= max(gap, JUNCTION_RADIUS)]
-                if near:
-                    j = min(near, key=lambda q: (q[0] - mid[0]) ** 2 +
-                                                (q[1] - mid[1]) ** 2)
-                    way.append((j[0], j[1]))
-            way.append(head)
-            way.extend(run)
-            way.append(tail)
-        return way
-
-    def drag(way, anchor):
-        """Latch the pointer down, then steer with the mouse (see note 1).
-
-        Neither half works alone: `move_touch` never reaches the handler, and
-        `move_mouse` on its own moves a pointer that was never pressed. Holding
-        a touch open sets the pipe's `beingHeld`, and the handler then follows
-        the mouse position for the rest of the stroke.
-
-        The press must land ON a pipe, so it is anchored to the first letter
-        rather than to the route's first point -- that one sits out past the end
-        cap, and pressing there latches nothing and silently wastes the stroke.
-        """
-        if len(way) < 2:
-            return False
-        samples = []
-        for a, b in zip(way, way[1:]):
-            dist = ((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5
-            steps = max(1, int(dist / STEP_PX))
-            for i in range(steps):
-                samples.append((a[0] + (b[0] - a[0]) * i / steps,
-                                a[1] + (b[1] - a[1]) * i / steps))
-        samples.append(way[-1])
-
-        altdriver.move_mouse(anchor, duration=0.1)
-        finger = altdriver.begin_touch(anchor)
-        try:
-            time.sleep(0.3)
-            for p in samples:
-                altdriver.move_mouse(p, duration=STEP_DUR)
-            time.sleep(0.3)
-        finally:
-            altdriver.end_touch(finger)
-        return True
 
     done, total = progress()
     print("[info] starting pipes at %d/%d" % (done, total))
     stuck = 0
+    solved = set()
 
     for _ in range(60):
         done, total = progress()
@@ -2376,46 +2310,28 @@ def pipes(altdriver):
             time.sleep(1.5)
             continue
 
-        # Easy alone needs the letter-curve mouse route; hard and medium stay on
-        # the segment touch drag they were verified with. The two are kept
-        # strictly separate -- running the segment drag as a fallback on easy
-        # scores nothing and disturbs the board for the next attempt.
-        easy = "easy" in panel.lower()
-
-        w2s = None
-        if not easy:
-            w2s = world_to_screen(key)
-            if w2s is None:
-                time.sleep(1.0)
-                continue
-
-        pipes, letters, junctions = board() if easy else ({}, [], [])
-
+        # Medium exposes more than one sentence at a time, and a solved one can
+        # still appear in the key, so skip anything already traced.
         before = done
         for path in key:
-            print("[act] [%s] %s" % ("easy" if easy else "seg",
-                                     (path.get("sentence") or "")[:55]))
+            sentence = path.get("sentence") or ""
+            if sentence in solved:
+                continue
+            print("[act] [%s] %s" % (panel, sentence[:52]))
             try:
-                if easy:
-                    runs, spelled = letter_runs(path, pipes, letters)
-                    if not spelled:
-                        print("[warn] letters do not spell the sentence — skipping")
-                        continue
-                    if not runs or not runs[0]:
-                        print("[warn] no letters on the first pipe — skipping")
-                        continue
-                    drag(route(runs, junctions), runs[0][0])
-                else:
-                    segment_drag(path, w2s)
+                if not _pipes_trace(altdriver, path):
+                    continue
             except Exception as e:
                 print("[warn] drag failed: %s" % e)
-
+                continue
             time.sleep(2.0)
             now, total = progress()
             if now != before:
                 print("[info] progress %d/%d" % (now, total))
+                solved.add(sentence)
                 before = now
-                break          # the board reshuffles after a solve — re-read
+                time.sleep(2.5)   # let the next board finish rebuilding
+                break             # the board reshuffles after a solve — re-read
 
         if before == done:
             stuck += 1
@@ -2424,9 +2340,6 @@ def pipes(altdriver):
                 break
         else:
             stuck = 0
-            # the next sentence's pipes and letters are rebuilt after a solve;
-            # reading them mid-reshuffle yields tiles that spell nothing
-            time.sleep(2.5)
 
     done, total = progress()
     print("[done] pipes finished at %d/%d" % (done, total))
