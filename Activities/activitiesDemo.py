@@ -2092,9 +2092,14 @@ def pipes(altdriver):
     """Solves PIPES by dragging along each correct pipe path.
 
     The build exposes its own answer key: `PipesStructureHandler`
-    .correctPathsAutomationInfo on Pipes_Hard_Panel gives, per sentence, the
-    ordered `pipesNames` plus `pipesPositions` -- the segment endpoints in WORLD
-    units ("x1,y1,x2,y2").
+    .correctPathsAutomationInfo gives, per sentence, the ordered `pipesNames`
+    plus `pipesPositions` -- the segment endpoints in WORLD units
+    ("x1,y1,x2,y2").
+
+    That key lives on the panel for the CURRENT difficulty -- Pipes_Easy_Panel,
+    Pipes_Medium_Panel or Pipes_Hard_Panel -- and the round switches between
+    them as it progresses. Rather than hardcode the thresholds, every panel is
+    checked and whichever actually holds paths is used.
 
     Those world coordinates matter. Dragging between pipe *centres* cuts
     diagonally across empty space and the game ignores it; dragging through each
@@ -2117,9 +2122,14 @@ def pipes(altdriver):
             return 0, 0
 
     def answer_key():
-        """[{sentence, pipesNames, pipesPositions}, ...] straight from the game."""
+        """[{sentence, pipesNames, pipesPositions}, ...] straight from the game.
+
+        The key sits on whichever difficulty panel is currently live, so check
+        them all -- reading only the hard panel finds nothing once the round
+        moves to medium or easy.
+        """
         for e in altdriver.get_all_elements(enabled=True):
-            if e.name != "Pipes_Hard_Panel":
+            if not (e.name.startswith("Pipes_") and e.name.endswith("_Panel")):
                 continue
             try:
                 v = e.get_component_property(SH_C, "correctPathsAutomationInfo", ASM)
