@@ -1811,6 +1811,283 @@ def exams_image_for_voices(altdriver):
 import re
 import time
 
+def rings(altdriver):
+    """Solves RINGS: drag each structure onto the ring of letters it spells.
+
+    The board is a hex grid of letters; each target word snakes through it as a
+    connected ring. The right-hand panel holds one pre-shaped cover per word
+    (CoverHolder-<word>), scrollable, with several off screen at any time.
+
+    Three things had to be right, all learned the hard way against the build:
+
+    1. Engaging the drag. A cover only lifts after a long press followed by
+       GRADUAL nudges; one large jump does nothing and a plain vertical drag is
+       swallowed by the panel's scroll view.
+    2. Steering. Once lifted, the cover travels ~2x the finger delta, so it is
+       steered closed-loop off its measured position with the gain re-estimated
+       live. Dead reckoning overshoots straight off the screen.
+    3. Cells are exclusive. Every word owns its own hexes, so a ring already
+       under a placed structure must not be reused. That is re-measured from
+       live state each round -- a remembered list goes stale when the round
+       regenerates and ends up blocking the entire fresh grid.
+
+    NOTE: the app must have OS focus while this runs -- Unity pauses play mode
+    when the window is in the background.
+    """
+    ADJ = 75.0            # px between neighbouring hexes
+    TOL = 16.0            # px; close enough for the cover to snap
+    NUDGES = (10, 25, 45, 70)
+    SETTLE = 4.0          # the score animation lags - reading earlier lies
+    REGEN_WAIT = 5.0      # past halfway the round spawns fresh structures
+    VIS_LO, VIS_HI = 120, 500     # holder y-range that is actually reachable
+    PANEL_X = 980         # right of this is the inventory, not the board
+
+    def progress():
+        try:
+            a, b = altdriver.find_object(By.NAME, "ProgressText").get_text().split("/")
+            return int(a), int(b)
+        except Exception:
+            return 0, 0
+
+    def read_grid():
+        """[(x, y, letter)] for every letter hex on the board."""
+        out = []
+        for e in altdriver.get_all_elements(enabled=False):
+            if e.name != "Letter":
+                continue
+            try:
+                p = e.get_screen_position()
+                t = (e.get_text() or "").strip().lower()
+            except Exception:
+                continue
+            if t:
+                out.append((p[0], p[1], t))
+        return out
+
+    def occupied():
+        """Cells under an already-placed structure, measured from live state."""
+        pts = []
+        for e in altdriver.get_all_elements(enabled=True):
+            if e.name != "Original HexCover(Clone)":
+                continue
+            try:
+                p = e.get_screen_position()
+            except Exception:
+                continue
+            if p[0] <= PANEL_X and 0 < p[1] < 600:
+                pts.append((p[0], p[1]))
+        return pts
+
+    def path_finder(cells, blocked_pts=()):
+        blocked = set()
+        for i, c in enumerate(cells):
+            for q in blocked_pts:
+                if ((c[0]-q[0])**2 + (c[1]-q[1])**2) ** 0.5 < 30:
+                    blocked.add(i)
+                    break
+
+        nbr = {i: [] for i in range(len(cells))}
+        for i, a in enumerate(cells):
+            for j, b in enumerate(cells):
+                if i != j and ((a[0]-b[0])**2 + (a[1]-b[1])**2) ** 0.5 <= ADJ:
+                    nbr[i].append(j)
+
+        def find(word):
+            w = "".join(word.split()).lower()
+
+            def dfs(idx, pos, used):
+                if pos == len(w):
+                    return list(used)
+                for k in nbr[idx]:
+                    if k in used or k in blocked or cells[k][2] != w[pos]:
+                        continue
+                    used.append(k)
+                    r = dfs(k, pos+1, used)
+                    if r:
+                        return r
+                    used.pop()
+                return None
+
+            for i, c in enumerate(cells):
+                if i in blocked or c[2] != w[0]:
+                    continue
+                r = dfs(i, 1, [i])
+                if r:
+                    return r
+            return None
+
+        return find
+
+    def holders():
+        """word -> screen position of its cover, e.g. CoverHolder-tasty.
+
+        The holder name IS the word: a card reading "all the ___" still only
+        places the blank, so the name must not be expanded to the phrase.
+        """
+        out = {}
+        for e in altdriver.get_all_elements(enabled=False):
+            if e.name.startswith("CoverHolder-"):
+                try:
+                    out[e.name.split("-", 1)[1].lower()] = e.get_screen_position()
+                except Exception:
+                    pass
+        return out
+
+    def cover_near(pt):
+        best, bd = None, 1e9
+        for e in altdriver.get_all_elements(enabled=True):
+            if e.name != "Original HexCover(Clone)":
+                continue
+            try:
+                p = e.get_screen_position()
+            except Exception:
+                continue
+            dd = ((p[0]-pt[0])**2 + (p[1]-pt[1])**2) ** 0.5
+            if dd < bd:
+                best, bd = e, dd
+        return best, bd
+
+    def pos_of(cid):
+        for e in altdriver.get_all_elements(enabled=True):
+            if e.id == cid:
+                try:
+                    return e.get_screen_position()
+                except Exception:
+                    return None
+        return None
+
+    def scroll_inventory(dy=-150):
+        """A vertical drag inside the panel scrolls it to reach hidden covers.
+
+        Always the same direction: alternating merely oscillates between two
+        positions and never cycles the list.
+        """
+        x, y0 = 1057, 430
+        altdriver.move_mouse((x, y0), duration=0.15)
+        finger = altdriver.begin_touch((x, y0))
+        try:
+            time.sleep(0.2)
+            for i in range(1, 13):
+                pt = (x, y0 + dy*i/12.0)
+                altdriver.move_touch(finger, pt)
+                altdriver.move_mouse(pt, duration=0.01)
+                time.sleep(0.03)
+            time.sleep(0.3)
+        finally:
+            altdriver.end_touch(finger)
+        time.sleep(1.2)
+
+    def place(holder_pos, target):
+        cov, dist = cover_near(holder_pos)
+        if cov is None or dist > 120:
+            print(f"[warn] no cover at holder ({dist:.0f}px away)")
+            return False
+        cid = cov.id
+        start = cov.get_screen_position()
+        altdriver.move_mouse(start, duration=0.25)
+        time.sleep(0.35)
+        finger = [start[0], start[1]]
+        touch = altdriver.begin_touch(tuple(finger))
+        try:
+            time.sleep(0.6)                       # long press to grab
+            for n in NUDGES:                      # gradual nudges to engage
+                finger[0] = start[0] - n
+                altdriver.move_touch(touch, tuple(finger))
+                altdriver.move_mouse(tuple(finger), duration=0.01)
+                time.sleep(0.12)
+            here = pos_of(cid)
+            if here and abs(here[0]-start[0]) < 8 and abs(here[1]-start[1]) < 8:
+                print("[warn] drag never engaged")
+                return False
+
+            gain = 2.0                            # cover moves ~2x the finger
+            prev_f, prev_c = list(finger), here
+            for _ in range(28):
+                c = pos_of(cid)
+                if not c:
+                    break
+                ex, ey = target[0]-c[0], target[1]-c[1]
+                if (ex*ex + ey*ey) ** 0.5 <= TOL:
+                    break
+                if prev_c:
+                    dfx, dcx = finger[0]-prev_f[0], c[0]-prev_c[0]
+                    if abs(dfx) > 3 and abs(dcx) > 3:
+                        g = abs(dcx/dfx)
+                        if 0.3 < g < 6:
+                            gain = 0.5*gain + 0.5*g
+                prev_f, prev_c = list(finger), c
+                finger[0] += (ex/gain) * 0.55
+                finger[1] += (ey/gain) * 0.55
+                altdriver.move_touch(touch, tuple(finger))
+                altdriver.move_mouse(tuple(finger), duration=0.01)
+                time.sleep(0.16)
+            time.sleep(0.4)
+        finally:
+            altdriver.end_touch(touch)
+        return True
+
+    done, total = progress()
+    print(f"[info] starting rings at {done}/{total}")
+    failed, idle = {}, 0
+
+    for _ in range(60):
+        done, total = progress()
+        if total and done >= total:
+            print(f"[info] all {total} structures placed.")
+            break
+
+        cells = read_grid()
+        busy = occupied()
+        find = path_finder(cells, busy)
+        hs = holders()
+
+        cand = None
+        for w, p in sorted(hs.items(), key=lambda kv: -kv[1][1]):
+            if failed.get(w, 0) >= 2:
+                continue
+            if VIS_LO < p[1] < VIS_HI and find(w):
+                cand = (w, p)
+                break
+
+        if not cand:
+            idle += 1
+            if idle > 24:
+                print("[warn] nothing placeable — stopping.")
+                break
+            if idle % 3 == 0:
+                scroll_inventory(-150)
+            else:
+                # the round generates fresh structures as it goes
+                failed.clear()
+                time.sleep(REGEN_WAIT)
+            continue
+        idle = 0
+
+        word, holder_pos = cand
+        ring = [cells[i] for i in find(word)]
+        tx = sum(p[0] for p in ring) / len(ring)
+        ty = sum(p[1] for p in ring) / len(ring)
+        print(f"[act] {word}: ring of {len(ring)} cells at ({tx:.0f},{ty:.0f}), "
+              f"{len(busy)} cells already covered")
+
+        before = done
+        if place(holder_pos, (tx, ty)):
+            time.sleep(SETTLE)
+            now, total = progress()
+            if now > before:
+                failed.pop(word, None)
+                print(f"[info] progress {now}/{total}")
+                if total and now >= total / 2.0:
+                    time.sleep(REGEN_WAIT)     # new structures are spawning
+            else:
+                failed[word] = failed.get(word, 0) + 1
+        else:
+            failed[word] = failed.get(word, 0) + 1
+
+    done, total = progress()
+    print(f"[done] rings finished at {done}/{total}")
+
+
 def pipes(altdriver):
     """Solves PIPES by dragging along each correct pipe path.
 
