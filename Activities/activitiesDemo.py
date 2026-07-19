@@ -2101,18 +2101,33 @@ def pipes(altdriver):
     them as it progresses. Rather than hardcode the thresholds, every panel is
     checked and whichever actually holds paths is used.
 
-    Those world coordinates matter. Dragging between pipe *centres* cuts
-    diagonally across empty space and the game ignores it; dragging through each
-    segment's real start/end keeps the finger inside the pipe. World->screen is
-    fitted live from the pipes on screen, so this is resolution independent.
+    Two things about this activity are not obvious, and both were found the hard
+    way against the live build:
+
+    1. The stroke needs BOTH input systems. The pipes carry an EventTrigger
+       listening for Drag/EndDrag; `move_touch` never reaches that handler
+       (`beingHeld` stays False for every point on the path), while `move_mouse`
+       alone just slides an unpressed pointer around. Holding a touch open sets
+       `beingHeld`, and the handler then follows the mouse for the stroke -- so
+       `begin_touch` latches, `move_mouse` steers, `end_touch` releases.
+
+    2. `pipesPositions` is only a straight nominal segment (both endpoints share
+       one y), but the pipes are drawn as S-curves. Following that straight line
+       leaves the pipe. The real curve is spelled out by the letter tiles
+       (`PipeTextPref(Clone)`) lying along it, so the route is built from those.
+       The letters stop short of each pipe's end caps, so each run is extended
+       along its own tangent -- ending early scores nothing.
 
     NOTE: the app must have OS focus while this runs -- Unity pauses play mode
     when the window is in the background.
     """
     SH_C = "com.kideo.learn.english.Pipes.PipesStructureHandler"
     ASM = "Assembly-CSharp"
-    STEPS = 15             # interpolation points per segment
-    STEP_PAUSE = 0.02      # sec between move_touch calls
+    END_EXT = 140.0        # px to extend past the first/last letter of a pipe
+    STEP_PX = 12.0         # px between mouse samples along the route
+    STEP_DUR = 0.03        # sec per move_mouse call
+    LEGACY_STEPS = 15      # interpolation points per segment (fallback route)
+    LEGACY_PAUSE = 0.02    # sec between move_touch calls (fallback route)
 
     def progress():
         try:
@@ -2122,11 +2137,12 @@ def pipes(altdriver):
             return 0, 0
 
     def answer_key():
-        """[{sentence, pipesNames, pipesPositions}, ...] straight from the game.
+        """(paths, panel_name) straight from the game.
 
         The key sits on whichever difficulty panel is currently live, so check
         them all -- reading only the hard panel finds nothing once the round
-        moves to medium or easy.
+        moves to medium or easy. The panel name is returned too, because easy
+        needs a different route (see the note above).
         """
         for e in altdriver.get_all_elements(enabled=True):
             if not (e.name.startswith("Pipes_") and e.name.endswith("_Panel")):
@@ -2134,10 +2150,10 @@ def pipes(altdriver):
             try:
                 v = e.get_component_property(SH_C, "correctPathsAutomationInfo", ASM)
                 if v:
-                    return v
+                    return v, e.name
             except Exception:
                 pass
-        return []
+        return [], ""
 
     def screen_pos(name):
         try:
@@ -2177,8 +2193,13 @@ def pipes(altdriver):
         ay, by = _fit(ys)
         return lambda wx, wy: (ax * wx + bx, ay * wy + by)
 
-    def drag(path, w2s):
-        """Press at the path start, follow every segment, release."""
+    def segment_drag(path, w2s):
+        """Legacy route: touch-drag through each segment's world endpoints.
+
+        Kept because this is what hard and medium were verified on (12/12 and
+        6/6). Only easy needed the letter-curve route, so this stays as the
+        fallback rather than being replaced.
+        """
         way = []
         for seg in path.get("pipesPositions") or []:
             try:
@@ -2193,11 +2214,114 @@ def pipes(altdriver):
         try:
             time.sleep(0.25)
             for a, b in zip(way, way[1:]):
-                for i in range(1, STEPS + 1):
-                    altdriver.move_touch(finger, (a[0] + (b[0] - a[0]) * i / STEPS,
-                                                  a[1] + (b[1] - a[1]) * i / STEPS))
-                    time.sleep(STEP_PAUSE)
+                for i in range(1, LEGACY_STEPS + 1):
+                    altdriver.move_touch(
+                        finger, (a[0] + (b[0] - a[0]) * i / LEGACY_STEPS,
+                                 a[1] + (b[1] - a[1]) * i / LEGACY_STEPS))
+                    time.sleep(LEGACY_PAUSE)
             time.sleep(0.25)
+        finally:
+            altdriver.end_touch(finger)
+        return True
+
+    def board():
+        """One pass over the scene: pipe centres, letter tiles, junctions."""
+        pipes, letters, junctions = {}, [], []
+        for e in altdriver.get_all_elements(enabled=True):
+            name = e.name
+            try:
+                if name.startswith("Pipe_") and name.split("_")[-1].isdigit():
+                    pipes[name] = e.get_screen_position()
+                elif "PipeTextPref" in name:
+                    text = (e.get_text() or "").strip()
+                    if text:
+                        p = e.get_screen_position()
+                        letters.append((p[0], p[1], text))
+                elif name == "Junction":
+                    junctions.append(e.get_screen_position())
+            except Exception:
+                continue
+        return pipes, letters, junctions
+
+    def letter_runs(path, pipes, letters):
+        """Split the sentence's letters into one ordered run per pipe.
+
+        Each tile is assigned to its nearest pipe, then the run is ordered so the
+        letters spell the sentence -- that also confirms we picked the right
+        tiles, since decoy words sit on the other pipes.
+        """
+        by_pipe = {}
+        for x, y, text in letters:
+            best, best_d = None, float("inf")
+            for name, centre in pipes.items():
+                d2 = (centre[0] - x) ** 2 + (centre[1] - y) ** 2
+                if d2 < best_d:
+                    best, best_d = name, d2
+            by_pipe.setdefault(best, []).append((x, y, text))
+
+        want = re.sub(r"\s+", "", path.get("sentence") or "")
+        runs, spelled = [], ""
+        for name in path.get("pipesNames") or []:
+            tiles = sorted(by_pipe.get(name) or [], key=lambda r: r[0])
+            for candidate in (tiles, list(reversed(tiles))):
+                if want[len(spelled):].startswith("".join(r[2] for r in candidate)):
+                    tiles = candidate
+                    break
+            spelled += "".join(r[2] for r in tiles)
+            runs.append([(r[0], r[1]) for r in tiles])
+        return runs, spelled == want
+
+    def route(runs, junctions):
+        """Letter runs -> a full route, extended past each pipe's end caps."""
+        def beyond(end, prev, dist):
+            dx, dy = end[0] - prev[0], end[1] - prev[1]
+            mag = (dx * dx + dy * dy) ** 0.5 or 1.0
+            return (end[0] + dx / mag * dist, end[1] + dy / mag * dist)
+
+        way = []
+        for i, run in enumerate(runs):
+            if len(run) < 2:
+                way.extend(run)
+                continue
+            head = beyond(run[0], run[1], END_EXT)
+            tail = beyond(run[-1], run[-2], END_EXT)
+            # pipes meet at a junction wheel; route through it rather than
+            # cutting straight across the gap
+            if i and way:
+                prev = way[-1]
+                lo, hi = min(prev[0], head[0]) - 80, max(prev[0], head[0]) + 80
+                way.extend((j[0], j[1]) for j in junctions if lo <= j[0] <= hi)
+            way.append(head)
+            way.extend(run)
+            way.append(tail)
+        return way
+
+    def drag(way):
+        """Latch the pointer down, then steer with the mouse (see note 1).
+
+        Neither half works alone: `move_touch` never reaches the handler, and
+        `move_mouse` on its own moves a pointer that was never pressed. Holding
+        a touch open sets the pipe's `beingHeld`, and the handler then follows
+        the mouse position for the rest of the stroke.
+        """
+        if len(way) < 2:
+            return False
+        samples = []
+        for a, b in zip(way, way[1:]):
+            dist = ((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5
+            steps = max(1, int(dist / STEP_PX))
+            for i in range(steps):
+                samples.append((a[0] + (b[0] - a[0]) * i / steps,
+                                a[1] + (b[1] - a[1]) * i / steps))
+        samples.append(way[-1])
+
+        altdriver.move_mouse(samples[0], duration=0.1)
+        finger = altdriver.begin_touch(samples[0])
+        try:
+            time.sleep(0.3)
+            for p in samples:
+                altdriver.move_mouse(p, duration=STEP_DUR)
+            time.sleep(0.3)
         finally:
             altdriver.end_touch(finger)
         return True
@@ -2212,7 +2336,7 @@ def pipes(altdriver):
             print("[info] all %d sentences solved." % total)
             break
 
-        key = answer_key()
+        key, panel = answer_key()
         if not key:
             stuck += 1
             if stuck > 8:
@@ -2221,18 +2345,37 @@ def pipes(altdriver):
             time.sleep(1.5)
             continue
 
-        w2s = world_to_screen(key)
-        if w2s is None:
-            time.sleep(1.0)
-            continue
+        # Easy alone needs the letter-curve mouse route; hard and medium stay on
+        # the segment touch drag they were verified with. The two are kept
+        # strictly separate -- running the segment drag as a fallback on easy
+        # scores nothing and disturbs the board for the next attempt.
+        easy = "easy" in panel.lower()
+
+        w2s = None
+        if not easy:
+            w2s = world_to_screen(key)
+            if w2s is None:
+                time.sleep(1.0)
+                continue
+
+        pipes, letters, junctions = board() if easy else ({}, [], [])
 
         before = done
         for path in key:
-            print("[act] %s" % (path.get("sentence") or "")[:60])
+            print("[act] [%s] %s" % ("easy" if easy else "seg",
+                                     (path.get("sentence") or "")[:55]))
             try:
-                drag(path, w2s)
+                if easy:
+                    runs, spelled = letter_runs(path, pipes, letters)
+                    if not spelled:
+                        print("[warn] letters do not spell the sentence — skipping")
+                        continue
+                    drag(route(runs, junctions))
+                else:
+                    segment_drag(path, w2s)
             except Exception as e:
                 print("[warn] drag failed: %s" % e)
+
             time.sleep(2.0)
             now, total = progress()
             if now != before:
@@ -2247,6 +2390,9 @@ def pipes(altdriver):
                 break
         else:
             stuck = 0
+            # the next sentence's pipes and letters are rebuilt after a solve;
+            # reading them mid-reshuffle yields tiles that spell nothing
+            time.sleep(2.5)
 
     done, total = progress()
     print("[done] pipes finished at %d/%d" % (done, total))
