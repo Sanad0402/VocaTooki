@@ -289,7 +289,9 @@ def run_activity(altdriver, activity):
         'CROSSWORD2': A.crosswords2,
         'CROSSWORD':A.crosswords,
         'PUZZLES':A.solve_puzzles,
-        'TURTLE_ISLAND':A.turtle_island
+        'TURTLE_ISLAND':A.turtle_island,
+        'BRICKOUT':A.brickout,
+        'PIPES':A.pipes
     }
 
     if scene not in activity_map:

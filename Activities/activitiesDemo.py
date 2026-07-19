@@ -1811,15 +1811,342 @@ def exams_image_for_voices(altdriver):
 import re
 import time
 
+def pipes(altdriver):
+    """Solves PIPES by dragging along each correct pipe path.
+
+    The build exposes its own answer key: `PipesStructureHandler`
+    .correctPathsAutomationInfo on Pipes_Hard_Panel gives, per sentence, the
+    ordered `pipesNames` plus `pipesPositions` -- the segment endpoints in WORLD
+    units ("x1,y1,x2,y2").
+
+    Those world coordinates matter. Dragging between pipe *centres* cuts
+    diagonally across empty space and the game ignores it; dragging through each
+    segment's real start/end keeps the finger inside the pipe. World->screen is
+    fitted live from the pipes on screen, so this is resolution independent.
+
+    NOTE: the app must have OS focus while this runs -- Unity pauses play mode
+    when the window is in the background.
+    """
+    SH_C = "com.kideo.learn.english.Pipes.PipesStructureHandler"
+    ASM = "Assembly-CSharp"
+    STEPS = 15             # interpolation points per segment
+    STEP_PAUSE = 0.02      # sec between move_touch calls
+
+    def progress():
+        try:
+            a, b = altdriver.find_object(By.NAME, "ProgressText").get_text().split("/")
+            return int(a), int(b)
+        except Exception:
+            return 0, 0
+
+    def answer_key():
+        """[{sentence, pipesNames, pipesPositions}, ...] straight from the game."""
+        for e in altdriver.get_all_elements(enabled=True):
+            if e.name != "Pipes_Hard_Panel":
+                continue
+            try:
+                v = e.get_component_property(SH_C, "correctPathsAutomationInfo", ASM)
+                if v:
+                    return v
+            except Exception:
+                pass
+        return []
+
+    def screen_pos(name):
+        try:
+            p = altdriver.find_object(By.NAME, name).get_screen_position()
+            return (p[0], p[1])
+        except Exception:
+            return None
+
+    def _fit(pairs):
+        """Least-squares slope/intercept for a list of (world, screen) pairs."""
+        n = len(pairs)
+        mw = sum(p[0] for p in pairs) / n
+        ms = sum(p[1] for p in pairs) / n
+        num = sum((p[0] - mw) * (p[1] - ms) for p in pairs)
+        den = sum((p[0] - mw) ** 2 for p in pairs) or 1e-9
+        a = num / den
+        return a, ms - a * mw
+
+    def world_to_screen(key):
+        """Fit the transform from the pipes currently on screen."""
+        xs, ys = [], []
+        for path in key:
+            for name, seg in zip(path.get("pipesNames") or [],
+                                 path.get("pipesPositions") or []):
+                sp = screen_pos(name)
+                if not sp:
+                    continue
+                try:
+                    x1, y1, x2, y2 = [float(v) for v in seg.split(",")]
+                except Exception:
+                    continue
+                xs.append(((x1 + x2) / 2.0, sp[0]))
+                ys.append(((y1 + y2) / 2.0, sp[1]))
+        if len(xs) < 2:
+            return None
+        ax, bx = _fit(xs)
+        ay, by = _fit(ys)
+        return lambda wx, wy: (ax * wx + bx, ay * wy + by)
+
+    def drag(path, w2s):
+        """Press at the path start, follow every segment, release."""
+        way = []
+        for seg in path.get("pipesPositions") or []:
+            try:
+                x1, y1, x2, y2 = [float(v) for v in seg.split(",")]
+            except Exception:
+                continue
+            way.append(w2s(x1, y1))
+            way.append(w2s(x2, y2))
+        if len(way) < 2:
+            return False
+        finger = altdriver.begin_touch(way[0])
+        try:
+            time.sleep(0.25)
+            for a, b in zip(way, way[1:]):
+                for i in range(1, STEPS + 1):
+                    altdriver.move_touch(finger, (a[0] + (b[0] - a[0]) * i / STEPS,
+                                                  a[1] + (b[1] - a[1]) * i / STEPS))
+                    time.sleep(STEP_PAUSE)
+            time.sleep(0.25)
+        finally:
+            altdriver.end_touch(finger)
+        return True
+
+    done, total = progress()
+    print("[info] starting pipes at %d/%d" % (done, total))
+    stuck = 0
+
+    for _ in range(60):
+        done, total = progress()
+        if total and done >= total:
+            print("[info] all %d sentences solved." % total)
+            break
+
+        key = answer_key()
+        if not key:
+            stuck += 1
+            if stuck > 8:
+                print("[warn] no correct paths exposed — stopping.")
+                break
+            time.sleep(1.5)
+            continue
+
+        w2s = world_to_screen(key)
+        if w2s is None:
+            time.sleep(1.0)
+            continue
+
+        before = done
+        for path in key:
+            print("[act] %s" % (path.get("sentence") or "")[:60])
+            try:
+                drag(path, w2s)
+            except Exception as e:
+                print("[warn] drag failed: %s" % e)
+            time.sleep(2.0)
+            now, total = progress()
+            if now != before:
+                print("[info] progress %d/%d" % (now, total))
+                before = now
+                break          # the board reshuffles after a solve — re-read
+
+        if before == done:
+            stuck += 1
+            if stuck > 8:
+                print("[warn] no progress — stopping.")
+                break
+        else:
+            stuck = 0
+
+    done, total = progress()
+    print("[done] pipes finished at %d/%d" % (done, total))
+
+
+def brickout(altdriver):
+    """Solves BRICKOUT: catch ONLY the required words, let the decoys pass.
+
+    Unlike the other activities (which tap objects directly) this is a live
+    arcade game. A ball breaks word-bricks and the words fall toward the paddle.
+    Catching a word that is NOT in the target list costs a heart, so the paddle
+    must intercept the needed words and actively stay clear of the rest.
+
+    Movement uses short `press_key(duration=...)` bursts sized to the distance.
+    A held key (`key_down`/`key_up`) was tried and is worse here: any slow poll
+    overshoots and slams the paddle into the wall, whereas a burst self-limits.
+
+    NOTE: the app must have OS focus while this runs — Unity pauses play mode
+    when the window is in the background and the ball simply freezes.
+    """
+    from alttester import AltKeyCode
+
+    ASM = "Assembly-CSharp"
+    PADDLE_SPEED = 950.0   # px/sec, measured against the live build
+    MAX_BURST = 0.22       # sec; keep bursts short so we re-read often
+    DEADZONE = 35          # px; don't jitter when roughly aligned
+    FALL_EPS = 4           # px; y must drop at least this much to count as falling
+    SAFE_GAP = 260         # px of clearance to keep from a falling decoy
+    BOARD_MIN, BOARD_MAX = 120, 1450   # px; playable range of the paddle
+
+    def targets():
+        """Words still listed as needed (collected ones leave the panel list)."""
+        out = set()
+        for e in altdriver.get_all_elements(enabled=True):
+            if e.name == "WordPanel(Clone)":
+                try:
+                    w = e.get_component_property("WordPanel", "Word.word", ASM)
+                    if w:
+                        out.add(str(w).strip().lower())
+                except Exception:
+                    pass
+        return out
+
+    def progress():
+        try:
+            a, b = altdriver.find_object(By.NAME, "ProgressText").get_text().split("/")
+            return int(a), int(b)
+        except Exception:
+            return 0, 0
+
+    def paddle_x():
+        try:
+            return altdriver.find_object(By.NAME, "Paddle").get_screen_position()[0]
+        except Exception:
+            return None
+
+    def move_to(px, tx):
+        delta = tx - px
+        if abs(delta) <= DEADZONE:
+            return
+        key = AltKeyCode.RightArrow if delta > 0 else AltKeyCode.LeftArrow
+        try:
+            altdriver.press_key(key, duration=min(abs(delta) / PADDLE_SPEED, MAX_BURST))
+        except Exception:
+            pass
+
+    need = targets()
+    done, total = progress()
+    print("[info] start %d/%d | need(%d): %s" % (done, total, len(need), sorted(need)))
+
+    last_done = done
+    stalled = 0
+    prev_word_y = {}       # object id -> last y, to tell falling from parked
+
+    for _ in range(3000):
+        done, total = progress()
+        if total and done >= total:
+            print("[info] all %d words collected." % total)
+            break
+
+        if done != last_done:
+            need = targets()
+            print("[info] progress %d/%d | remaining %d" % (done, total, len(need)))
+            last_done, stalled = done, 0
+        else:
+            stalled += 1
+            if stalled > 1500:
+                print("[warn] stalled — stopping.")
+                break
+
+        px = paddle_x()
+        if px is None:
+            time.sleep(0.15)
+            continue
+
+        # --- find falling words -------------------------------------------
+        # A word counts as falling only if its y is DECREASING. A fixed y
+        # threshold does not work: the layout shifts between builds/resolutions
+        # and the parked grid can sit below it, which made the paddle chase
+        # static bricks (usually on the left) and abandon the ball.
+        falling = []
+        seen_y = {}
+        try:
+            for e in altdriver.get_all_elements(enabled=True):
+                if e.name != "BrickWord":
+                    continue
+                try:
+                    pos = e.get_screen_position()
+                except Exception:
+                    continue
+                oid = getattr(e, "id", None)
+                seen_y[oid] = pos[1]
+                was = prev_word_y.get(oid)
+                if was is None or pos[1] >= was - FALL_EPS:
+                    continue                  # parked in the grid (or new)
+                txt = ""
+                try:
+                    txt = (e.get_text() or "").strip().lower()
+                except Exception:
+                    pass
+                if txt:
+                    falling.append((pos[1], pos[0], txt))
+        except Exception:
+            pass
+        prev_word_y = seen_y
+
+        # Where is the ball? None while it respawns after a lost heart.
+        ball_x = None
+        try:
+            ball_x = altdriver.find_object(By.NAME, "Ball").get_screen_position()[0]
+        except Exception:
+            pass
+
+        if falling:
+            falling.sort()                    # lowest y == closest to the paddle
+            y, x, word = falling[0]
+            if word in need:
+                move_to(px, x)                # CATCH it
+            elif abs(x - px) < SAFE_GAP:
+                # Decoy heading for us. Never dodge while the ball is missing:
+                # that is how the paddle used to get stranded at a wall after a
+                # lost heart and then drop every remaining one.
+                if ball_x is not None:
+                    # Step just clear of the decoy rather than running to the
+                    # wall, and prefer the side that keeps us nearer the ball.
+                    step = SAFE_GAP + 40
+                    spots = [max(BOARD_MIN, min(BOARD_MAX, px - step)),
+                             max(BOARD_MIN, min(BOARD_MAX, px + step))]
+                    safe = [s for s in spots if abs(s - x) >= SAFE_GAP]
+                    if safe:
+                        move_to(px, min(safe, key=lambda s: abs(s - ball_x)))
+            continue
+
+        # nothing falling -> keep the ball alive so more bricks get broken
+        if ball_x is not None:
+            move_to(px, ball_x)
+        else:
+            time.sleep(0.1)
+
+    done, total = progress()
+    print("[done] finished at %d/%d" % (done, total))
+
+
+
 def turtle_island(altdriver):
-    # Detect app using RTLTMPWordPanel (indicates kideo land with Hebrew)
-    is_kideo_land_hebrew = False
-    try:
-        altdriver.find_object(By.NAME, "RTLTMPWordPanel")
-        is_kideo_land_hebrew = True
-        print(f"[INFO] Detected Kideo Land (Hebrew)")
-    except:
-        print(f"[INFO] Detected Voca Tooki (or non-Hebrew)")
+    def detect_rtl():
+        """Solve direction comes from the WORD'S SCRIPT, not from an object name.
+
+        RTLTMPWordPanel is the TMP panel that *supports* RTL; it exists in both
+        VocaTooki and Kideo Land regardless of language, so its mere presence is
+        not evidence the word is Hebrew/Arabic.
+        """
+        try:
+            panel = altdriver.find_object(By.NAME, "RTLTMPWordPanel")
+        except Exception:
+            return False
+        for comp, prop in (("TMProWordPanel", "Word.word"), ("TMProWordPanel", "Text")):
+            try:
+                text = panel.get_component_property(comp, prop, "Assembly-CSharp")
+                if text and str(text).strip():
+                    return is_rtl(str(text))
+            except Exception:
+                continue
+        try:
+            return is_rtl(panel.get_text() or "")
+        except Exception:
+            return False
 
     def parse_true_order(true_raw):
         """
@@ -1870,6 +2197,10 @@ def turtle_island(altdriver):
     for word_i in range(total):
         print(f"\n====== solving word {word_i + 1}/{total} ======")
         time.sleep(2)
+
+        # Re-read per word: the lesson's language decides the solve direction.
+        is_rtl_word = detect_rtl()
+        print(f"[info] direction: {'RTL (Hebrew/Arabic)' if is_rtl_word else 'LTR (English)'}")
 
         # remove false-letter turtles
         all_objs = altdriver.get_all_elements()
@@ -1930,13 +2261,13 @@ def turtle_island(altdriver):
             # sort by x => visual index
             info_list.sort(key=lambda c: c["x"])
 
-            # For kideo land (Hebrew): reverse visual indices (position 0 should be rightmost)
-            if is_kideo_land_hebrew:
+            # RTL (Hebrew/Arabic): reverse visual indices (position 0 is rightmost)
+            if is_rtl_word:
                 for i, info in enumerate(info_list):
                     info["visual"] = len(info_list) - 1 - i
                     info["correct"] = (info["visual"] in info["allowed"]) if info["allowed"] else False
             else:
-                # For voca tooki: normal left-to-right indexing
+                # LTR (English): normal left-to-right indexing
                 for i, info in enumerate(info_list):
                     info["visual"] = i
                     info["correct"] = (i in info["allowed"]) if info["allowed"] else False
