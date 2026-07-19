@@ -2123,7 +2123,10 @@ def pipes(altdriver):
     """
     SH_C = "com.kideo.learn.english.Pipes.PipesStructureHandler"
     ASM = "Assembly-CSharp"
-    END_EXT = 140.0        # px to extend past the first/last letter of a pipe
+    END_EXT_GAPS = 4.0     # extend past the end letter by this many letter gaps
+    END_EXT_MIN = 40.0     # px, floor for that extension
+    END_EXT_MAX = 140.0    # px, ceiling for that extension
+    JUNCTION_RADIUS = 120.0  # px, how far off the gap midpoint a wheel may sit
     STEP_PX = 12.0         # px between mouse samples along the route
     STEP_DUR = 0.03        # sec per move_mouse call
     LEGACY_STEPS = 15      # interpolation points per segment (fallback route)
@@ -2237,7 +2240,10 @@ def pipes(altdriver):
                     if text:
                         p = e.get_screen_position()
                         letters.append((p[0], p[1], text))
-                elif name == "Junction":
+                elif name.startswith("Junction"):
+                    # they are Junction, Junction_1, Junction_2 ... -- matching
+                    # only "Junction" finds the first wheel and the stroke then
+                    # misses every later one
                     junctions.append(e.get_screen_position())
             except Exception:
                 continue
@@ -2278,31 +2284,56 @@ def pipes(altdriver):
             mag = (dx * dx + dy * dy) ** 0.5 or 1.0
             return (end[0] + dx / mag * dist, end[1] + dy / mag * dist)
 
+        def overshoot(run):
+            """How far past the last letter the pipe's end cap sits.
+
+            Scaled from the letter spacing rather than fixed: the board is laid
+            out at different sizes between rounds, and an extension tuned for a
+            big layout lands well outside a small pipe.
+            """
+            span = ((run[-1][0] - run[0][0]) ** 2 +
+                    (run[-1][1] - run[0][1]) ** 2) ** 0.5
+            gap = span / max(1, len(run) - 1)
+            return max(END_EXT_MIN, min(END_EXT_MAX, gap * END_EXT_GAPS))
+
         way = []
         for i, run in enumerate(runs):
             if len(run) < 2:
                 way.extend(run)
                 continue
-            head = beyond(run[0], run[1], END_EXT)
-            tail = beyond(run[-1], run[-2], END_EXT)
-            # pipes meet at a junction wheel; route through it rather than
-            # cutting straight across the gap
+            ext = overshoot(run)
+            head = beyond(run[0], run[1], ext)
+            tail = beyond(run[-1], run[-2], ext)
+            # Consecutive pipes meet at a junction wheel and the path only
+            # counts if the stroke actually goes through it, so steer to the
+            # wheel sitting nearest the midpoint of the gap being crossed.
             if i and way:
                 prev = way[-1]
-                lo, hi = min(prev[0], head[0]) - 80, max(prev[0], head[0]) + 80
-                way.extend((j[0], j[1]) for j in junctions if lo <= j[0] <= hi)
+                mid = ((prev[0] + head[0]) / 2.0, (prev[1] + head[1]) / 2.0)
+                gap = ((head[0] - prev[0]) ** 2 + (head[1] - prev[1]) ** 2) ** 0.5
+                near = [j for j in junctions
+                        if ((j[0] - mid[0]) ** 2 + (j[1] - mid[1]) ** 2) ** 0.5
+                        <= max(gap, JUNCTION_RADIUS)]
+                if near:
+                    j = min(near, key=lambda q: (q[0] - mid[0]) ** 2 +
+                                                (q[1] - mid[1]) ** 2)
+                    way.append((j[0], j[1]))
             way.append(head)
             way.extend(run)
             way.append(tail)
         return way
 
-    def drag(way):
+    def drag(way, anchor):
         """Latch the pointer down, then steer with the mouse (see note 1).
 
         Neither half works alone: `move_touch` never reaches the handler, and
         `move_mouse` on its own moves a pointer that was never pressed. Holding
         a touch open sets the pipe's `beingHeld`, and the handler then follows
         the mouse position for the rest of the stroke.
+
+        The press must land ON a pipe, so it is anchored to the first letter
+        rather than to the route's first point -- that one sits out past the end
+        cap, and pressing there latches nothing and silently wastes the stroke.
         """
         if len(way) < 2:
             return False
@@ -2315,8 +2346,8 @@ def pipes(altdriver):
                                 a[1] + (b[1] - a[1]) * i / steps))
         samples.append(way[-1])
 
-        altdriver.move_mouse(samples[0], duration=0.1)
-        finger = altdriver.begin_touch(samples[0])
+        altdriver.move_mouse(anchor, duration=0.1)
+        finger = altdriver.begin_touch(anchor)
         try:
             time.sleep(0.3)
             for p in samples:
@@ -2370,7 +2401,10 @@ def pipes(altdriver):
                     if not spelled:
                         print("[warn] letters do not spell the sentence — skipping")
                         continue
-                    drag(route(runs, junctions))
+                    if not runs or not runs[0]:
+                        print("[warn] no letters on the first pipe — skipping")
+                        continue
+                    drag(route(runs, junctions), runs[0][0])
                 else:
                     segment_drag(path, w2s)
             except Exception as e:
