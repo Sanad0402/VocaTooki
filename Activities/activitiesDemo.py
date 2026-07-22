@@ -2058,7 +2058,38 @@ def rings(altdriver):
             altdriver.end_touch(finger)
         time.sleep(1.2)
 
-    def place(holder_pos, target):
+    def dragged_centroid(hpos, ring_size, busy):
+        """Centroid of the cover being dragged, from its hex pieces on the board.
+
+        A cover is a rigid group of hexes shaped like its ring; we only hold one
+        of them. The pieces already placed (busy) and the ones still in the
+        inventory are excluded, then the `ring_size` pieces nearest the held hex
+        are the dragged cover. Aligning this centroid -- not the single held hex
+        -- is what actually snaps the cover: the held hex can sit at the ring
+        centre while the shape as a whole is a hex or two off, and then nothing
+        registers.
+        """
+        pts = []
+        for e in altdriver.get_all_elements(enabled=True):
+            if e.name != "Original HexCover(Clone)":
+                continue
+            try:
+                p = e.get_screen_position()
+            except Exception:
+                continue
+            if p[0] > PANEL_X:                       # still in the inventory
+                continue
+            if any((p[0]-q[0])**2 + (p[1]-q[1])**2 < 25*25 for q in busy):
+                continue                             # an already-placed cover
+            pts.append((p[0], p[1]))
+        pts.sort(key=lambda p: (p[0]-hpos[0])**2 + (p[1]-hpos[1])**2)
+        grp = pts[:ring_size]
+        if not grp:
+            return None
+        return (sum(p[0] for p in grp) / len(grp),
+                sum(p[1] for p in grp) / len(grp))
+
+    def place(holder_pos, target, ring_size, busy):
         cov, dist = cover_near(holder_pos)
         if cov is None or dist > 2.0 * ADJ:      # scales with the hex size
             print(f"[warn] no cover at holder ({dist:.0f}px away)")
@@ -2081,6 +2112,9 @@ def rings(altdriver):
                 print("[warn] drag never engaged")
                 return False
 
+            # Coarse: drive the held hex to the ring centre. This gets the whole
+            # cover onto the board, roughly over the ring, and clear of the
+            # inventory so its cluster can be measured cleanly.
             gain = 2.0                            # cover moves ~2x the finger
             prev_f, prev_c = list(finger), here
             for _ in range(28):
@@ -2099,6 +2133,25 @@ def rings(altdriver):
                 prev_f, prev_c = list(finger), c
                 finger[0] += (ex/gain) * 0.55
                 finger[1] += (ey/gain) * 0.55
+                altdriver.move_touch(touch, tuple(finger))
+                altdriver.move_mouse(tuple(finger), duration=0.01)
+                time.sleep(0.16)
+
+            # Fine: align the cover's whole cluster to the ring centre. The held
+            # hex is usually off-centre in the shape, so centring it leaves the
+            # cluster a hex or two adrift; correct that here or it will not snap.
+            for _ in range(16):
+                h = pos_of(cid)
+                if not h:
+                    break
+                cc = dragged_centroid(h, ring_size, busy)
+                if not cc:
+                    break
+                ex, ey = target[0]-cc[0], target[1]-cc[1]
+                if (ex*ex + ey*ey) ** 0.5 <= 6.0:
+                    break
+                finger[0] += ex / gain
+                finger[1] += ey / gain
                 altdriver.move_touch(touch, tuple(finger))
                 altdriver.move_mouse(tuple(finger), duration=0.01)
                 time.sleep(0.16)
@@ -2166,7 +2219,7 @@ def rings(altdriver):
               f"{len(busy)} cells already covered")
 
         before = done
-        if place(holder_pos, (tx, ty)):
+        if place(holder_pos, (tx, ty), len(ring), busy):
             time.sleep(SETTLE)
             now, total = progress()
             if now > before:
