@@ -1834,13 +1834,9 @@ def rings(altdriver):
     NOTE: the app must have OS focus while this runs -- Unity pauses play mode
     when the window is in the background.
     """
-    ADJ = 75.0            # px between neighbouring hexes
-    TOL = 16.0            # px; close enough for the cover to snap
     NUDGES = (10, 25, 45, 70)
     SETTLE = 4.0          # the score animation lags - reading earlier lies
     REGEN_WAIT = 5.0      # past halfway the round spawns fresh structures
-    VIS_LO, VIS_HI = 120, 500     # holder y-range that is actually reachable
-    PANEL_X = 980         # right of this is the inventory, not the board
 
     def progress():
         try:
@@ -1848,6 +1844,87 @@ def rings(altdriver):
             return int(a), int(b)
         except Exception:
             return 0, 0
+
+    def geometry():
+        """Derive the layout constants from the live scene, not fixed pixels.
+
+        The window is not always the same size, and every one of these used to
+        be a magic pixel value tuned for one resolution. When the window grew,
+        the hex spacing (~101px) sailed past a hardcoded ADJ of 75, so the path
+        finder saw every cell as isolated and nothing was ever placeable. These
+        are now measured each run:
+
+        * ADJ    -- from the median nearest-neighbour spacing of the board hexes
+        * PANEL_X-- the gap between the board's right edge and the inventory
+        * board bbox -- so a placed cover is recognised anywhere on the board
+        * VIS band  -- the inventory's reachable y-range, taken from the scroll
+                       arrows that bracket the panel
+        * inv_x  -- where to press to scroll the inventory (over the panel, not
+                    the board)
+        """
+        g = {"ADJ": 75.0, "PANEL_X": 980.0, "inv_x": 1057.0,
+             "bx0": -1e9, "bx1": 1e9, "by0": -1e9, "by1": 1e9,
+             "VIS_LO": 120.0, "VIS_HI": 500.0}
+
+        bx, by = [], []
+        for e in altdriver.get_all_elements(enabled=False):
+            if e.name != "Letter":
+                continue
+            try:
+                p = e.get_screen_position()
+                if (e.get_text() or "").strip():
+                    bx.append(p[0]); by.append(p[1])
+            except Exception:
+                pass
+        if len(bx) >= 4:
+            g["bx0"], g["bx1"] = min(bx), max(bx)
+            g["by0"], g["by1"] = min(by), max(by)
+            cells = list(zip(bx, by))
+            nn = []
+            for i, a in enumerate(cells):
+                best = 1e9
+                for j, b in enumerate(cells):
+                    if i != j:
+                        best = min(best, ((a[0]-b[0])**2 + (a[1]-b[1])**2) ** 0.5)
+                nn.append(best)
+            nn.sort()
+            g["ADJ"] = max(75.0, nn[len(nn)//2] * 1.35)
+
+        hx = []
+        for e in altdriver.get_all_elements(enabled=False):
+            if e.name.startswith("CoverHolder-"):
+                try:
+                    hx.append(e.get_screen_position()[0])
+                except Exception:
+                    pass
+        if hx:
+            hx.sort()
+            g["inv_x"] = hx[len(hx)//2]
+            if g["bx1"] > -1e8:
+                g["PANEL_X"] = (g["bx1"] + min(hx)) / 2.0
+
+        arrows = {}
+        for e in altdriver.get_all_elements(enabled=True):
+            if e.name in ("Up Arrow", "Down Arrow"):
+                try:
+                    arrows[e.name] = e.get_screen_position()
+                except Exception:
+                    pass
+        if "Up Arrow" in arrows and "Down Arrow" in arrows:
+            lo = min(arrows["Up Arrow"][1], arrows["Down Arrow"][1])
+            hi = max(arrows["Up Arrow"][1], arrows["Down Arrow"][1])
+            margin = (hi - lo) * 0.07
+            g["VIS_LO"], g["VIS_HI"] = lo + margin, hi - margin
+
+        return g
+
+    geom = geometry()
+    ADJ = geom["ADJ"]
+    PANEL_X = geom["PANEL_X"]
+    VIS_LO, VIS_HI = geom["VIS_LO"], geom["VIS_HI"]
+    TOL = max(16.0, ADJ * 0.16)
+    print("[info] rings geometry: ADJ=%.0f PANEL_X=%.0f VIS=[%.0f,%.0f] inv_x=%.0f"
+          % (ADJ, PANEL_X, VIS_LO, VIS_HI, geom["inv_x"]))
 
     def read_grid():
         """[(x, y, letter)] for every letter hex on the board."""
@@ -1874,7 +1951,10 @@ def rings(altdriver):
                 p = e.get_screen_position()
             except Exception:
                 continue
-            if p[0] <= PANEL_X and 0 < p[1] < 600:
+            # a placed cover sits within the board's bounding box; the covers
+            # still in the inventory are further right (x ~ inv_x) and excluded
+            if (p[0] <= PANEL_X
+                    and geom["by0"] - ADJ < p[1] < geom["by1"] + ADJ):
                 pts.append((p[0], p[1]))
         return pts
 
@@ -1962,7 +2042,8 @@ def rings(altdriver):
         Always the same direction: alternating merely oscillates between two
         positions and never cycles the list.
         """
-        x, y0 = 1057, 430
+        x = geom["inv_x"]                 # press over the panel, not the board
+        y0 = (VIS_LO + VIS_HI) / 2.0
         altdriver.move_mouse((x, y0), duration=0.15)
         finger = altdriver.begin_touch((x, y0))
         try:
@@ -1979,7 +2060,7 @@ def rings(altdriver):
 
     def place(holder_pos, target):
         cov, dist = cover_near(holder_pos)
-        if cov is None or dist > 120:
+        if cov is None or dist > 2.0 * ADJ:      # scales with the hex size
             print(f"[warn] no cover at holder ({dist:.0f}px away)")
             return False
         cid = cov.id
@@ -2029,12 +2110,26 @@ def rings(altdriver):
     done, total = progress()
     print(f"[info] starting rings at {done}/{total}")
     failed, idle = {}, 0
+    regen_done = False
 
-    for _ in range(60):
+    for _ in range(90):
         done, total = progress()
         if total and done >= total:
             print(f"[info] all {total} structures placed.")
             break
+
+        # A hard round (>8 words) does not show all its structures at once: once
+        # half are placed it wipes the panel and spawns a fresh batch, and the
+        # board regenerates with them. Handle that transition like a fresh start
+        # -- wait for the new structures to settle, forget the old fail counts,
+        # then fall through and re-read the whole scene.
+        if total > 8 and not regen_done and done >= total / 2.0:
+            print("[info] halfway reset — waiting for the new structures to spawn")
+            time.sleep(REGEN_WAIT)
+            failed.clear()
+            idle = 0
+            regen_done = True
+            continue
 
         cells = read_grid()
         busy = occupied()
@@ -2077,8 +2172,6 @@ def rings(altdriver):
             if now > before:
                 failed.pop(word, None)
                 print(f"[info] progress {now}/{total}")
-                if total and now >= total / 2.0:
-                    time.sleep(REGEN_WAIT)     # new structures are spawning
             else:
                 failed[word] = failed.get(word, 0) + 1
         else:
