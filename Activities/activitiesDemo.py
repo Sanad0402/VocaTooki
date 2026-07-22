@@ -2163,6 +2163,7 @@ def rings(altdriver):
     done, total = progress()
     print(f"[info] starting rings at {done}/{total}")
     failed, idle = {}, 0
+    placed = set()          # words done this batch; a placed holder can linger
     regen_done = False
 
     for _ in range(90):
@@ -2180,6 +2181,7 @@ def rings(altdriver):
             print("[info] halfway reset — waiting for the new structures to spawn")
             time.sleep(REGEN_WAIT)
             failed.clear()
+            placed.clear()          # the fresh batch may reuse a word
             idle = 0
             regen_done = True
             continue
@@ -2191,7 +2193,7 @@ def rings(altdriver):
 
         cand = None
         for w, p in sorted(hs.items(), key=lambda kv: -kv[1][1]):
-            if failed.get(w, 0) >= 2:
+            if w in placed or failed.get(w, 0) >= 2:
                 continue
             if VIS_LO < p[1] < VIS_HI and find(w):
                 cand = (w, p)
@@ -2224,6 +2226,7 @@ def rings(altdriver):
             now, total = progress()
             if now > before:
                 failed.pop(word, None)
+                placed.add(word)        # its holder may linger; don't re-drag it
                 print(f"[info] progress {now}/{total}")
             else:
                 failed[word] = failed.get(word, 0) + 1
