@@ -54,8 +54,10 @@ def _emit(report, outcome):
     _EMITTED.add(report.nodeid)
     tag = {"passed": "PASS", "failed": "FAIL", "skipped": "SKIPPED"}.get(outcome, outcome.upper())
     print(f"[{tag}] {report.nodeid}  ({getattr(report, 'duration', 0) or 0:.1f}s)")
+    props = dict(getattr(report, "user_properties", []) or [])
     _write({
         "nodeid": report.nodeid, "outcome": outcome,
         "duration": round(getattr(report, "duration", 0) or 0, 2),
         "error": str(report.longrepr) if report.failed else "",
+        "screenshot": props.get("screenshot", ""),
     })

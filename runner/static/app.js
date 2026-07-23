@@ -168,6 +168,22 @@ function implBadge(impl) {
   return `<span class="impl-badge ${b.cls}" title="${b.title}">${b.txt}</span>`;
 }
 
+async function generateCase(c, btn) {
+  const msg = $("skeleton-msg");
+  btn.disabled = true; btn.textContent = "generating…";
+  try {
+    const res = await fetch(`/api/suite/case/${encodeURIComponent(c.id)}/generate`, { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) { msg.textContent = data.error || "Generation failed."; return; }
+    msg.textContent = data.message || `${c.id}: generated.`;
+    if (data.suite) setSuite(data.suite);
+  } catch (e) {
+    msg.textContent = "Generation failed: " + e;
+  } finally {
+    btn.disabled = false; btn.textContent = "generate";
+  }
+}
+
 function toggleFolder(id) {
   EXPANDED.has(id) ? EXPANDED.delete(id) : EXPANDED.add(id);
   renderSuiteTree();
@@ -203,6 +219,8 @@ function renderSuiteTree() {
       <span class="ico">🧪</span><b>${escapeHtml(c.id)}</b> <span class="nm">${escapeHtml(c.name)}</span>
       ${implBadge(c.impl)}
       <span class="row-actions">
+        ${c.impl === "real" ? "" :
+          `<button type="button" class="link c-gen" title="Write this case's test code into the project">generate</button>`}
         ${c.impl === "unlinked" ? "" :
           `<button type="button" class="link c-impl">${c.impl === "stub" ? "make real" : "make stub"}</button>`}
         <button type="button" class="link c-edit">edit</button>
@@ -211,6 +229,8 @@ function renderSuiteTree() {
     row.querySelector(".sel-c").addEventListener("change", (e) => {
       e.target.checked ? SEL_CASES.add(c.id) : SEL_CASES.delete(c.id); saveCfg();
     });
+    const genBtn = row.querySelector(".c-gen");
+    if (genBtn) genBtn.addEventListener("click", () => generateCase(c, genBtn));
     const implBtn = row.querySelector(".c-impl");
     if (implBtn) implBtn.addEventListener("click", () => toggleImpl(c));
     row.querySelector(".c-edit").addEventListener("click", () => showCaseForm(c));
@@ -573,7 +593,12 @@ function renderCases(cases) {
     <tbody>${rows}</tbody></table>`;
 }
 function caseRow(c) {
-  const err = c.error ? `<details><summary>error</summary><pre>${escapeHtml(c.error)}</pre></details>` : "";
+  let err = c.error ? `<details><summary>error</summary><pre>${escapeHtml(c.error)}</pre></details>` : "";
+  if (c.screenshot) {
+    const url = `/api/screenshots/${encodeURIComponent(c.screenshot)}`;
+    err += `<details><summary>📷 screenshot (where it got stuck)</summary>
+      <a href="${url}" target="_blank"><img src="${url}" style="max-width:420px"></a></details>`;
+  }
   return `<tr data-tc="${escapeAttr(c.tc_id)}">
     <td>${escapeHtml(c.tc_id || "")}</td><td>${escapeHtml(c.tc_name || "")}</td>
     <td>${escapeHtml(c.username || "")}</td>

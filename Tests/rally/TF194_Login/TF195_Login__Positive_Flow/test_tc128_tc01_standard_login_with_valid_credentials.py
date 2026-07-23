@@ -29,8 +29,8 @@ def test_tc128_tc01_standard_login_with_valid_credentials(altdriver):
 
     login_page.wait_until_open(timeout=20)
 
-    username = "student1"
-    password = "mypass123"
+    username = "vt010001"
+    password = "4354"
 
     login_page.set_username(username)
     login_page.set_password(password)

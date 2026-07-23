@@ -159,6 +159,7 @@ def altdriver(request):
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtest_makereport(item, call):
     if call.when == "call" and call.excinfo is not None:
+        driver = None
         try:
             # Try to get altdriver from fixtures
             if hasattr(item, "funcargs") and "altdriver" in item.funcargs:
@@ -177,14 +178,28 @@ def pytest_runtest_makereport(item, call):
                     screenshots_dir, f"{test_name}_{timestamp}.png"
                 )
 
-                # Capture screenshot via AltTester
-                screenshot = driver.get_screenshot()
-                if screenshot:
-                    with open(screenshot_path, "wb") as f:
-                        f.write(screenshot)
-                    logging.info(f"Screenshot saved: {screenshot_path}")
+                # Capture the screen AS FAILED — tests deliberately stay on the
+                # failing screen so this shows where they got stuck.
+                # NOTE: the python driver's API is get_png_screenshot(path) —
+                # there is no get_screenshot(), which is why failure screenshots
+                # silently never appeared before.
+                driver.get_png_screenshot(screenshot_path)
+                logging.info(f"Screenshot saved: {screenshot_path}")
+                # This hook runs before the default makereport (tryfirst), so
+                # entries added here are copied onto the TestReport and reach
+                # the runner plugin, which attaches them to the panel/report.
+                item.user_properties.append(("screenshot", screenshot_path))
         except Exception as e:
-            logging.debug(f"Failed to capture screenshot on failure: {e}")
+            logging.warning(f"Failed to capture screenshot on failure: {e}")
+        # Recovery: the failed test intentionally left the app on the broken
+        # screen. Walk back to the map so the NEXT chained test starts clean
+        # (a stuck TC otherwise cascades: the next one can't reach its level).
+        if driver is not None:
+            try:
+                from Utilities import utilsdemo
+                utilsdemo.return_to_map(driver)
+            except Exception as e:
+                logging.warning(f"Post-failure recovery to map failed: {e}")
 
 
 # -----------------------------

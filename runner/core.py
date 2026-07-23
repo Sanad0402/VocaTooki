@@ -416,11 +416,19 @@ class RunManager:
         nodeid_index, nodeids = {}, []
         for idx, c in enumerate(cases):
             nodeid = (c.get("action") or {}).get("nodeid")
-            if nodeid:
-                nodeid_index[nodeid] = idx
-                nodeids.append(nodeid)
-            else:
+            if not nodeid:
                 self._update_case(idx, status="SKIPPED", error="No pytest test linked (set a nodeid).")
+                continue
+            # Sync no longer auto-creates files, so a linked-but-never-generated
+            # case is a normal state. Passing its path to pytest would abort the
+            # whole run with a collection error — skip it cleanly instead.
+            file_part = nodeid.split("::", 1)[0]
+            if not os.path.exists(os.path.join(_ROOT, file_part)):
+                self._update_case(idx, status="SKIPPED",
+                                  error="Test not generated yet — click “generate” on the case, then run again.")
+                continue
+            nodeid_index[nodeid] = idx
+            nodeids.append(nodeid)
         results = os.path.join(REPORTS_DIR, f"_suite_{time.strftime('%Y%m%d_%H%M%S')}.jsonl")
 
         try:
@@ -522,7 +530,8 @@ class RunManager:
                         rec.get("outcome"), str(rec.get("outcome", "")).upper())
                     done = sum(1 for c in self.cases if c["status"] not in ("PENDING", "RUNNING"))
                     self._update_case(idx, status=status, duration=_fmt_dur(rec.get("duration", 0)),
-                                      error=rec.get("error", ""))
+                                      error=rec.get("error", ""),
+                                      screenshot=os.path.basename(rec.get("screenshot", "") or ""))
                     self._set_case_progress(done + 1, len(self.cases), self.cases[idx]["tc_name"])
                 offset = f.tell()
         except FileNotFoundError:
@@ -558,6 +567,8 @@ class RunManager:
                     f.write(f"  Status  : {c['status']}   Duration: {c['duration']}\n")
                     if c["error"]:
                         f.write(f"  Error   : {c['error']}\n")
+                    if c.get("screenshot"):
+                        f.write(f"  Screenshot: {os.path.join(REPORTS_DIR, 'screenshots', c['screenshot'])}\n")
                     f.write("-" * 40 + "\n")
             self.report_txt = base + ".txt"
             self._log(f"[REPORT] Text report: {self.report_txt}")
@@ -579,6 +590,19 @@ class RunManager:
             st = c["status"]
             err = html.escape(c.get("error", "") or "")
             err_html = f'<details><summary>error</summary><pre>{err}</pre></details>' if err else ""
+            # Embed the failure screenshot (taken on the exact screen the test
+            # got stuck on) so the report is self-contained, incl. by email.
+            shot = c.get("screenshot") or ""
+            if shot:
+                try:
+                    import base64
+                    with open(os.path.join(REPORTS_DIR, "screenshots", shot), "rb") as imgf:
+                        b64 = base64.b64encode(imgf.read()).decode("ascii")
+                    err_html += (f'<details open><summary>screenshot (where it got stuck)</summary>'
+                                 f'<img src="data:image/png;base64,{b64}" '
+                                 f'style="max-width:640px;border:1px solid #d2d6dc"></details>')
+                except OSError:
+                    err_html += f'<div>screenshot: {html.escape(shot)} (file not found)</div>'
             rows.append(
                 f'<tr class="s-{html.escape(st.lower())}">'
                 f'<td>{html.escape(c["tc_id"])}</td><td>{html.escape(c["tc_name"])}</td>'

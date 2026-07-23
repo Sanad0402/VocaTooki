@@ -657,19 +657,143 @@ def open_level_to_activities(altdriver, timeout=30):
     return False
 
 
+_LAST_LOGIN_USER = None
+
+
+def ensure_logged_in(altdriver, username, password):
+    """Login only when needed.
+
+    Several generated test cases often run in one pytest session with the same
+    user; logging out/in between them wastes ~40s each. Skip the login when
+    this session already logged that user in and we are not on the login
+    screen. A different user (or a logged-out app) gets the full login flow.
+    """
+    global _LAST_LOGIN_USER
+    if _LAST_LOGIN_USER == username and not _login_screen_visible(altdriver):
+        logging.info(f"[Login] already logged in as {username} — skipping login")
+        return
+    login(altdriver, username, password)
+    _LAST_LOGIN_USER = username
+
+
+# Buttons a real user presses to leave a screen, most specific first: the
+# activity/feedback exit ("prev"), close/X popups, generic back, then the home
+# screen's GO-Map. Whichever exists on the current screen gets clicked.
+_BACK_BUTTON_NAMES = ("prev", "X", "x", "CloseButton", "close", "Close",
+                      "BackButton", "backButton", "Back", "HomeButton", "GO-Map")
+
+
+def return_to_map(altdriver, max_steps=8):
+    """Clean state between chained test cases: go back to the level map.
+
+    Navigates the way a user would — pressing back / close (X) / home buttons
+    one screen at a time — until the map's level icons are visible. No direct
+    scene loading. Never raises; the next test's enter_level_number can still
+    self-recover.
+    """
+    for step in range(max_steps):
+        if _find_level_icons(altdriver):
+            logging.info("[Map Navigation] Back on the map.")
+            return True
+        clicked = None
+        for name in _BACK_BUTTON_NAMES:
+            try:
+                obj = altdriver.find_object(By.NAME, name)
+            except Exception:
+                continue
+            try:
+                obj.click()
+                clicked = name
+                break
+            except Exception:
+                continue
+        if clicked:
+            logging.info(f"[Map Navigation] step {step + 1}: clicked '{clicked}'")
+        else:
+            logging.warning(f"[Map Navigation] step {step + 1}: no back/close/home button found")
+        time.sleep(4)
+    if _find_level_icons(altdriver):
+        logging.info("[Map Navigation] Back on the map.")
+        return True
+    logging.warning("[Map Navigation] Map not reached; continuing anyway.")
+    return False
+
+
+def read_activity_progress(altdriver):
+    """(done, total) from the activity's ProgressText, or (0, 0) if unreadable."""
+    try:
+        a, b = altdriver.find_object(By.NAME, "ProgressText").get_text().split("/")
+        return int(a), int(b)
+    except Exception:
+        return 0, 0
+
+
+def wait_for_finish_feedback(altdriver, timeout=25):
+    """True once the activity's final feedback screen is showing.
+
+    On successful completion the game plays the score/feedback screen, whose
+    exit button is named "prev" — the same one when_finish_activity clicks.
+    Its appearance is the observable proof the game REGISTERED the completion,
+    which "the solver returned" alone does not prove.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            if altdriver.find_object(By.NAME, "prev"):
+                return True
+        except Exception:
+            pass
+        time.sleep(1.5)
+    return False
+
+
+def dismiss_replay_popup(altdriver):
+    """Close the 'last attempt' notice that blocks a replayed activity.
+
+    Re-entering an already-completed activity shows a popup ("this is your
+    last chance to improve your score") over the board; the solver then plays
+    against a blocked screen and scores 0. Present = active container found;
+    close via its Yes / X button. Inactive popups are invisible to find_object,
+    so this is a no-op on a fresh activity.
+    """
+    for container in ("PlaceHolder", "LastAttempetPopUp"):
+        try:
+            altdriver.find_object(By.NAME, container)
+        except Exception:
+            continue
+        for btn in ("Yes", "X", "x", "CloseButton", "close", "Close"):
+            try:
+                altdriver.find_object(By.NAME, btn).click()
+                time.sleep(1)
+                logging.info(f"[Activity] dismissed replay popup ({container} -> '{btn}')")
+                return True
+            except Exception:
+                continue
+        logging.warning(f"[Activity] replay popup '{container}' found but no button worked")
+    return False
+
+
 def solve_activity_in_level(altdriver, target_scene):
-    """Find the activity thumb that opens ``target_scene``, solve it, exit.
+    """Find the activity thumb that opens ``target_scene``, solve AND VERIFY it.
 
     A level holds several ActivityThumbs and which one is which activity is
     only knowable by opening it: click a thumb, read GetCurrentActivity, and
-    if it is not the target go back and try the next. When the target comes up
-    its solver runs (same dispatch table as run_activity) and the finish popup
-    is exited. Returns True if the target activity was found and solved.
+    if it is not the target go back and try the next.
+
+    Returns a result dict — callers must assert on its fields, not on
+    truthiness (a dict is always truthy):
+        found    the target activity was reached
+        done/total  the activity's final progress ("6/6"); a solver that stops
+                 short (e.g. 1/6) is NOT completion even though it returned
+        feedback the final feedback screen appeared (the game registered it)
+    On failure nothing is exited/navigated, so a failure screenshot captures
+    the actual stuck screen.
     """
+    result = {"found": False, "done": 0, "total": 0, "feedback": False}
     solvers = get_activity_solver_map()
     if target_scene not in solvers:
         logging.error(f"[Activity] No solver mapped for '{target_scene}'")
-        return False
+        return result
 
     thumbs = altdriver.find_objects(By.NAME, "ActivityThumb")
     total = len(thumbs)
@@ -688,11 +812,24 @@ def solve_activity_in_level(altdriver, target_scene):
         scene = _get_current_activity_with_retry(altdriver, prev_scene=prev_scene)
         if scene == target_scene:
             logging.info(f"[Activity] Found {target_scene} at thumb {i}; solving")
+            result["found"] = True
+            dismiss_replay_popup(altdriver)      # replayed activities are blocked by it
             solvers[target_scene](altdriver)
-            time.sleep(4)
+            time.sleep(2)
+            done, tot = read_activity_progress(altdriver)
+            result["done"], result["total"] = done, tot
+            if tot > 0 and done < tot:
+                logging.error(f"[Activity] {target_scene} INCOMPLETE at {done}/{tot} "
+                              f"— staying on the activity for the failure screenshot")
+                return result
+            result["feedback"] = wait_for_finish_feedback(altdriver)
+            if not result["feedback"]:
+                logging.error(f"[Activity] {target_scene} reached {done}/{tot} but the "
+                              f"final feedback screen never appeared")
+                return result
             when_finish_activity(altdriver)
             time.sleep(2)
-            return True
+            return result
         # Not the one — back out to the activity selection and try the next.
         logging.info(f"[Activity] thumb {i} opened '{scene}', not {target_scene}; going back")
         try:
@@ -703,7 +840,7 @@ def solve_activity_in_level(altdriver, target_scene):
         time.sleep(5)
 
     logging.error(f"[Activity] {target_scene} not found among {total} thumbs")
-    return False
+    return result
 
 
 def solve_lesson_levels(altdriver, class_id, lesson_num):

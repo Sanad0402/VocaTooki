@@ -545,13 +545,34 @@
         "kind": "pytest",
         "nodeid": "Tests/rally/TF181_Voca_Tooki_(Client_Side)/TF288_Pipes/test_tc1149_pipes_activity_successful_finish_in_hard_level.py::test_tc1149_pipes_activity_successful_finish_in_hard_level"
       }
+    },
+    {
+      "id": "TC1150",
+      "name": "Pipes Activity - Successful finish in Medium level",
+      "folder": "TF288",
+      "description": "Test Type: Functional\nPriority: Important\nFeature: Pipes Activity\nLevel: Medium\n\nDescription:\nVerify that a user can successfully complete the Pipes activity when playing at Medium difficulty level. The activity should register as finished and award appropriate points/progress.\n\nPreconditions:\n- Username: vt233624\n- Password: 3690\n- Account is at level 43\n- Pipes activity is available and unlocked",
+      "owner": "",
+      "status": "",
+      "user": {
+        "username": "vt233624",
+        "password": "3690"
+      },
+      "steps": [],
+      "validation": {
+        "input": "1. Log in with username: vt233624, password: 3690\n2. Navigate to the Pipes activity\n3. Select Medium level\n4. Complete all required steps of the activity\n5. Submit/finish the activity",
+        "expected": "The Pipes activity is marked as successfully finished at Medium level. The completion is registered, appropriate feedback/score is shown to the user, and progress/points are updated correctly."
+      },
+      "action": {
+        "kind": "pytest",
+        "nodeid": "Tests/rally/TF181_Voca_Tooki_(Client_Side)/TF288_Pipes/test_tc1150_pipes_activity_successful_finish_in_medium_level.py::test_tc1150_pipes_activity_successful_finish_in_medium_level"
+      }
     }
   ],
   "metadata": {
     "project_id": "622679112169",
-    "total_cases": 7,
+    "total_cases": 8,
     "automated_only": true,
     "synced_from": "Rally API",
-    "synced_at": "2026-07-23T08:27:45.782968+00:00"
+    "synced_at": "2026-07-23T09:27:11.867235+00:00"
   }
 }

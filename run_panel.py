@@ -242,21 +242,24 @@ def api_rally_sync():
         if not success:
             return jsonify({"error": "Failed to sync from Rally"}), 500
 
-        # Generate tests
+        # Refresh ONLY already-generated tests; new cases stay "not generated"
+        # until the user explicitly clicks generate on them.
         generator = RallyTestGenerator(_ROOT)
-        generated = generator.generate_all_tests()
+        refreshed = generator.refresh_generated_tests()
 
         # Reload suite tree
         new_suite = suite.tree()
 
-        logger.info(f"Synced {len(generated)} test cases from {project_name}")
+        total = sum(len(f.get("cases", [])) for f in new_suite.get("folders", []))
+        logger.info(f"Synced {total} case(s) from {project_name}; refreshed {len(refreshed)} generated test(s)")
 
         return jsonify({
             "success": True,
-            "message": f"Synced {len(generated)} test cases from {project_name}",
+            "message": (f"Synced {total} case(s) from {project_name} "
+                        f"({len(refreshed)} generated test(s) refreshed)"),
             "suite": new_suite,
             "project_name": project_name,
-            "count": len(generated),
+            "count": total,
             "synced_at": (_last_sync_info() or {}).get("synced_at"),
         })
 
@@ -438,6 +441,50 @@ def api_report_html():
     return Response(manager.report_html, mimetype="text/html")
 
 
+@app.route("/api/suite/case/<tc_id>/generate", methods=["POST"])
+def api_case_generate(tc_id):
+    """Explicitly generate the pytest file for one Rally case.
+
+    This is the panel's per-case "generate" action: sync imports the case as
+    "not generated"; this writes the actual test code into the project (a real
+    playthrough for activity/login/logout cases, an honest stub otherwise)."""
+    from runner.test_generator import RallyTestGenerator
+    import json as _json
+    try:
+        with open(os.path.join(_ROOT, "data", "rally_suite.json"), encoding="utf-8") as f:
+            cases = _json.load(f).get("test_cases", [])
+    except (OSError, ValueError):
+        cases = []
+    tc = next((t for t in cases if t.get("id") == tc_id), None)
+    if not tc:
+        return jsonify({"error": f"{tc_id} not found in the synced Rally suite. Sync first."}), 404
+    try:
+        path = RallyTestGenerator(_ROOT).generate_test(tc)
+    except Exception as e:
+        logger.exception("generate failed for %s", tc_id)
+        return jsonify({"error": f"Generation failed: {e}"}), 500
+    rel = os.path.relpath(str(path), _ROOT)
+    impl = suite.impl_status((tc.get("action") or {}).get("nodeid") or "")
+    msg = (f"{tc_id}: generated {rel}" if impl == "real"
+           else f"{tc_id}: wrote a stub ({rel}) — add credentials/level to the Rally "
+                f"description and re-sync, or use “Generate from live app”.")
+    return jsonify({"ok": True, "impl": impl, "path": rel, "message": msg,
+                    "suite": suite.tree()})
+
+
+@app.route("/api/screenshots/<name>")
+def api_screenshot(name):
+    """Serve a failure screenshot. Only bare filenames from the screenshots
+    directory are accepted — no paths."""
+    from runner.core import REPORTS_DIR
+    if os.path.basename(name) != name:
+        abort(404)
+    path = os.path.join(REPORTS_DIR, "screenshots", name)
+    if not os.path.exists(path):
+        abort(404)
+    return send_file(path, mimetype="image/png")
+
+
 # ---- run history ("Last runs" tab) ----------------------------------------
 
 @app.route("/api/runs")
@@ -470,6 +517,19 @@ def api_run_report(run_id, kind):
 
 
 if __name__ == "__main__":
+    # Single-instance guard: a second panel next to a live one is how stale
+    # code kept serving port 5000 (the old process owned the port while the
+    # fresh one silently failed to bind). Refuse loudly instead.
+    import socket
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        probe.bind(("127.0.0.1", 5000))
+        probe.close()
+    except OSError:
+        print("Another runner panel is ALREADY serving http://127.0.0.1:5000 — "
+              "not starting a second one.\n"
+              "Close the other window (or kill the old python process) and retry.")
+        raise SystemExit(1)
     print("Runner panel: http://127.0.0.1:5000")
     # threaded=True so SSE streaming + background run thread coexist with requests.
     app.run(host="127.0.0.1", port=5000, threaded=True, debug=False)

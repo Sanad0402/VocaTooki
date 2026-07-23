@@ -1,16 +1,16 @@
 """
-TC1149 — Pipes Activity - Successful finish in Hard level
+TC1150 — Pipes Activity - Successful finish in Medium level
 
 Auto-generated from Rally (Method = Automated).
 
 Description:
-    Test Type: Functional Priority: Important Feature: Pipes Activity Level: Hard Description: Verify that a user can successfully complete the Pipes activity when playing at Hard difficulty level. The activity should register as finished and award appropriate points/progress. Preconditions: - Username: vt233624 - Password: 3690 - Account is at level 44 - Pipes activity is available and unlocked
+    Test Type: Functional Priority: Important Feature: Pipes Activity Level: Medium Description: Verify that a user can successfully complete the Pipes activity when playing at Medium difficulty level. The activity should register as finished and award appropriate points/progress. Preconditions: - Username: vt233624 - Password: 3690 - Account is at level 43 - Pipes activity is available and unlocked
 
 (No test steps recorded in Rally — add them to the case, then re-sync.)
 
 Validation (from Rally):
-    Input:    1. Log in with username: vt233624, password: 3690 2. Navigate to the Pipes activity 3. Select Hard level 4. Complete all required steps of the activity 5. Submit/finish the activity
-    Expected: The Pipes activity is marked as successfully finished at Hard level. The completion is registered, appropriate feedback/score is shown to the user, and progress/points are updated correctly.
+    Input:    1. Log in with username: vt233624, password: 3690 2. Navigate to the Pipes activity 3. Select Medium level 4. Complete all required steps of the activity 5. Submit/finish the activity
+    Expected: The Pipes activity is marked as successfully finished at Medium level. The completion is registered, appropriate feedback/score is shown to the user, and progress/points are updated correctly.
 """
 
 import time
@@ -18,18 +18,18 @@ import pytest
 from Utilities import utilsdemo
 
 # Rally test case ID (for sync and maintenance)
-TC_ID = "TC1149"
+TC_ID = "TC1150"
 # Regenerated from the Rally case on every sync so the level/credentials stay
 # current with the description. Hand-editing? Set MANUAL_EDIT = True to lock.
 MANUAL_EDIT = False
 
 ACTIVITY_SCENE = "PIPES"
-MAP_LEVEL = 44          # from the Rally description
+MAP_LEVEL = 43          # from the Rally description
 USERNAME = "vt233624"
 PASSWORD = "3690"
 
 
-def test_tc1149_pipes_activity_successful_finish_in_hard_level(altdriver):
+def test_tc1150_pipes_activity_successful_finish_in_medium_level(altdriver):
     driver, _platform = altdriver
 
     # 1. Login with the credentials from the Rally description. When several
@@ -54,7 +54,7 @@ def test_tc1149_pipes_activity_successful_finish_in_hard_level(altdriver):
         f"{TC_ID}: PIPES activity was not found in level {MAP_LEVEL}"
     assert result["total"] > 0 and result["done"] >= result["total"], (
         f"{TC_ID}: PIPES did not complete — progress "
-        f"{result['done']}/{result['total']}. Expected: The Pipes activity is marked as successfully finished at Hard level. The completion is registered, appropriate feedback/score is shown to the user, and progress/points are updated correctly.")
+        f"{result['done']}/{result['total']}. Expected: The Pipes activity is marked as successfully finished at Medium level. The completion is registered, appropriate feedback/score is shown to the user, and progress/points are updated correctly.")
     assert result["feedback"], \
         f"{TC_ID}: PIPES reached {result['done']}/{result['total']} but the final feedback screen never appeared"
 

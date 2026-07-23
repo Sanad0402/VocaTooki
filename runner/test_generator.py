@@ -61,6 +61,32 @@ class RallyTestGenerator:
 
         return generated
 
+    def refresh_generated_tests(self, prune: bool = True) -> List[str]:
+        """Re-render ONLY the tests that were already generated.
+
+        Sync-time behaviour: a case whose file exists is refreshed from the
+        latest Rally data (unless locked with MANUAL_EDIT = True), but a NEW
+        case gets no file — it shows as "not generated" in the panel until the
+        user explicitly clicks generate. Orphans of deleted Rally cases are
+        still pruned.
+        """
+        suite = self.load_rally_suite()
+        refreshed = []
+        for tc in suite.get("test_cases", []):
+            try:
+                nodeid = (tc.get("action") or {}).get("nodeid") or ""
+                file_part = nodeid.split("::", 1)[0] if "::" in nodeid else ""
+                path = self.project_root / file_part if file_part else None
+                if path is None or not path.exists():
+                    continue                      # new case -> wait for explicit generate
+                refreshed.append(str(self.generate_test(tc)))
+            except Exception as e:
+                logger.error(f"Failed to refresh test {tc.get('id')}: {e}")
+        if prune:
+            current = {t.get("id") for t in suite.get("test_cases", [])}
+            self._prune_orphans(current)
+        return refreshed
+
     def generate_test(self, test_case: Dict[str, Any]) -> Path:
         """Generate pytest for a single Rally test case.
 
@@ -578,9 +604,11 @@ PASSWORD = "{password}"
 {guard}def {test_func_name}(altdriver):
     driver, _platform = altdriver
 
-    # 1. Login with the credentials from the Rally description
-    utilsdemo.login(driver, USERNAME, PASSWORD)
-    time.sleep(8)   # let the home screen finish loading after login
+    # 1. Login with the credentials from the Rally description. When several
+    #    cases run in one session with the same user, the login is skipped and
+    #    the test continues from the map the previous case returned to.
+    utilsdemo.ensure_logged_in(driver, USERNAME, PASSWORD)
+    time.sleep(2)
 
     # 2. Open the map level named in the description (navigates to the map first)
     assert utilsdemo.enter_level_number(driver, MAP_LEVEL), \\
@@ -590,13 +618,21 @@ PASSWORD = "{password}"
     assert utilsdemo.open_level_to_activities(driver), \\
         f"{{TC_ID}}: activity selection screen was not reached"
 
-    # 4. Find the {scene} activity in this level and play it to completion
-    assert utilsdemo.solve_activity_in_level(driver, ACTIVITY_SCENE), \\
-        f"{{TC_ID}}: expected: {expected_note}"
+    # 4. Find the {scene} activity in this level and play it to completion.
+    #    On any failed assert below the test stays on the failing screen, so
+    #    the failure screenshot (conftest hook) shows the actual state.
+    result = utilsdemo.solve_activity_in_level(driver, ACTIVITY_SCENE)
+    assert result["found"], \\
+        f"{{TC_ID}}: {scene} activity was not found in level {{MAP_LEVEL}}"
+    assert result["total"] > 0 and result["done"] >= result["total"], (
+        f"{{TC_ID}}: {scene} did not complete — progress "
+        f"{{result['done']}}/{{result['total']}}. Expected: {expected_note}")
+    assert result["feedback"], \\
+        f"{{TC_ID}}: {scene} reached {{result['done']}}/{{result['total']}} but the final feedback screen never appeared"
 
-    # 5. Leave the app in a clean state
-    utilsdemo.call_method(driver, "AltTesterUtils", "Logout")
-    time.sleep(2)
+    # 5. Clean state for the next test case: back to the level map (no logout —
+    #    the next case in this run reuses the session and just clicks its level)
+    utilsdemo.return_to_map(driver)
 '''
 
     def _gen_stub(self, tc_id, tc_name, test_func_name,
