@@ -83,12 +83,15 @@ async function init() {
   $("btn-run").addEventListener("click", () => startRun(false));
   $("btn-dry").addEventListener("click", () => startRun(true));
   $("btn-stop").addEventListener("click", stopRun);
+  const clearRunsBtn = $("btn-clear-runs");
+  if (clearRunsBtn) clearRunsBtn.addEventListener("click", clearRuns);
 
   const snap = await (await fetch("/api/status")).json();
   applyState(snap.state);
   if (snap.state === "running") openStream();
   renderFromSnapshot(snap);
   if (snap.report_html || snap.report_txt) showReports();
+  loadRuns();
 }
 
 function updateModeDesc() {
@@ -157,9 +160,9 @@ function setSuite(tree) { SUITE = tree || { folders: [] }; renderSuiteTree(); }
 // stubs (which skip) vs. cases with no pytest linked yet.
 function implBadge(impl) {
   const map = {
-    real:     { cls: "impl-real",     txt: "real",      title: "Implemented test — runs against the app" },
-    stub:     { cls: "impl-stub",     txt: "stub",      title: "Auto-generated stub — skips until implemented" },
-    unlinked: { cls: "impl-unlinked", txt: "no test",   title: "No pytest test linked — runs as SKIPPED" },
+    real:     { cls: "impl-real",     txt: "generated ✓",   title: "Test generated in the framework — runs against the app" },
+    stub:     { cls: "impl-stub",     txt: "not generated", title: "Only an auto-stub exists (skips). Select the case and click “Generate from live app”, or add the missing data in Rally and re-sync." },
+    unlinked: { cls: "impl-unlinked", txt: "no test",       title: "No pytest test linked — runs as SKIPPED" },
   };
   const b = map[impl] || map.unlinked;
   return `<span class="impl-badge ${b.cls}" title="${b.title}">${b.txt}</span>`;
@@ -490,8 +493,46 @@ function handleEvent(evt) {
     case "end":
       applyState(evt.state);
       if (evtSource) { evtSource.close(); evtSource = null; }
-      stopStatusPolling(); refreshStatusOnce(); break;
+      stopStatusPolling(); refreshStatusOnce(); loadRuns(); break;
   }
+}
+
+// ---------------------------------------------------------------- last runs
+async function loadRuns() {
+  const el = $("runs");
+  if (!el) return;
+  let runs = [];
+  try { runs = (await (await fetch("/api/runs")).json()).runs || []; } catch (_) { return; }
+  if (!runs.length) {
+    el.innerHTML = '<span class="muted">No runs recorded yet.</span>';
+    return;
+  }
+  const stateCls = (s) => s === "done" ? "l-ok" : (s === "error" ? "l-error" : "l-warn");
+  const rows = runs.map((r) => {
+    const t = r.totals || {};
+    const counts = ["PASSED", "FAILED", "SKIPPED", "CANCELLED"]
+      .filter((k) => t[k]) .map((k) => `${t[k]} ${k.toLowerCase()}`).join(" · ");
+    const links = [
+      r.report_html ? `<a href="/api/runs/${escapeAttr(r.id)}/report.html" target="_blank">html</a>` : "",
+      r.report_txt ? `<a href="/api/runs/${escapeAttr(r.id)}/report.txt">txt</a>` : "",
+    ].filter(Boolean).join(" ");
+    return `<tr>
+      <td>${escapeHtml(r.finished_at || r.id)}</td>
+      <td>${escapeHtml(r.kind || "")}</td>
+      <td class="${stateCls(r.state)}">${escapeHtml(r.state || "")}</td>
+      <td>${escapeHtml(counts || "—")}</td>
+      <td>${links || '<span class="muted">no report</span>'}</td>
+    </tr>`;
+  }).join("");
+  el.innerHTML = `<table>
+    <thead><tr><th>Finished</th><th>Type</th><th>State</th><th>Results</th><th>Report</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+}
+
+async function clearRuns() {
+  if (!confirm("Clear the recorded run history? (Report files on disk are kept.)")) return;
+  try { await fetch("/api/runs/clear", { method: "POST" }); } catch (_) {}
+  loadRuns();
 }
 
 function onProgress(p) {

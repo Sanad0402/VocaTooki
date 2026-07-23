@@ -29,6 +29,29 @@ from . import emailer
 
 REPORTS_DIR = os.getenv("REPORTS_DIR", os.path.expanduser("~/Downloads/reports"))
 
+# ---- run history (the panel's "Last runs" tab) ----------------------------
+HISTORY_PATH = os.path.join(_ROOT, "data", "run_history.json")
+MAX_HISTORY = 30
+
+
+def load_run_history():
+    """Newest-first list of recorded runs (empty when none/corrupt)."""
+    try:
+        with open(HISTORY_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def clear_run_history():
+    try:
+        os.makedirs(os.path.dirname(HISTORY_PATH), exist_ok=True)
+        with open(HISTORY_PATH, "w", encoding="utf-8") as f:
+            json.dump([], f)
+    except OSError:
+        pass
+
 _USERS_BY_NAME = {u["username"]: u for u in TEST_USERS}
 
 
@@ -122,10 +145,17 @@ class RunManager:
         self.reset()
 
     # ---- lifecycle -------------------------------------------------------
+    # Cap on retained events. A run that logs more than this only loses the
+    # OLDEST live-log lines from the browser view (the full log still goes to
+    # the report); without a cap a chatty run grows this list unbounded and
+    # every SSE poll copies it, which is what froze the panel page.
+    MAX_EVENTS = 4000
+
     def reset(self):
         with self._lock:
             self.state = "idle"          # idle | running | done | error | stopped
-            self.events = []             # append-only list of {seq, type, ...}
+            self.events = []             # bounded list of {seq, type, ...}
+            self._next_seq = 0           # seq keeps growing even after trimming
             self.error = None
             self.progress = {}
             self.groups = []             # [{username, class_id, lesson_from, lesson_to, start}]
@@ -147,15 +177,24 @@ class RunManager:
     # ---- event plumbing --------------------------------------------------
     def _emit(self, etype, **data):
         with self._lock:
-            evt = {"seq": len(self.events), "type": etype, "t": time.strftime("%H:%M:%S"), **data}
+            evt = {"seq": self._next_seq, "type": etype, "t": time.strftime("%H:%M:%S"), **data}
+            self._next_seq += 1
             self.events.append(evt)
+            if len(self.events) > self.MAX_EVENTS:
+                # Trim oldest; only "log" lines are ever numerous enough to be
+                # trimmed, and state/progress events are re-sent by polling.
+                del self.events[: len(self.events) - self.MAX_EVENTS]
 
     def _log(self, line):
         self._emit("log", line=line)
 
     def events_since(self, cursor):
         with self._lock:
-            return self.events[cursor:]
+            if not self.events:
+                return []
+            base = self.events[0]["seq"]
+            idx = max(0, cursor - base)
+            return self.events[idx:]
 
     def snapshot(self):
         with self._lock:
@@ -462,6 +501,7 @@ class RunManager:
                 os.remove(results)
             except OSError:
                 pass
+            self._record_run_history("suite")
 
     def _drain_case_results(self, path, offset, nodeid_index):
         try:
@@ -742,6 +782,47 @@ class RunManager:
             sys.stdout, sys.stderr = old_stdout, old_stderr
             root.removeHandler(handler)
             root.setLevel(prev_level)
+            self._record_run_history("lessons")
+
+    def _record_run_history(self, kind):
+        """Append this run's outcome to the persisted history (best-effort).
+
+        Called from the run threads' ``finally`` blocks, after the final state
+        is set, so every real run (done / stopped / error) is recorded. Dry
+        runs never reach these threads and are not recorded.
+        """
+        try:
+            with self._lock:
+                state = self.state
+                cases = [dict(c) for c in self.cases]
+                error = self.error
+                started = self._started_at
+            totals = {}
+            for c in cases:
+                totals[c.get("status", "?")] = totals.get(c.get("status", "?"), 0) + 1
+            for c in cases:                      # keep the file small
+                if c.get("error"):
+                    c["error"] = str(c["error"])[:300]
+            entry = {
+                "id": time.strftime("%Y%m%d_%H%M%S"),
+                "started_at": time.strftime("%Y-%m-%d %H:%M:%S",
+                                            time.localtime(started)) if started else "",
+                "finished_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "kind": kind,                    # suite | lessons
+                "state": state,
+                "error": (error or "")[:300],
+                "totals": totals,
+                "cases": cases,
+                "report_txt": self.report_txt,
+                "report_html": self.report_html_path,
+            }
+            history = load_run_history()
+            history.insert(0, entry)
+            os.makedirs(os.path.dirname(HISTORY_PATH), exist_ok=True)
+            with open(HISTORY_PATH, "w", encoding="utf-8") as f:
+                json.dump(history[:MAX_HISTORY], f, indent=1)
+        except Exception as e:          # history must never break a run
+            logging.getLogger(__name__).warning(f"run history not recorded: {e}")
 
     def _sleep(self, seconds):
         """Interruptible sleep: wakes immediately when stop is requested."""

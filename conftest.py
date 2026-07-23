@@ -123,7 +123,12 @@ def altdriver(request):
         host=request.config.getoption("--host"),
         port=request.config.getoption("--port"),
         platform=platform,
-        enable_logging=True,  # keep True if you still want your own logs; AltTester logs are disabled above
+        # MUST stay False: True makes AltDriver re-enable the loguru
+        # "alttester.*" namespaces disabled above, and every websocket command
+        # is then logged as a multi-KB DEBUG line. A solver run emits hundreds
+        # of thousands of them - enough to freeze the panel's live log page.
+        # Our own print()/logging output is unaffected by this flag.
+        enable_logging=False,
     )
 
     # ✅ only include if provided

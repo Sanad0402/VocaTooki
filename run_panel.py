@@ -405,7 +405,9 @@ def api_stream():
         while True:
             events = manager.events_since(cursor)
             if events:
-                cursor += len(events)
+                # Advance by seq, not count: the manager trims old log events,
+                # so counting would replay or re-skip after a trim.
+                cursor = events[-1]["seq"] + 1
                 for evt in events:
                     yield f"data: {json.dumps(evt)}\n\n"
             else:
@@ -434,6 +436,37 @@ def api_report_html():
     if not manager.report_html:
         abort(404)
     return Response(manager.report_html, mimetype="text/html")
+
+
+# ---- run history ("Last runs" tab) ----------------------------------------
+
+@app.route("/api/runs")
+def api_runs():
+    from runner import core as core_mod
+    return jsonify({"runs": core_mod.load_run_history()})
+
+
+@app.route("/api/runs/clear", methods=["POST"])
+def api_runs_clear():
+    from runner import core as core_mod
+    core_mod.clear_run_history()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/runs/<run_id>/report.<kind>")
+def api_run_report(run_id, kind):
+    """Serve an archived run's report. Paths come only from the recorded
+    history entry (never from the request), so this cannot read arbitrary files."""
+    from runner import core as core_mod
+    entry = next((r for r in core_mod.load_run_history() if r.get("id") == run_id), None)
+    if not entry:
+        abort(404)
+    path = entry.get("report_html") if kind == "html" else entry.get("report_txt")
+    if not path or not os.path.exists(path):
+        abort(404)
+    if kind == "html":
+        return send_file(path, mimetype="text/html")
+    return send_file(path, as_attachment=True, download_name=os.path.basename(path))
 
 
 if __name__ == "__main__":
