@@ -530,6 +530,182 @@ def enter_to_level(altdriver, class_id, lesson_number, type="lesson", difficulty
         return False
 
 
+# ---------------------------------------------------------------------------
+# Reusable primitives for Rally-generated activity tests (additive only —
+# nothing above is changed). A generated test composes these:
+#   login -> enter_level_number -> open_level_to_activities
+#         -> solve_activity_in_level -> Logout
+# ---------------------------------------------------------------------------
+
+def get_activity_solver_map():
+    """Scene name -> solver function, for callers outside run_activity.
+
+    Mirrors the dispatch table inside run_activity (kept separate on purpose so
+    the battle-tested run_activity flow stays untouched). When a new activity is
+    mapped there, add it here too.
+    """
+    from Activities import activitiesDemo as A
+    return {
+        'MEMMORY_CARDS': A.memory,
+        'LISTEN_FIND': A.megaphone,
+        'SENTENCE_COMPLETION_QUIZ': A.fill_in,
+        'SENTENCE_TRANSLATION_QUIZ': A.spiders,
+        'SEARCH': A.search,
+        'MISSING_BUBBLE': A.bubbels,
+        'RADAR': A.radar,
+        'UNSCRAMBLE_QUIZ': A.lexi_match,
+        'GAP_GURU': A.gap_guru,
+        'TYPE_IT_RIGHT': A.type_it_right,
+        'TRANSLATION_WIZ': A.translation_wiz,
+        'ECHO_ORDER': A.echo_order,
+        'FROGGER': A.frogger,
+        'HANGWORDS': A.hang_words,
+        'WORDS_MATCHING_QUIZ': A.moving,
+        'BEE_CAREFUL': A.bee,
+        'ISPY': A.ispy,
+        'LETTERS_SEARCH': A.search_3rd,
+        'LETTERS_BUBBLES': A.bubbels_activity_3rd,
+        'LETTERS_SORTING': A.signs,
+        'CROSSWORD2': A.crosswords2,
+        'CROSSWORD': A.crosswords,
+        'PUZZLES': A.solve_puzzles,
+        'TURTLE_ISLAND': A.turtle_island,
+        'BRICKOUT': A.brickout,
+        'PIPES': A.pipes,
+        'RINGS': A.rings,
+    }
+
+
+def _find_level_icons(altdriver):
+    """Level icons of whichever map is currently loaded.
+
+    The anchored search works for every map prefab (MainMap, 5thMap, ...);
+    the two explicit paths are kept as fallbacks.
+    """
+    for path in ("//Levels/level_icons/*",
+                 "/MainMap(Clone)/Map Backgrounds/Levels/level_icons/*",
+                 "/5thMap(Clone)/Map Backgrounds/Levels/level_icons/*"):
+        try:
+            objs = altdriver.find_objects(By.PATH, path)
+            if objs:
+                return objs
+        except Exception:
+            pass
+    return []
+
+
+def enter_level_number(altdriver, level_num, retries=3):
+    """Click the map level labelled ``level_num`` (as shown on the icon).
+
+    For Rally cases whose description names the exact map level ("level 44"),
+    so no lesson/difficulty resolution through the class map is needed.
+    The number is the HUMAN-VISIBLE label: icons are numbered from 1 on screen
+    while the icon list is 0-based, so label N is index N-1 (clicking index 44
+    opened the level labelled 45).
+    Right after login the app is on the home screen, not the map, so when no
+    icons are visible this first navigates there via the GO-Map button.
+    """
+    logging.info(f"[Map Navigation] Entering level number {level_num} directly")
+    try:
+        level_objs = []
+        for attempt in range(retries):
+            level_objs = _find_level_icons(altdriver)
+            if level_objs:
+                break
+            # Not on the map (e.g. fresh login lands on the home screen).
+            logging.info("[Map Navigation] No level icons visible — clicking GO-Map")
+            click_by_name(altdriver, "GO-Map")
+            time.sleep(12)      # the map scene takes a while to load
+        if not level_objs:
+            logging.error("[Map Navigation] No level icons found (not on a map?).")
+            return False
+        index = level_num - 1          # label 44 -> icon index 43
+        if index < 0 or index >= len(level_objs):
+            logging.error(f"[Map Navigation] Level {level_num} out of range ({len(level_objs)} icons).")
+            return False
+        level_objs[index].click()
+        time.sleep(4)
+        logging.info(f"[Map Navigation] Entered level {level_num} (icon index {index}).")
+        return True
+    except Exception as e:
+        logging.error(f"[Map Navigation] Exception clicking level {level_num}: {e}")
+        return False
+
+
+def open_level_to_activities(altdriver, timeout=30):
+    """From a just-clicked level, reach ActivitySelectionScene.
+
+    Tolerant version of the opening steps of handle_level_flow: an already
+    opened level goes straight there; a fresh one passes the intro
+    (nextButton) and the vending machine (Toggle). Returns True when the
+    activity selection screen is showing.
+    """
+    time.sleep(2)
+    scene = altdriver.get_current_scene()
+    if scene != 'ActivitySelectionScene':
+        click_by_name(altdriver, "nextButton")
+        time.sleep(3)
+        if altdriver.get_current_scene() == 'VendingMachineScene':
+            click_by_name(altdriver, "Toggle")
+            time.sleep(15)
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if altdriver.get_current_scene() == 'ActivitySelectionScene':
+            return True
+        time.sleep(2)
+    logging.error(f"[Level Flow] ActivitySelectionScene not reached (now: {altdriver.get_current_scene()})")
+    return False
+
+
+def solve_activity_in_level(altdriver, target_scene):
+    """Find the activity thumb that opens ``target_scene``, solve it, exit.
+
+    A level holds several ActivityThumbs and which one is which activity is
+    only knowable by opening it: click a thumb, read GetCurrentActivity, and
+    if it is not the target go back and try the next. When the target comes up
+    its solver runs (same dispatch table as run_activity) and the finish popup
+    is exited. Returns True if the target activity was found and solved.
+    """
+    solvers = get_activity_solver_map()
+    if target_scene not in solvers:
+        logging.error(f"[Activity] No solver mapped for '{target_scene}'")
+        return False
+
+    thumbs = altdriver.find_objects(By.NAME, "ActivityThumb")
+    total = len(thumbs)
+    logging.info(f"[Activity] {total} activities in this level; hunting {target_scene}")
+
+    for i in range(total):
+        thumbs = altdriver.find_objects(By.NAME, "ActivityThumb")
+        if i >= len(thumbs):
+            break
+        try:
+            prev_scene = call_method(altdriver, "AltTesterUtils", "GetCurrentActivity")
+        except Exception:
+            prev_scene = None
+        thumbs[i].click()
+        time.sleep(8)
+        scene = _get_current_activity_with_retry(altdriver, prev_scene=prev_scene)
+        if scene == target_scene:
+            logging.info(f"[Activity] Found {target_scene} at thumb {i}; solving")
+            solvers[target_scene](altdriver)
+            time.sleep(4)
+            when_finish_activity(altdriver)
+            time.sleep(2)
+            return True
+        # Not the one — back out to the activity selection and try the next.
+        logging.info(f"[Activity] thumb {i} opened '{scene}', not {target_scene}; going back")
+        try:
+            call_method(altdriver, "AltTesterUtils", "LoadPreviousScene")
+        except Exception as e:
+            logging.warning(f"[Activity] LoadPreviousScene failed: {e}")
+            when_finish_activity(altdriver)
+        time.sleep(5)
+
+    logging.error(f"[Activity] {target_scene} not found among {total} thumbs")
+    return False
+
+
 def solve_lesson_levels(altdriver, class_id, lesson_num):
     difficulties = [("easy", 0), ("medium", 1), ("hard", 2)]
 

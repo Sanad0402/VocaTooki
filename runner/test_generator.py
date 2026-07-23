@@ -99,7 +99,8 @@ class RallyTestGenerator:
         description = test_case.get("description", "")
         steps = test_case.get("steps", [])
         test_code = self._generate_test_code(
-            tc_id, tc_name, test_type, user_data, func_name, description, steps
+            tc_id, tc_name, test_type, user_data, func_name, description, steps,
+            validation=test_case.get("validation"),
         )
         test_code = self._inject_manual_marker(test_code)
 
@@ -146,11 +147,21 @@ class RallyTestGenerator:
                 pass
 
         test_type = self._infer_test_type(tc_name)
-        code = self._gen_skeleton_from_elements(
-            tc_id, tc_name, test_type, func_name,
-            test_case.get("description", ""), test_case.get("steps", []),
-            test_case.get("user", {}), elements or {},
-        )
+        if test_type == "activity":
+            # Activity playthroughs don't need scene discovery: the whole flow
+            # (login -> map level -> find activity -> solve) is composed from
+            # proven utils, so "Generate from live app" writes the REAL test.
+            code = self._gen_activity(
+                tc_id, tc_name, test_case.get("user", {}), func_name,
+                test_case.get("description", ""), test_case.get("steps", []),
+                test_case.get("validation"),
+            )
+        else:
+            code = self._gen_skeleton_from_elements(
+                tc_id, tc_name, test_type, func_name,
+                test_case.get("description", ""), test_case.get("steps", []),
+                test_case.get("user", {}), elements or {},
+            )
         # Complete skeletons declare MANUAL_EDIT = True themselves; populated
         # stubs get MANUAL_EDIT = False injected here.
         code = self._inject_manual_marker(code)
@@ -230,6 +241,32 @@ class RallyTestGenerator:
                 except Exception as e:
                     logger.error(f"Could not prune {path}: {e}")
 
+    # Rally case name keyword -> Unity activity scene (as reported by
+    # AltTesterUtils.GetCurrentActivity and mapped in utilsdemo's solvers).
+    ACTIVITY_SCENES = {
+        "pipes": "PIPES",
+        "rings": "RINGS",
+        "brickout": "BRICKOUT",
+        "turtle island": "TURTLE_ISLAND",
+        "parashoot": "PARASHOOT",
+        "parachute": "PARASHOOT",
+        "puzzle": "PUZZLES",
+        "crossword": "CROSSWORD",
+        "missing bubble": "MISSING_BUBBLE",
+        "gap guru": "GAP_GURU",
+        "type it right": "TYPE_IT_RIGHT",
+        "frogger": "FROGGER",
+        "radar": "RADAR",
+    }
+
+    def _infer_activity_scene(self, tc_name: str):
+        """Scene name if the Rally case is about completing a game activity."""
+        lower = tc_name.lower()
+        for kw, scene in self.ACTIVITY_SCENES.items():
+            if kw in lower:
+                return scene
+        return None
+
     def _infer_test_type(self, tc_name: str) -> str:
         """Infer test type from test case name."""
         lower = tc_name.lower()
@@ -247,6 +284,9 @@ class RallyTestGenerator:
             return "login_negative"
         if any(k in lower for k in ("logout", "log out", "sign out")):
             return "logout"
+        # Positive "finish the <game> activity" cases -> full playthrough test.
+        if self._infer_activity_scene(tc_name) and not is_negative:
+            return "activity"
         return "generic"
 
     def _generate_test_code(
@@ -258,6 +298,7 @@ class RallyTestGenerator:
         func_name: str,
         description: str = "",
         steps: Optional[List[Dict[str, Any]]] = None,
+        validation: Optional[Dict[str, str]] = None,
     ) -> str:
         """Generate pytest code based on test type."""
         steps = steps or []
@@ -267,6 +308,9 @@ class RallyTestGenerator:
             return self._gen_login_negative(tc_id, tc_name, user_data, func_name, description, steps)
         elif test_type == "logout":
             return self._gen_logout(tc_id, tc_name, func_name, description, steps)
+        elif test_type == "activity":
+            return self._gen_activity(tc_id, tc_name, user_data, func_name,
+                                      description, steps, validation)
         else:
             return self._gen_stub(tc_id, tc_name, func_name, description, steps)
 
@@ -462,6 +506,97 @@ def {test_func_name}(altdriver):
 
     assert LoginPage(driver).is_open(), \\
         f"Logout failed: not on login screen ({{TC_ID}})"
+'''
+
+    def _gen_activity(self, tc_id, tc_name, user_data, test_func_name,
+                      description="", steps=None, validation=None) -> str:
+        """Full playthrough test for a game activity, composed from the proven
+        utils (login -> map level -> find the activity in it -> solve -> logout).
+
+        Everything case-specific is read from the Rally case itself:
+        credentials and the map level number come from the description, the
+        target scene from the case name, and the validation fields become the
+        docstring/assert context. Missing pieces produce an honest skip, never
+        a false pass.
+        """
+        scene = self._infer_activity_scene(tc_name) or "UNKNOWN"
+        username = user_data.get("username") or ""
+        password = user_data.get("password") or ""
+        clean_desc = self._clean_html(description)
+        # The map level to click. Prefer an explicit marker ("Map level: 49" /
+        # "click level 49") over incidental level mentions like "Account is at
+        # level 44", which describes progress, not the target level.
+        m = (re.search(r"(?:map|click(?:\s*on)?)\s*level\s*[:#]?\s*(\d+)",
+                       clean_desc, re.IGNORECASE)
+             or re.search(r"level\s*[:#]?\s*(\d+)", clean_desc, re.IGNORECASE))
+        level = int(m.group(1)) if m else -1
+
+        doc = self._doc_block(tc_id, tc_name, description, steps or [])
+        validation = validation or {}
+        v_in = self._clean_html(validation.get("input", ""))
+        v_exp = self._clean_html(validation.get("expected", ""))
+        if v_in or v_exp:
+            doc += "\n\nValidation (from Rally):"
+            if v_in:
+                doc += f"\n    Input:    {v_in}"
+            if v_exp:
+                doc += f"\n    Expected: {v_exp}"
+
+        missing = []
+        if not username:
+            missing.append("credentials (Username/Password)")
+        if level < 0:
+            missing.append('the map level ("level N")')
+        guard = ""
+        if missing:
+            reason = (f"{tc_id}: description is missing " + " and ".join(missing)
+                      + ". Add it to the Rally case, then re-sync.")
+            guard = f'@pytest.mark.stub\n@pytest.mark.skip(reason="{reason}")\n'
+
+        expected_note = v_exp or f"{scene} activity completed successfully"
+
+        return f'''"""
+{doc}
+"""
+
+import time
+import pytest
+from Utilities import utilsdemo
+
+# Rally test case ID (for sync and maintenance)
+TC_ID = "{tc_id}"
+# Regenerated from the Rally case on every sync so the level/credentials stay
+# current with the description. Hand-editing? Set MANUAL_EDIT = True to lock.
+MANUAL_EDIT = False
+
+ACTIVITY_SCENE = "{scene}"
+MAP_LEVEL = {level}          # from the Rally description
+USERNAME = "{username}"
+PASSWORD = "{password}"
+
+
+{guard}def {test_func_name}(altdriver):
+    driver, _platform = altdriver
+
+    # 1. Login with the credentials from the Rally description
+    utilsdemo.login(driver, USERNAME, PASSWORD)
+    time.sleep(8)   # let the home screen finish loading after login
+
+    # 2. Open the map level named in the description (navigates to the map first)
+    assert utilsdemo.enter_level_number(driver, MAP_LEVEL), \\
+        f"{{TC_ID}}: could not open level {{MAP_LEVEL}} on the map"
+
+    # 3. Get into the level's activity selection (handles intro/vending flow)
+    assert utilsdemo.open_level_to_activities(driver), \\
+        f"{{TC_ID}}: activity selection screen was not reached"
+
+    # 4. Find the {scene} activity in this level and play it to completion
+    assert utilsdemo.solve_activity_in_level(driver, ACTIVITY_SCENE), \\
+        f"{{TC_ID}}: expected: {expected_note}"
+
+    # 5. Leave the app in a clean state
+    utilsdemo.call_method(driver, "AltTesterUtils", "Logout")
+    time.sleep(2)
 '''
 
     def _gen_stub(self, tc_id, tc_name, test_func_name,

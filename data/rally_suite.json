@@ -101,9 +101,319 @@
       "parent": "TF193"
     },
     {
-      "id": "RALLY_UNGROUPED",
-      "name": "Ungrouped",
+      "id": "TF205",
+      "name": "\ud83d\udcc2 Treasure Island \u2013 Negative Flow",
+      "parent": "TF193"
+    },
+    {
+      "id": "TF206",
+      "name": "\ud83d\udcc2 Treasure Island \u2013 Error Handling",
+      "parent": "TF193"
+    },
+    {
+      "id": "TF207",
+      "name": "\ud83d\udcc2 Treasure Island \u2013 Security & Compliance",
+      "parent": "TF193"
+    },
+    {
+      "id": "TF208",
+      "name": "\ud83d\udcc2 Treasure Island \u2013 Performance & Load",
+      "parent": "TF193"
+    },
+    {
+      "id": "TF209",
+      "name": "\ud83d\udcc2 Treasure Island \u2013 Usability & Accessibility",
+      "parent": "TF193"
+    },
+    {
+      "id": "TF210",
+      "name": "\ud83d\udcc2 Treasure Island \u2013 Edge Cases",
+      "parent": "TF193"
+    },
+    {
+      "id": "TF212",
+      "name": "Tasks",
+      "parent": "TF181"
+    },
+    {
+      "id": "TF213",
+      "name": "\ud83d\udcc2 Tasks \u2013 Positive",
+      "parent": "TF212"
+    },
+    {
+      "id": "TF214",
+      "name": "\ud83d\udcc2 Tasks \u2013 Negative",
+      "parent": "TF212"
+    },
+    {
+      "id": "TF215",
+      "name": "\ud83d\udcc2 Tasks \u2013 Error Handling",
+      "parent": "TF212"
+    },
+    {
+      "id": "TF216",
+      "name": "\ud83d\udcc2 Tasks \u2013 Edge Cases",
+      "parent": "TF212"
+    },
+    {
+      "id": "TF217",
+      "name": "\ud83d\udcc2 Tasks \u2013 Performance & Load",
+      "parent": "TF212"
+    },
+    {
+      "id": "TF218",
+      "name": "\ud83d\udcc2 Start Scene \u2013 Edge Cases",
+      "parent": "TF199"
+    },
+    {
+      "id": "TF219",
+      "name": "Dialouges ",
+      "parent": "TF181"
+    },
+    {
+      "id": "TF220",
+      "name": "\ud83d\udcc1Dialogues - Positive",
+      "parent": "TF219"
+    },
+    {
+      "id": "TF221",
+      "name": "\ud83d\udcc1 Dialogues - Negative",
+      "parent": "TF219"
+    },
+    {
+      "id": "TF222",
+      "name": "\ud83d\udcc1Dialogues - Error Handling",
+      "parent": "TF219"
+    },
+    {
+      "id": "TF223",
+      "name": "\ud83d\udcc1Dialogues - Edge Cases",
+      "parent": "TF219"
+    },
+    {
+      "id": "TF224",
+      "name": "\ud83d\udcc1Dialogues - Performance & Load",
+      "parent": "TF219"
+    },
+    {
+      "id": "TF226",
+      "name": "\ud83d\udcc2Map & Lesson Flow \u2013 Positive Flow",
+      "parent": "TF185"
+    },
+    {
+      "id": "TF227",
+      "name": "\ud83d\udcc2Map & Lesson Flow \u2013 Negative Flow",
+      "parent": "TF185"
+    },
+    {
+      "id": "TF228",
+      "name": "\ud83d\udcc2Map & Lesson Flow \u2013 Error Handling",
+      "parent": "TF185"
+    },
+    {
+      "id": "TF230",
+      "name": "\ud83d\udcc2Map & Lesson Flow \u2013 Edge Cases",
+      "parent": "TF185"
+    },
+    {
+      "id": "TF231",
+      "name": "\ud83d\udcc2Map & Lesson Flow \u2013  Performance",
+      "parent": "TF185"
+    },
+    {
+      "id": "TF232",
+      "name": "\ud83d\udcc2Map & Lesson Flow \u2013  Brainstorming",
+      "parent": "TF185"
+    },
+    {
+      "id": "TF233",
+      "name": "Pre Test",
+      "parent": "TF181"
+    },
+    {
+      "id": "TF236",
+      "name": " \ud83d\udcc1Pre Test- Positive",
+      "parent": "TF233"
+    },
+    {
+      "id": "TF237",
+      "name": " \ud83d\udcc1Pre Test- Negative",
+      "parent": "TF233"
+    },
+    {
+      "id": "TF238",
+      "name": " \ud83d\udcc1Pre Test- Error Handling",
+      "parent": "TF233"
+    },
+    {
+      "id": "TF239",
+      "name": " \ud83d\udcc1Pre Test- Edge Cases",
+      "parent": "TF233"
+    },
+    {
+      "id": "TF244",
+      "name": "Ai Dialouge",
+      "parent": "TF181"
+    },
+    {
+      "id": "TF245",
+      "name": "Positive",
+      "parent": "TF244"
+    },
+    {
+      "id": "TF246",
+      "name": "Negative ",
+      "parent": "TF244"
+    },
+    {
+      "id": "TF247",
+      "name": "Error Handling",
+      "parent": "TF244"
+    },
+    {
+      "id": "TF248",
+      "name": "Edge Cases",
+      "parent": "TF244"
+    },
+    {
+      "id": "TF249",
+      "name": "Events ",
+      "parent": "TF181"
+    },
+    {
+      "id": "TF251",
+      "name": "Events",
+      "parent": "TF250"
+    },
+    {
+      "id": "TF250",
+      "name": "VT-CRM",
       "parent": null
+    },
+    {
+      "id": "TF253",
+      "name": "Coupons + Purchase",
+      "parent": "TF250"
+    },
+    {
+      "id": "TF254",
+      "name": "Dialogue Reports Test Plan",
+      "parent": "TF250"
+    },
+    {
+      "id": "TF259",
+      "name": "Homophones & Wordlist",
+      "parent": "TF255"
+    },
+    {
+      "id": "TF255",
+      "name": "Administrative Page",
+      "parent": "TF250"
+    },
+    {
+      "id": "TF256",
+      "name": "Send Tasks to Schools",
+      "parent": "TF255"
+    },
+    {
+      "id": "TF258",
+      "name": "Grant Coins",
+      "parent": "TF255"
+    },
+    {
+      "id": "TF257",
+      "name": "Competition & Qualified List",
+      "parent": "TF255"
+    },
+    {
+      "id": "TF262",
+      "name": "RC Reports - Pupil List",
+      "parent": "TF260"
+    },
+    {
+      "id": "TF260",
+      "name": "Reading Comprehension Reports",
+      "parent": "TF250"
+    },
+    {
+      "id": "TF263",
+      "name": "RC Reports - Answers",
+      "parent": "TF260"
+    },
+    {
+      "id": "TF261",
+      "name": "RC Reports - RC List",
+      "parent": "TF260"
+    },
+    {
+      "id": "TF265",
+      "name": "P1 - High risk / major regression",
+      "parent": "TF268"
+    },
+    {
+      "id": "TF266",
+      "name": "P2 - Important secondary coverage",
+      "parent": "TF268"
+    },
+    {
+      "id": "TF268",
+      "name": "Ai Dialouge Config",
+      "parent": "TF250"
+    },
+    {
+      "id": "TF264",
+      "name": "P0 - Critical / release-blocking",
+      "parent": "TF268"
+    },
+    {
+      "id": "TF267",
+      "name": "P3 - Low priority / polish",
+      "parent": "TF268"
+    },
+    {
+      "id": "TF273",
+      "name": "Drawin",
+      "parent": "TF181"
+    },
+    {
+      "id": "TF276",
+      "name": "Game Flow & Mechanics",
+      "parent": "TF273"
+    },
+    {
+      "id": "TF274",
+      "name": "Room & Lobby Management",
+      "parent": "TF273"
+    },
+    {
+      "id": "TF277",
+      "name": "System & Integration",
+      "parent": "TF273"
+    },
+    {
+      "id": "TF284",
+      "name": "comp 1st page",
+      "parent": "TF286"
+    },
+    {
+      "id": "TF285",
+      "name": "content and rewards",
+      "parent": "TF286"
+    },
+    {
+      "id": "TF286",
+      "name": "Competitions",
+      "parent": "TF250"
+    },
+    {
+      "id": "TF287",
+      "name": "integartion with unity",
+      "parent": "TF286"
+    },
+    {
+      "id": "TF288",
+      "name": "Pipes",
+      "parent": "TF181"
     }
   ],
   "test_cases": [
@@ -111,11 +421,15 @@
       "id": "TC128",
       "name": "TC01 \u2013 Standard Login with Valid Credentials",
       "folder": "TF195",
-      "description": "<p><strong>Verify that a user with valid credentials can log in successfully and access the Map Scene. Ensures proper authentication and active session creation.</strong></p>",
+      "description": "Verify that a user with valid credentials can log in successfully and access the Map Scene. Ensures proper authentication and active session creation.",
       "owner": "Sanad",
       "status": "",
       "user": {},
       "steps": [],
+      "validation": {
+        "input": "Launch the application.\nNavigate to the login screen.\nEnter a valid username: vt01229400001.\nEnter a valid password: 0391.\nClick Login.",
+        "expected": "User is successfully authenticated.\nRedirected to the Start Scene / Home page.\nUser session is created and remains active."
+      },
       "action": {
         "kind": "pytest",
         "nodeid": "Tests/rally/TF194_Login/TF195_Login__Positive_Flow/test_tc128_tc01_standard_login_with_valid_credentials.py::test_tc128_tc01_standard_login_with_valid_credentials"
@@ -125,11 +439,15 @@
       "id": "TC130",
       "name": "TC03 \u2013 Login with Alternate Valid Accounts",
       "folder": "TF195",
-      "description": "<p>Validate that the system allows successful login using different valid pupil accounts. This ensures login functionality is consistent across multiple pupils and not limited to a single user credential.</p>",
+      "description": "Validate that the system allows successful login using different valid pupil accounts. This ensures login functionality is consistent across multiple pupils and not limited to a single user credential.",
       "owner": "Sanad",
       "status": "",
       "user": {},
       "steps": [],
+      "validation": {
+        "input": "Launch the application.\nNavigate to the login screen.\nEnter valid pupil credentials:Example 1: vt01229400001 / 0391\nExample 2: (another valid pupil account, if available)\n\nClick Login.\nLog out (if required) and repeat with the next valid pupil account.",
+        "expected": "Each pupil account is successfully authenticated.\nRedirected to the Start Scene / Home page.\nUser sessions are created and remain active.\nNo account-specific login errors occur."
+      },
       "action": {
         "kind": "pytest",
         "nodeid": "Tests/rally/TF194_Login/TF195_Login__Positive_Flow/test_tc130_tc03_login_with_alternate_valid_accounts.py::test_tc130_tc03_login_with_alternate_valid_accounts"
@@ -139,11 +457,15 @@
       "id": "TC132",
       "name": "TC06 \u2013 Invalid Credentials",
       "folder": "TF196",
-      "description": "<p>Verify login fails with wrong username/password.</p>",
+      "description": "Verify login fails with wrong username/password.",
       "owner": "Sanad",
       "status": "",
       "user": {},
       "steps": [],
+      "validation": {
+        "input": "Enter vt01229400001 in user name\nenter 0000.",
+        "expected": "Error message displayed: \"Invalid username or password\".\nLogin not successful."
+      },
       "action": {
         "kind": "pytest",
         "nodeid": "Tests/rally/TF194_Login/TF196_Login__Negative_Flow/test_tc132_tc06_invalid_credentials.py::test_tc132_tc06_invalid_credentials"
@@ -153,11 +475,15 @@
       "id": "TC133",
       "name": "TC07 \u2013 Empty Fields",
       "folder": "TF196",
-      "description": "<p>Validate system response when fields are empty.</p>",
+      "description": "Validate system response when fields are empty.",
       "owner": "Sanad",
       "status": "",
       "user": {},
       "steps": [],
+      "validation": {
+        "input": "Leave Username empty \u2192 enter valid password.\nLeave Password empty \u2192 enter valid username.\nLeave both empty.",
+        "expected": "Error messages shown (\u201cUsername required\u201d, \u201cPassword required\u201d).\nLogin button disabled until valid input."
+      },
       "action": {
         "kind": "pytest",
         "nodeid": "Tests/rally/TF194_Login/TF196_Login__Negative_Flow/test_tc133_tc07_empty_fields.py::test_tc133_tc07_empty_fields"
@@ -167,11 +493,15 @@
       "id": "TC134",
       "name": "TC08 \u2013 Locked/Disabled Account",
       "folder": "TF196",
-      "description": "<p>Verify that locked pupil accounts cannot log in.</p>",
+      "description": "Verify that locked pupil accounts cannot log in.",
       "owner": "Sanad",
       "status": "",
       "user": {},
       "steps": [],
+      "validation": {
+        "input": "Enter locked account credentials.",
+        "expected": "Login blocked.\nError: \"Account disabled. Contact support\"."
+      },
       "action": {
         "kind": "pytest",
         "nodeid": "Tests/rally/TF194_Login/TF196_Login__Negative_Flow/test_tc134_tc08_locked_disabled_account.py::test_tc134_tc08_locked_disabled_account"
@@ -180,23 +510,48 @@
     {
       "id": "TC452",
       "name": "EVT_01: Open Events page successfully",
-      "folder": "RALLY_UNGROUPED",
-      "description": "<p><b>Test Overview:</b></p><p>This foundational smoke test validates that the VT-CRM Events management page loads correctly and displays all essential UI components required for event administration.</p><p><b>Business Value:</b></p><p>Ensures administrators can access the primary Events interface to manage educational events, which is critical for coordinating student competitions and learning activities across schools.</p><p><b>Components Validated:</b></p><p>\u2022 Events page title and navigation<br>\u2022 View Published Events navigation button<br>\u2022 Select Event dropdown functionality<br>\u2022 New Event creation link<br>\u2022 Schools/Classes selection grid<br>\u2022 Publish Event action button</p><p><b>Test Classification:</b></p><p>\u2022 Test Type: Smoke (Critical Path)<br>\u2022 Priority: High<br>\u2022 Execution Method: Manual verification</p><p><b>Dependencies:</b></p><p>\u2022 Admin user authentication<br>\u2022 VT-CRM system availability<br>\u2022 Database connectivity for event data</p><p><b>Notes:</b></p><p>Based on provided UI screenshots. This test serves as a prerequisite for all other event management test cases.</p>",
+      "folder": "TF251",
+      "description": "Test Overview:\nThis foundational smoke test validates that the VT-CRM Events management page loads correctly and displays all essential UI components required for event administration.\nBusiness Value:\nEnsures administrators can access the primary Events interface to manage educational events, which is critical for coordinating student competitions and learning activities across schools.\nComponents Validated:\n\u2022 Events page title and navigation\n\u2022 View Published Events navigation button\n\u2022 Select Event dropdown functionality\n\u2022 New Event creation link\n\u2022 Schools/Classes selection grid\n\u2022 Publish Event action button\nTest Classification:\n\u2022 Test Type: Smoke (Critical Path)\n\u2022 Priority: High\n\u2022 Execution Method: Manual verification\nDependencies:\n\u2022 Admin user authentication\n\u2022 VT-CRM system availability\n\u2022 Database connectivity for event data\nNotes:\nBased on provided UI screenshots. This test serves as a prerequisite for all other event management test cases.",
       "owner": "",
       "status": "",
       "user": {},
       "steps": [],
+      "validation": {
+        "input": "Preconditions:\nAdmin user is logged in\nTest Steps:\nNavigate to /admin/events",
+        "expected": "Events page loads successfully and displays the Events title, View Published Events button, Select Event dropdown, New Event link, schools/classes grid, and Publish Event button."
+      },
       "action": {
         "kind": "pytest",
-        "nodeid": "Tests/rally/test_tc452_evt_01_open_events_page_successfully.py::test_tc452_evt_01_open_events_page_successfully"
+        "nodeid": "Tests/rally/TF250_VT-CRM/TF251_Events/test_tc452_evt_01_open_events_page_successfully.py::test_tc452_evt_01_open_events_page_successfully"
+      }
+    },
+    {
+      "id": "TC1149",
+      "name": "Pipes Activity - Successful finish in Hard level",
+      "folder": "TF288",
+      "description": "Test Type: Functional\nPriority: Important\nFeature: Pipes Activity\nLevel: Hard\n\nDescription:\nVerify that a user can successfully complete the Pipes activity when playing at Hard difficulty level. The activity should register as finished and award appropriate points/progress.\n\nPreconditions:\n- Username: vt233624\n- Password: 3690\n- Account is at level 44\n- Pipes activity is available and unlocked",
+      "owner": "",
+      "status": "",
+      "user": {
+        "username": "vt233624",
+        "password": "3690"
+      },
+      "steps": [],
+      "validation": {
+        "input": "1. Log in with username: vt233624, password: 3690\n2. Navigate to the Pipes activity\n3. Select Hard level\n4. Complete all required steps of the activity\n5. Submit/finish the activity",
+        "expected": "The Pipes activity is marked as successfully finished at Hard level. The completion is registered, appropriate feedback/score is shown to the user, and progress/points are updated correctly."
+      },
+      "action": {
+        "kind": "pytest",
+        "nodeid": "Tests/rally/TF181_Voca_Tooki_(Client_Side)/TF288_Pipes/test_tc1149_pipes_activity_successful_finish_in_hard_level.py::test_tc1149_pipes_activity_successful_finish_in_hard_level"
       }
     }
   ],
   "metadata": {
     "project_id": "622679112169",
-    "total_cases": 6,
+    "total_cases": 7,
     "automated_only": true,
     "synced_from": "Rally API",
-    "synced_at": "2026-07-15T10:01:03.371342+00:00"
+    "synced_at": "2026-07-23T08:27:45.782968+00:00"
   }
 }

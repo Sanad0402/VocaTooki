@@ -77,6 +77,28 @@ class RallyAPIClient:
             logger.error(f"Failed to fetch projects: {e}")
             return []
 
+    def _fetch_all_pages(self, url: str, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Fetch EVERY page of a WSAPI query, not just the first.
+
+        A single request returns at most ``pageSize`` results; with more than
+        that (e.g. many test folders), later objects silently vanished — a case
+        whose TestFolder was on page 2 fell into "Ungrouped". Loops with the
+        ``start`` index until TotalResultCount is exhausted.
+        """
+        out: List[Dict[str, Any]] = []
+        start = 1
+        while True:
+            page_params = dict(params, start=start)
+            response = self.session.get(url, params=page_params)
+            response.raise_for_status()
+            qr = response.json().get("QueryResult", {})
+            results = qr.get("Results", [])
+            out.extend(results)
+            total = qr.get("TotalResultCount", len(out))
+            if not results or len(out) >= total:
+                return out
+            start += len(results)
+
     def get_test_cases(
         self, project_id: str, automated_only: bool = True
     ) -> List[Dict[str, Any]]:
@@ -96,17 +118,14 @@ class RallyAPIClient:
                 "project": self._project_ref(project_id),
                 "projectScopeDown": "true",
                 "pageSize": 200,
-                "fetch": "FormattedID,Name,Description,Owner,Status,Method,TestFolder",
+                "fetch": ("FormattedID,Name,Description,Owner,Status,Method,"
+                          "TestFolder,ValidationInput,ValidationExpectedResult"),
             }
 
             if automated_only:
                 params["query"] = '(Method = "Automated")'
 
-            response = self.session.get(url, params=params)
-            response.raise_for_status()
-
-            data = response.json()
-            results = data.get("QueryResult", {}).get("Results", [])
+            results = self._fetch_all_pages(url, params)
             logger.info(f"Fetched {len(results)} test cases from Rally")
             return results
         except Exception as e:
@@ -127,11 +146,7 @@ class RallyAPIClient:
                 "fetch": "FormattedID,Name,Parent",
             }
 
-            response = self.session.get(url, params=params)
-            response.raise_for_status()
-
-            data = response.json()
-            results = data.get("QueryResult", {}).get("Results", [])
+            results = self._fetch_all_pages(url, params)
             logger.info(f"Fetched {len(results)} test folders from Rally")
             return results
         except Exception as e:
@@ -154,6 +169,23 @@ class RallyAPIClient:
             logger.debug(f"Failed to fetch test steps for {test_case_id}: {e}")
             return []
 
+    @staticmethod
+    def _html_to_text(html: str) -> str:
+        """Rally rich-text -> readable plain text with real line breaks."""
+        import re
+        if not html:
+            return ""
+        t = re.sub(r'<br\s*/?>', '\n', str(html), flags=re.IGNORECASE)
+        t = re.sub(r'</(p|div|li)>', '\n', t, flags=re.IGNORECASE)
+        t = re.sub(r'<[^>]+>', '', t)
+        for a, b in (("&nbsp;", " "), ("&amp;", "&"), ("&lt;", "<"),
+                     ("&gt;", ">"), ("&#39;", "'"), ("&quot;", '"')):
+            t = t.replace(a, b)
+        # collapse runs of blank lines / trailing spaces but KEEP the newlines
+        t = re.sub(r'[ \t]+\n', '\n', t)
+        t = re.sub(r'\n{3,}', '\n\n', t)
+        return t.strip()
+
     def _extract_credentials(self, description: str) -> Dict[str, str]:
         """Extract username and password from test case description.
 
@@ -170,8 +202,12 @@ class RallyAPIClient:
         if not description:
             return user_data
 
-        # Strip HTML tags to get plain text
-        clean_text = re.sub(r'<[^>]+>', '', description)
+        # <br> is a line break: turn it into a real newline BEFORE stripping
+        # tags, otherwise "vt233624<br>- Password" collapses to "vt233624-"
+        # and the trailing dash ends up inside the captured username.
+        text = re.sub(r'<br\s*/?>', '\n', description, flags=re.IGNORECASE)
+        # Strip remaining HTML tags to get plain text
+        clean_text = re.sub(r'<[^>]+>', '', text)
 
         # Try common patterns (stop at: whitespace, comma, newline, or capital letter P/U)
         # Pattern 1: Username: xxx
@@ -247,7 +283,10 @@ class RallyAPIClient:
             for tc in test_cases:
                 tc_id = tc.get("FormattedID") or tc.get("_ref", "").split("/")[-1]
                 tc_name = tc.get("Name", "Unknown")
-                tc_description = tc.get("Description", "")
+                # Store descriptions as readable text, not raw Rally HTML —
+                # <br> becomes a real newline so the panel and generated
+                # docstrings show the original line structure.
+                tc_description = self._html_to_text(tc.get("Description", ""))
                 folder_ref = (tc.get("TestFolder") or {}).get("_ref")
                 folder_id = folder_map.get(folder_ref, {}).get("id") if folder_ref else None
                 if folder_id:
@@ -307,6 +346,10 @@ class RallyAPIClient:
                         "status": tc.get("Status", ""),
                         "user": user_data,
                         "steps": steps_out,
+                        "validation": {
+                            "input": self._html_to_text(tc.get("ValidationInput", "") or ""),
+                            "expected": self._html_to_text(tc.get("ValidationExpectedResult", "") or ""),
+                        },
                         "action": {
                             "kind": "pytest",
                             "nodeid": nodeid,
