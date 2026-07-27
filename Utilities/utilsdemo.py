@@ -292,7 +292,8 @@ def run_activity(altdriver, activity):
         'TURTLE_ISLAND':A.turtle_island,
         'BRICKOUT':A.brickout,
         'PIPES':A.pipes,
-        'RINGS':A.rings
+        'RINGS':A.rings,
+        'PARASHOOT':A.parashoot
     }
 
     if scene not in activity_map:
@@ -573,6 +574,7 @@ def get_activity_solver_map():
         'BRICKOUT': A.brickout,
         'PIPES': A.pipes,
         'RINGS': A.rings,
+        'PARASHOOT': A.parashoot,
     }
 
 
@@ -1064,10 +1066,16 @@ def solve_exam(altdriver, class_id, lesson_num):
 
     }
 
+    from datetime import datetime as _dt
+    _start = _dt.now()
+    problems = []          # parts that failed or couldn't be solved
+    parts_seen = 0
+
     for part in ['1/3', '2/3', '3/3']:
         test_num = get_text_by_name(altdriver, "TestNumText")
         if test_num != part:
             continue
+        parts_seen += 1
 
         logging.info(f"[Exam] Solving part {part}")
         exam_type = detect_exam_type(altdriver)
@@ -1079,8 +1087,10 @@ def solve_exam(altdriver, class_id, lesson_num):
                 logging.info(f"[Exam] Solved part {part} using {solver.__name__}")
             except Exception as e:
                 logging.error(f"[Exam] Failed on part {part} ({exam_type}): {e}")
+                problems.append(f"part {part} ({exam_type}): {e}")
         else:
             logging.warning(f"[Exam] Unknown exam type in part {part}, skipping.")
+            problems.append(f"part {part}: unknown exam type '{exam_type}'")
 
         if part != '3/3':
             next_test()
@@ -1094,6 +1104,25 @@ def solve_exam(altdriver, class_id, lesson_num):
             time.sleep(2)
 
     logging.info("[Exam] Finished all parts.")
+
+    # Surface the exam outcome. On success record a PASSED row so lesson-range
+    # runs SHOW the exam instead of an empty "No activities yet" table. On
+    # failure RAISE (without a row) so the runner records one FAILED row that
+    # includes the stuck-screen screenshot — no duplicate.
+    dur = f"{int((_dt.now() - _start).total_seconds())}s"
+    if parts_seen == 0:
+        raise RuntimeError(
+            f"Exam lesson {lesson_num} never opened — no exam parts were found "
+            f"(navigation/level issue).")
+    if problems:
+        raise RuntimeError(f"Exam lesson {lesson_num} failed: " + " | ".join(problems))
+    activity_report.append({
+        "activity": f"Exam · lesson {lesson_num}",
+        "status": "PASSED",
+        "error": "",
+        "duration": dur,
+        "platform": getattr(altdriver, "platform", "Unknown"),
+    })
 
 
 def solve_lesson(altdriver, class_id, lesson_num):
