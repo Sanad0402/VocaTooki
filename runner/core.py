@@ -160,6 +160,7 @@ class RunManager:
             self.progress = {}
             self.groups = []             # [{username, class_id, lesson_from, lesson_to, start}]
             self.cases = []              # per-test-case result rows (test_folder/test_case runs)
+            self._had_failure = False    # any lesson-range activity failed?
             self.report_txt = None
             self.report_html_path = None
             self.report_html = None
@@ -757,6 +758,7 @@ class RunManager:
                     if self._stopped():
                         break
                     self._log(f"[ERROR] Login/navigation failed for {username}: {e}")
+                    self._record_activity_failure(driver, f"Login/navigation ({username})", e)
                     continue
 
                 for li, lesson in enumerate(lessons):
@@ -764,21 +766,40 @@ class RunManager:
                         break
                     self._set_progress(ui, len(users), username, lesson, lessons, li)
                     self._log(f"--- {username}: lesson {lesson} ({mode}) ---")
+                    before = len(utilsdemo.activity_report)
                     try:
                         mode_run(map_page, driver, cid, lesson)
+                        # A lesson that recorded nothing and raised nothing still
+                        # did nothing useful — surface it rather than show a blank.
+                        if len(utilsdemo.activity_report) == before:
+                            self._log(f"[WARN] Lesson {lesson} for {username} produced no activity result.")
+                            self._record_activity_failure(
+                                driver, f"lesson {lesson} ({mode})",
+                                "No activity was played/recorded for this lesson "
+                                "(nothing found to solve, or the flow did not reach an activity).")
                     except Exception as e:
                         if self._stopped():
                             break
                         self._log(f"[ERROR] Lesson {lesson} for {username} failed: {e}")
+                        self._record_activity_failure(driver, f"lesson {lesson} ({mode})", e)
                     self._sleep(1)
                 if self._stopped():
                     break
 
-            final = "stopped" if self._stopped() else "done"
+            fails = sum(1 for e in utilsdemo.activity_report if e.get("status") == "FAILED")
+            if self._stopped():
+                final = "stopped"
+            elif fails:
+                final = "error"         # completed, but with failures — flag it red
+            else:
+                final = "done"
             self._build_reports(platform)
             with self._lock:
                 self.state = final
-            self._log(f"[INFO] Run {final}.")
+            if fails:
+                self._log(f"[INFO] Run finished with {fails} failure(s).")
+            else:
+                self._log(f"[INFO] Run {final}.")
             self._emit("state", state=final)
 
         except _StopRun:
@@ -808,6 +829,38 @@ class RunManager:
             root.setLevel(prev_level)
             self._record_run_history("lessons")
 
+    def _capture_screenshot(self, driver, label):
+        """Save a PNG of the current screen; return its bare filename or ''.
+
+        Used by the lesson-range path (the pytest suite path captures its own
+        via conftest). Never raises."""
+        try:
+            shots = os.path.join(REPORTS_DIR, "screenshots")
+            os.makedirs(shots, exist_ok=True)
+            safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in label)[:60]
+            name = f"lesson_{safe}_{time.strftime('%Y%m%d_%H%M%S')}.png"
+            driver.get_png_screenshot(os.path.join(shots, name))
+            self._log(f"[INFO] Screenshot saved: {name}")
+            return name
+        except Exception as e:
+            self._log(f"[WARN] Could not capture screenshot: {e}")
+            return ""
+
+    def _record_activity_failure(self, driver, activity, error):
+        """Append a FAILED row (with screenshot) so a lesson-range failure is
+        visible in the results, not silently swallowed into the log."""
+        shot = self._capture_screenshot(driver, activity) if driver is not None else ""
+        with self._lock:
+            self._had_failure = True
+            utilsdemo.activity_report.append({
+                "activity": activity,
+                "status": "FAILED",
+                "error": str(error)[:400],
+                "duration": "0s",
+                "screenshot": shot,
+                "platform": getattr(driver, "platform", "Unknown"),
+            })
+
     def _record_run_history(self, kind):
         """Append this run's outcome to the persisted history (best-effort).
 
@@ -824,6 +877,12 @@ class RunManager:
             totals = {}
             for c in cases:
                 totals[c.get("status", "?")] = totals.get(c.get("status", "?"), 0) + 1
+            # Lesson-range runs record into activity_report, not self.cases, so
+            # count those too — otherwise a lessons run with failures shows "—".
+            if kind == "lessons":
+                for e in utilsdemo.activity_report:
+                    s = e.get("status", "?")
+                    totals[s] = totals.get(s, 0) + 1
             for c in cases:                      # keep the file small
                 if c.get("error"):
                     c["error"] = str(c["error"])[:300]

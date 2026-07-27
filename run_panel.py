@@ -193,6 +193,63 @@ def api_rally_test():
     return jsonify({"ok": True, "message": msg}), 200
 
 
+@app.route("/api/rally/post-result", methods=["POST"])
+def api_rally_post_result():
+    """Post a run result back to Rally as a TestCaseResult.
+
+    Body: {tc_id, verdict("Pass"|"Fail"|...), build, notes, screenshot(filename)}.
+    Attaches the failure screenshot (if any) to the result. Build defaults to
+    the app version reported by AltTester, else a caller-supplied value.
+    """
+    from runner.rally_api import create_client_from_env
+    from runner.core import REPORTS_DIR
+
+    body = request.get_json(force=True, silent=True) or {}
+    tc_id = (body.get("tc_id") or "").strip()
+    verdict = (body.get("verdict") or "").strip() or "Pass"
+    build = (body.get("build") or "").strip() or "n/a"
+    notes = body.get("notes") or ""
+    shot = os.path.basename(body.get("screenshot") or "")
+
+    if not tc_id:
+        return jsonify({"error": "Missing test case id."}), 400
+
+    client = create_client_from_env("rally.env")
+    if not client or not client.test_connection():
+        return jsonify({"error": "Rally not connected (check rally.env)."}), 400
+
+    tc = client.find_test_case(tc_id)
+    if not tc:
+        return jsonify({"error": f"{tc_id} not found in Rally."}), 404
+
+    project_ref = (tc.get("Project") or {}).get("_ref")
+    result = client.create_test_case_result(
+        tc.get("_ref"), verdict, build, notes, project_ref=project_ref)
+    if not result or result.get("_errors"):
+        return jsonify({"error": "Rally rejected the result: "
+                        + "; ".join(result.get("_errors", ["unknown"]) if result else ["no response"])}), 502
+
+    # Attach the screenshot to the TestCase (an Artifact). Rally's Attachment
+    # only accepts Artifacts, and a TestCaseResult is not one — so it can't be
+    # attached to the result directly; the TestCase is the closest home and its
+    # attachments are visible right next to the result.
+    attached = False
+    if shot:
+        path = os.path.join(REPORTS_DIR, "screenshots", shot)
+        if os.path.exists(path):
+            import time as _t
+            attached = client.attach_screenshot(
+                tc.get("_ref"), path,
+                name=f"{tc_id}_{verdict}_{_t.strftime('%Y%m%d_%H%M%S')}.png")
+    return jsonify({
+        "ok": True,
+        "message": f"{tc_id}: posted {verdict} to Rally"
+                   + (" · screenshot attached to the test case" if attached
+                      else (" · screenshot NOT attached" if shot else "")),
+        "verdict": verdict,
+    })
+
+
 @app.route("/api/rally/sync", methods=["POST"])
 def api_rally_sync():
     """Sync test cases from Rally and reload suite.
@@ -470,6 +527,17 @@ def api_case_generate(tc_id):
                 f"description and re-sync, or use “Generate from live app”.")
     return jsonify({"ok": True, "impl": impl, "path": rel, "message": msg,
                     "suite": suite.tree()})
+
+
+@app.route("/api/preflight")
+def api_preflight():
+    """Quick TCP reachability check of the AltTester server (topbar dot)."""
+    host = request.args.get("host", "127.0.0.1")
+    try:
+        port = int(request.args.get("port", "13000"))
+    except ValueError:
+        return jsonify({"ok": False})
+    return jsonify({"ok": manager._preflight(host, port, timeout=1.5)})
 
 
 @app.route("/api/screenshots/<name>")

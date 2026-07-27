@@ -4,127 +4,209 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Voca Tooki - Test Runner</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=21">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=24">
 </head>
 <body>
-  <header>
-    <h1>Voca Tooki · Test Runner</h1>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">VT</div>
+      <div>
+        <h1>Voca Tooki · Test Runner</h1>
+        <div class="sub">QA control panel</div>
+      </div>
+    </div>
+    <span class="conn" id="alt-conn" title="AltTester server reachability (checked periodically)">
+      <span id="alt-dot" class="dot"></span> <span id="alt-conn-label">AltTester</span>
+    </span>
+    <span class="spacer"></span>
     <span id="state-badge" class="badge idle">idle</span>
+    <label class="email-opt" title="Email the report to the configured address when the run finishes">
+      <input type="checkbox" id="email_report"> Email report
+    </label>
+    <button id="btn-dry">Dry-run</button>
+    <button id="btn-run" class="primary">▶ Run</button>
+    <button id="btn-stop" class="danger" disabled>■ Stop</button>
+    <span id="reports" class="reports hidden">
+      <a id="link-html" href="/api/report.html" target="_blank">HTML report</a>
+      <a id="link-txt" href="/api/report.txt">.txt</a>
+    </span>
   </header>
 
-  <main>
-    <section class="panel config">
-      <h2>Configuration</h2>
+  <main class="shell">
+    <!-- ================= left: setup ================= -->
+    <section>
+      <div class="card">
+        <div class="head"><h2>Run type</h2></div>
+        <div class="body">
+          <div id="run-type-seg" class="seg"></div>
+          <select id="run_type"></select>
 
-      <div class="field">
-        <label for="run_type">Run Type</label>
-        <select id="run_type"></select>
+          <!-- Rally sync card — always visible when configured; imports the test suite. -->
+          <div id="rally-card" class="rally-card hidden">
+            <div class="rally-head">
+              <span class="rally-title"><span id="rally-dot" class="rally-dot"></span> Rally</span>
+              <span id="rally-last" class="rally-last"></span>
+            </div>
+            <div id="rally-controls" class="rally-controls hidden">
+              <button id="btn-sync-rally" type="button" class="rally">↻ Sync from Rally</button>
+              <button id="btn-rally-test" type="button" class="link">Test connection</button>
+              <button id="btn-rally-project" type="button" class="link">Change project</button>
+              <span id="rally-status" class="rally-status"></span>
+            </div>
+            <div id="rally-project-row" class="rally-project-row hidden">
+              <label for="rally-project">Project</label>
+              <select id="rally-project"><option value="">⚡ Auto-detect</option></select>
+            </div>
+            <p id="rally-empty" class="rally-empty hidden">
+              Rally isn’t connected. Add <code>RALLY_API_TOKEN</code> to <code>rally.env</code>
+              (see <code>RALLY_SETUP.md</code>), then reload.
+            </p>
+          </div>
+        </div>
       </div>
 
-      <!-- Rally sync card — always visible when configured; imports the test suite.
-           No project ID to type; auto-detects, override optional. -->
-      <div id="rally-card" class="rally-card hidden">
-        <div class="rally-head">
-          <span class="rally-title"><span id="rally-dot" class="rally-dot"></span> Rally</span>
-          <span id="rally-last" class="rally-last"></span>
+      <!-- Lesson Range (users) mode -->
+      <div id="lesson-config" class="card">
+        <div class="head"><h2>Users &amp; lessons</h2></div>
+        <div class="body">
+          <div class="field">
+            <label>Users <span class="hint" style="display:inline;text-transform:none;letter-spacing:0">(username + password)</span></label>
+            <div id="custom-users" class="custom-users"></div>
+            <button id="btn-add-user" type="button" class="small">+ Add user</button>
+          </div>
+          <div class="row">
+            <div class="field"><label for="lesson_from">Lesson from</label><input type="number" id="lesson_from" min="0" value="0"></div>
+            <div class="field"><label for="lesson_to">Lesson to</label><input type="number" id="lesson_to" min="0" value="6"></div>
+            <div class="field grow"><label for="mode">Mode</label><select id="mode"></select></div>
+          </div>
+          <p id="mode-desc" class="hint"></p>
         </div>
-        <div id="rally-controls" class="rally-controls hidden">
-          <button id="btn-sync-rally" type="button" class="rally">↻ Sync from Rally</button>
-          <button id="btn-rally-test" type="button" class="link">Test connection</button>
-          <button id="btn-rally-project" type="button" class="link">Change project</button>
-          <span id="rally-status" class="rally-status"></span>
-        </div>
-        <div id="rally-project-row" class="rally-project-row hidden">
-          <label for="rally-project">Project</label>
-          <select id="rally-project"><option value="">⚡ Auto-detect</option></select>
-        </div>
-        <p id="rally-empty" class="rally-empty hidden">
-          Rally isn’t connected. Add <code>RALLY_API_TOKEN</code> to <code>rally.env</code>
-          (see <code>RALLY_SETUP.md</code>), then reload.
-        </p>
       </div>
 
-      <!-- Lesson Range (users) mode ---------------------------------------- -->
-      <div id="lesson-config">
-        <div class="field">
-          <label>Users <span class="hint">(username + password, added here)</span></label>
-          <div id="custom-users" class="custom-users"></div>
-          <button id="btn-add-user" type="button" class="small">+ Add user</button>
+      <!-- Test Folder / Test Case modes -->
+      <div id="suite-config" class="card hidden">
+        <div class="head">
+          <h2 id="suite-label">Test Folders</h2>
+          <span id="rally-badge" class="rally-badge hidden">from Rally</span>
+          <span id="sel-count" class="rally-last"></span>
         </div>
-
-        <div class="row">
-          <div class="field"><label for="lesson_from">Lesson from</label><input type="number" id="lesson_from" min="0" value="0"></div>
-          <div class="field"><label for="lesson_to">Lesson to</label><input type="number" id="lesson_to" min="0" value="6"></div>
-          <div class="field grow"><label for="mode">Mode</label><select id="mode"></select></div>
-        </div>
-        <p id="mode-desc" class="hint"></p>
-      </div>
-
-      <!-- Test Folder / Test Case modes ------------------------------------ -->
-      <div id="suite-config" class="hidden">
-        <div class="field">
-          <label id="suite-label">Test Folders <span id="rally-badge" class="rally-badge hidden">from Rally</span></label>
-          <p class="hint" id="suite-hint">Select folder(s) to run. The user is taken from each test case (hard-coded).</p>
+        <div class="body">
+          <p class="hint" id="suite-hint" style="margin:0 0 4px">Select folder(s) to run.</p>
           <div id="suite-tree" class="suite-tree"></div>
+          <div class="suite-toolbar">
+            <button id="btn-add-folder" type="button" class="small">+ Folder</button>
+            <button id="btn-add-case" type="button" class="small">+ Test case</button>
+            <button id="btn-live-skeleton" type="button" class="small"
+                    title="Discover elements on the running app and turn the selected stub cases into real skeletons (needs the game + AltTester running)">
+              🔎 Generate from live app
+            </button>
+          </div>
+          <p id="skeleton-msg"></p>
+          <div id="suite-form" class="suite-form hidden"></div>
         </div>
-        <div class="suite-toolbar">
-          <button id="btn-add-folder" type="button" class="small">+ Add folder</button>
-          <button id="btn-add-case" type="button" class="small">+ Add test case</button>
-          <button id="btn-live-skeleton" type="button" class="small"
-                  title="Discover elements on the running app and turn the selected stub cases into real skeletons (needs the game + AltTester running)">
-            🔎 Generate from live app
-          </button>
-        </div>
-        <p id="skeleton-msg" class="hint"></p>
-        <div id="suite-form" class="suite-form hidden"></div>
       </div>
 
-      <details class="advanced">
-        <summary>Connection (advanced)</summary>
-        <div class="row">
-          <div class="field"><label for="platform">Platform</label><input type="text" id="platform" value="WindowsEditor"></div>
-          <div class="field"><label for="host">Host</label><input type="text" id="host" value="127.0.0.1"></div>
-          <div class="field"><label for="port">Port</label><input type="number" id="port" value="13000"></div>
+      <div class="card">
+        <div class="body" style="padding-top:10px;padding-bottom:10px">
+          <details class="advanced">
+            <summary>Connection (advanced)</summary>
+            <div class="row">
+              <div class="field"><label for="platform">Platform</label><input type="text" id="platform" value="WindowsEditor"></div>
+              <div class="field"><label for="host">Host</label><input type="text" id="host" value="127.0.0.1"></div>
+              <div class="field"><label for="port">Port</label><input type="number" id="port" value="13000"></div>
+            </div>
+            <div class="row">
+              <div class="field grow"><label for="app_id">App ID</label><input type="text" id="app_id" placeholder="(optional)"></div>
+              <div class="field grow"><label for="device_instance_id">Device instance ID</label><input type="text" id="device_instance_id" placeholder="(optional)"></div>
+            </div>
+          </details>
         </div>
-        <div class="row">
-          <div class="field grow"><label for="app_id">App ID</label><input type="text" id="app_id" placeholder="(optional)"></div>
-          <div class="field grow"><label for="device_instance_id">Device instance ID</label><input type="text" id="device_instance_id" placeholder="(optional)"></div>
-        </div>
-      </details>
-
-      <div class="actions">
-        <button id="btn-run" class="primary">▶ Run</button>
-        <button id="btn-dry">Dry-run</button>
-        <button id="btn-stop" class="danger" disabled>■ Stop</button>
-        <label class="email-opt" title="Email the report to the configured address when the run finishes">
-          <input type="checkbox" id="email_report"> Email report after run
-        </label>
-        <span id="reports" class="reports hidden">
-          <a id="link-html" href="/api/report.html" target="_blank">View HTML report</a>
-          <a id="link-txt" href="/api/report.txt">Download .txt</a>
-        </span>
       </div>
+
       <p id="error" class="error hidden"></p>
     </section>
 
-    <section class="panel run">
-      <h2>Progress</h2>
-      <div class="progress-wrap"><div id="progress-bar"></div></div>
-      <p id="progress-text" class="hint">Not started.</p>
+    <!-- ================= right: operations ================= -->
+    <section>
+      <div class="card">
+        <div class="body">
+          <p id="progress-text" class="hint">Not started.</p>
+          <div class="progress-wrap"><div id="progress-bar"></div></div>
+          <div id="now-line" class="nowline hidden">
+            <span class="pulse"></span> <span>Now:&nbsp;</span><b id="now-text"></b>
+          </div>
+        </div>
+      </div>
 
-      <h2>Results</h2>
-      <div id="results" class="results"></div>
+      <div class="card">
+        <div class="tabs">
+          <button id="tab-results" class="on" type="button">Results <span id="fail-flag" class="flag"></span></button>
+          <button id="tab-runs" type="button">Last runs <span id="runs-count" class="cnt"></span></button>
+        </div>
+        <div id="pane-results">
+          <div id="results-toolbar" class="results-toolbar hidden">
+            <button id="btn-post-all" type="button" class="small"
+                    title="Post every result in this run back to Rally as a TestCaseResult">↥ Post all to Rally</button>
+            <span id="post-all-msg" class="hint" style="margin:0"></span>
+          </div>
+          <div id="results" class="results"></div>
+        </div>
+        <div id="pane-runs" class="hidden">
+          <div class="body" style="display:flex;justify-content:flex-end;padding-bottom:0">
+            <button id="btn-clear-runs" type="button" class="small danger"
+                    title="Delete the recorded run history (report files stay on disk)">Clear results</button>
+          </div>
+          <div id="runs" class="results"><span class="muted" style="padding:12px;display:block">No runs recorded yet.</span></div>
+        </div>
+      </div>
 
-      <h2>Live log</h2>
-      <pre id="log" class="log"></pre>
-
-      <h2 class="runs-head">Last runs
-        <button id="btn-clear-runs" type="button" class="small danger" title="Delete the recorded run history (report files stay on disk)">Clear results</button>
-      </h2>
-      <div id="runs" class="results"><span class="muted">No runs recorded yet.</span></div>
+      <div class="card">
+        <div class="head console-head">
+          <h2>Live log</h2>
+          <div class="filterchips">
+            <button type="button" class="fchip on" data-f="all">All</button>
+            <button type="button" class="fchip" data-f="warn">Warnings</button>
+            <button type="button" class="fchip" data-f="err">Errors</button>
+            <button type="button" id="chip-follow" class="fchip on" title="Keep scrolled to the newest line">⤓ Follow</button>
+          </div>
+        </div>
+        <pre id="log" class="log"></pre>
+      </div>
     </section>
   </main>
 
-  <script src="{{ url_for('static', filename='app.js') }}?v=21"></script>
+  <!-- Post-to-Rally dialog -->
+  <div id="rally-modal" class="modal-backdrop hidden">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="rm-title">
+      <div class="modal-head">
+        <h3 id="rm-title">Post result to Rally</h3>
+        <button id="rm-close" type="button" class="link" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="field"><label>Test case</label><input id="rm-tc" type="text" readonly></div>
+        <div class="row">
+          <div class="field"><label for="rm-verdict">Verdict</label>
+            <select id="rm-verdict">
+              <option value="Pass">Pass</option>
+              <option value="Fail">Fail</option>
+              <option value="Blocked">Blocked</option>
+              <option value="Inconclusive">Inconclusive</option>
+              <option value="Error">Error</option>
+            </select>
+          </div>
+          <div class="field grow"><label for="rm-build">Build</label><input id="rm-build" type="text"></div>
+        </div>
+        <div class="field"><label for="rm-notes">Notes</label><textarea id="rm-notes" rows="5"></textarea></div>
+        <label class="email-opt" id="rm-shot-row"><input type="checkbox" id="rm-attach" checked> Attach screenshot</label>
+        <p id="rm-msg" class="hint"></p>
+      </div>
+      <div class="modal-foot">
+        <button id="rm-cancel" type="button">Cancel</button>
+        <button id="rm-post" type="button" class="primary">↥ Post to Rally</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='app.js') }}?v=24"></script>
 </body>
 </html>

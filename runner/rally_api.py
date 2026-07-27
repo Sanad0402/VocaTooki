@@ -153,6 +153,110 @@ class RallyAPIClient:
             logger.error(f"Failed to fetch test folders: {e}")
             return []
 
+    # ---- posting results back to Rally -----------------------------------
+
+    def find_test_case(self, formatted_id: str) -> Optional[Dict[str, Any]]:
+        """Look up a TestCase by its FormattedID (e.g. "TC1150").
+
+        Returns the raw object (with _ref, Project, WorkProduct) or None.
+        """
+        try:
+            url = f"{self.wsapi}/testcase"
+            params = {
+                "query": f'(FormattedID = "{formatted_id}")',
+                "fetch": "FormattedID,Name,Project",
+                "pageSize": 1,
+            }
+            r = self.session.get(url, params=params)
+            r.raise_for_status()
+            results = r.json().get("QueryResult", {}).get("Results", [])
+            return results[0] if results else None
+        except Exception as e:
+            logger.error(f"find_test_case({formatted_id}) failed: {e}")
+            return None
+
+    def create_test_case_result(self, tc_ref: str, verdict: str, build: str,
+                                notes: str = "", project_ref: Optional[str] = None,
+                                date_iso: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Create a TestCaseResult under a TestCase.
+
+        Rally requires Build, Date, TestCase and Verdict. Returns the created
+        object (with _ref) or None. ``verdict`` should be one of Rally's exact
+        values: "Pass", "Fail", "Blocked", "Inconclusive", "Error".
+        """
+        try:
+            payload = {
+                "TestCaseResult": {
+                    "TestCase": tc_ref,
+                    "Verdict": verdict,
+                    "Build": build or "n/a",
+                    "Date": date_iso or datetime.now(timezone.utc).isoformat(),
+                    "Notes": notes or "",
+                }
+            }
+            if project_ref:
+                payload["TestCaseResult"]["Project"] = project_ref
+            r = self.session.post(f"{self.wsapi}/testcaseresult/create",
+                                  data=json.dumps(payload))
+            r.raise_for_status()
+            body = r.json().get("CreateResult", {})
+            errs = body.get("Errors") or []
+            if errs:
+                logger.error(f"Rally rejected result: {errs}")
+                return {"_errors": errs}
+            obj = body.get("Object", {})
+            logger.info(f"Posted TestCaseResult {obj.get('_ref')} verdict={verdict}")
+            return obj
+        except Exception as e:
+            logger.error(f"create_test_case_result failed: {e}")
+            return None
+
+    def attach_screenshot(self, artifact_ref: str, image_path: str,
+                          name: Optional[str] = None) -> bool:
+        """Attach a PNG to an ARTIFACT (e.g. a TestCase).
+
+        Rally attachments are two objects: an AttachmentContent (base64) and an
+        Attachment that links it to the artifact. NOTE: the target must be a
+        true Artifact — a TestCaseResult is NOT one and Rally rejects it, so
+        result screenshots are attached to the parent TestCase instead.
+        Best-effort — a failed attachment must not fail the result post.
+        """
+        try:
+            import base64
+            with open(image_path, "rb") as f:
+                raw = f.read()
+            b64 = base64.b64encode(raw).decode("ascii")
+            cr = self.session.post(
+                f"{self.wsapi}/attachmentcontent/create",
+                data=json.dumps({"AttachmentContent": {"Content": b64}}))
+            cr.raise_for_status()
+            content = cr.json().get("CreateResult", {}).get("Object", {})
+            content_ref = content.get("_ref")
+            if not content_ref:
+                logger.error("attachment content not created")
+                return False
+            att = {
+                "Attachment": {
+                    "Artifact": artifact_ref,
+                    "Content": content_ref,
+                    "ContentType": "image/png",
+                    "Name": name or os.path.basename(image_path),
+                    "Size": len(raw),
+                }
+            }
+            ar = self.session.post(f"{self.wsapi}/attachment/create",
+                                   data=json.dumps(att))
+            ar.raise_for_status()
+            errs = ar.json().get("CreateResult", {}).get("Errors") or []
+            if errs:
+                logger.error(f"attachment link failed: {errs}")
+                return False
+            logger.info("Attached screenshot to Rally result")
+            return True
+        except Exception as e:
+            logger.error(f"attach_screenshot failed: {e}")
+            return False
+
     def get_test_steps(self, test_case_id: str) -> List[Dict[str, Any]]:
         """Fetch test steps for a test case."""
         try:

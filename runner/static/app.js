@@ -29,7 +29,8 @@ async function init() {
     rtEl.appendChild(o);
   });
   rtEl.value = (CONFIG.defaults && CONFIG.defaults.run_type) || "lesson_range";
-  rtEl.addEventListener("change", () => { onRunTypeChange(); saveCfg(); });
+  rtEl.addEventListener("change", () => { onRunTypeChange(); saveCfg(); renderRunTypeSeg(); });
+  renderRunTypeSeg();
 
   // Modes
   const modeEl = $("mode");
@@ -86,12 +87,93 @@ async function init() {
   const clearRunsBtn = $("btn-clear-runs");
   if (clearRunsBtn) clearRunsBtn.addEventListener("click", clearRuns);
 
+  // Tabs (Results / Last runs)
+  $("tab-results").addEventListener("click", () => showPane("results"));
+  $("tab-runs").addEventListener("click", () => showPane("runs"));
+
+  // Live-log level filters + follow toggle
+  document.querySelectorAll(".fchip[data-f]").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      document.querySelectorAll(".fchip[data-f]").forEach((c) => c.classList.remove("on"));
+      chip.classList.add("on");
+      const log = $("log");
+      log.classList.toggle("f-warn", chip.dataset.f === "warn");
+      log.classList.toggle("f-err", chip.dataset.f === "err");
+    });
+  });
+  $("chip-follow").addEventListener("click", () => {
+    FOLLOW = !FOLLOW;
+    $("chip-follow").classList.toggle("on", FOLLOW);
+    if (FOLLOW) { const log = $("log"); log.scrollTop = log.scrollHeight; }
+  });
+
+  // Post-to-Rally modal + bulk
+  $("rm-close").addEventListener("click", closeRallyPost);
+  $("rm-cancel").addEventListener("click", closeRallyPost);
+  $("rm-post").addEventListener("click", submitRallyPost);
+  $("rally-modal").addEventListener("click", (e) => { if (e.target.id === "rally-modal") closeRallyPost(); });
+  const postAllBtn = $("btn-post-all");
+  if (postAllBtn) postAllBtn.addEventListener("click", postAllToRally);
+  // Delegated: "→ Rally" buttons survive single-row re-renders
+  $("results").addEventListener("click", (e) => {
+    const b = e.target.closest(".post-rally");
+    if (!b) return;
+    const c = (LAST_CASES || []).find((x) => x.tc_id === b.dataset.tc);
+    if (c) openRallyPost(c);
+  });
+
+  pollAltTester();
+  setInterval(pollAltTester, 20000);
+
   const snap = await (await fetch("/api/status")).json();
   applyState(snap.state);
   if (snap.state === "running") openStream();
   renderFromSnapshot(snap);
   if (snap.report_html || snap.report_txt) showReports();
   loadRuns();
+}
+
+let FOLLOW = true;
+
+function renderRunTypeSeg() {
+  const seg = $("run-type-seg");
+  if (!seg || !CONFIG) return;
+  seg.innerHTML = "";
+  (CONFIG.run_types || []).forEach((r) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = r.label;
+    b.classList.toggle("on", $("run_type").value === r.key);
+    b.addEventListener("click", () => {
+      const rt = $("run_type");
+      if (rt.value === r.key) return;
+      rt.value = r.key;
+      rt.dispatchEvent(new Event("change"));   // reuses the existing handler
+    });
+    seg.appendChild(b);
+  });
+}
+
+async function pollAltTester() {
+  const dot = $("alt-dot"), label = $("alt-conn-label");
+  if (!dot) return;
+  const host = $("host").value || "127.0.0.1";
+  const port = $("port").value || "13000";
+  label.textContent = `AltTester ${host}:${port}`;
+  try {
+    const r = await (await fetch(`/api/preflight?host=${encodeURIComponent(host)}&port=${encodeURIComponent(port)}`)).json();
+    dot.className = "dot " + (r.ok ? "on" : "off");
+    $("alt-conn").title = r.ok ? "AltTester server reachable" : "AltTester server NOT reachable — start the app";
+  } catch (e) {
+    dot.className = "dot";
+  }
+}
+
+function showPane(which) {
+  $("pane-results").classList.toggle("hidden", which !== "results");
+  $("pane-runs").classList.toggle("hidden", which !== "runs");
+  $("tab-results").classList.toggle("on", which === "results");
+  $("tab-runs").classList.toggle("on", which === "runs");
 }
 
 function updateModeDesc() {
@@ -114,6 +196,7 @@ function onRunTypeChange() {
     $("suite-tree").classList.toggle("sel-folder", rt === "test_folder");
     $("suite-tree").classList.toggle("sel-case", rt === "test_case");
   }
+  updateSelCount();
 }
 
 // ---------------------------------------------------------------- custom users
@@ -212,11 +295,12 @@ function renderSuiteTree() {
   const renderCase = (c, depth) => {
     const row = document.createElement("div");
     row.className = "suite-row case";
-    row.style.paddingLeft = (depth * 20) + "px";
+    row.style.paddingLeft = (depth * 18 + 6) + "px";
     row.innerHTML = `
       <span class="twisty"></span>
       <input type="checkbox" class="sel-c" value="${escapeAttr(c.id)}" ${SEL_CASES.has(c.id) ? "checked" : ""}>
-      <span class="ico">🧪</span><b>${escapeHtml(c.id)}</b> <span class="nm">${escapeHtml(c.name)}</span>
+      <span class="idchip">${escapeHtml(c.id)}</span>
+      <span class="nm" title="${escapeAttr(c.name)}">${escapeHtml(c.name)}</span>
       ${implBadge(c.impl)}
       <span class="row-actions">
         ${c.impl === "real" ? "" :
@@ -227,8 +311,11 @@ function renderSuiteTree() {
         <button type="button" class="link danger c-del">delete</button>
       </span>`;
     row.querySelector(".sel-c").addEventListener("change", (e) => {
-      e.target.checked ? SEL_CASES.add(c.id) : SEL_CASES.delete(c.id); saveCfg();
+      e.target.checked ? SEL_CASES.add(c.id) : SEL_CASES.delete(c.id); saveCfg(); updateSelCount();
     });
+    // Full test-case name: shown on hover via title, and click toggles the
+    // row into wrapped (multi-line) mode for long names.
+    row.querySelector(".nm").addEventListener("click", () => row.classList.toggle("nm-open"));
     const genBtn = row.querySelector(".c-gen");
     if (genBtn) genBtn.addEventListener("click", () => generateCase(c, genBtn));
     const implBtn = row.querySelector(".c-impl");
@@ -245,11 +332,12 @@ function renderSuiteTree() {
     const expanded = EXPANDED.has(f.id);
     const row = document.createElement("div");
     row.className = "suite-row folder";
-    row.style.paddingLeft = (depth * 20) + "px";
+    row.style.paddingLeft = (depth * 18 + 6) + "px";
     row.innerHTML = `
       <span class="twisty">${hasChildren ? (expanded ? "▾" : "▸") : ""}</span>
       <input type="checkbox" class="sel-f" value="${escapeAttr(f.id)}" ${SEL_FOLDERS.has(f.id) ? "checked" : ""}>
-      <span class="ico">📁</span><b>${escapeHtml(f.id)}</b> <span class="nm">${escapeHtml(f.name)}</span>
+      <span class="idchip">${escapeHtml(f.id)}</span>
+      <span class="nm" title="${escapeAttr(f.name)}">${escapeHtml(f.name)}</span>
       <span class="count">${cases.length ? "· " + cases.length : ""}</span>
       <span class="row-actions">
         <button type="button" class="link f-edit">edit</button>
@@ -260,7 +348,7 @@ function renderSuiteTree() {
       if (hasChildren) toggleFolder(f.id);
     });
     row.querySelector(".sel-f").addEventListener("change", (e) => {
-      e.target.checked ? SEL_FOLDERS.add(f.id) : SEL_FOLDERS.delete(f.id); saveCfg();
+      e.target.checked ? SEL_FOLDERS.add(f.id) : SEL_FOLDERS.delete(f.id); saveCfg(); updateSelCount();
     });
     row.querySelector(".f-edit").addEventListener("click", () => showFolderForm(f));
     row.querySelector(".f-del").addEventListener("click", () => deleteFolder(f));
@@ -273,6 +361,21 @@ function renderSuiteTree() {
   };
 
   roots.forEach((r) => renderFolder(r, 0));
+  updateSelCount();
+}
+
+function updateSelCount() {
+  const el = $("sel-count");
+  if (!el) return;
+  const rt = currentRunType();
+  const n = rt === "test_folder" ? SEL_FOLDERS.size : SEL_CASES.size;
+  el.textContent = n ? `${n} selected` : "";
+  const runBtn = $("btn-run");
+  if (runBtn && (rt === "test_folder" || rt === "test_case")) {
+    runBtn.textContent = n ? `▶ Run ${n} selected` : "▶ Run";
+  } else if (runBtn) {
+    runBtn.textContent = "▶ Run";
+  }
 }
 
 function folderOptions(selected) {
@@ -480,6 +583,8 @@ async function startRun(dryRun) {
   $("log").innerHTML = "";
   $("results").innerHTML = "";
   $("reports").classList.add("hidden");
+  updateFailFlag([]);
+  showPane("results");
   setProgress(0, "Starting…");
 
   const res = await fetch("/api/run", {
@@ -523,8 +628,10 @@ async function loadRuns() {
   if (!el) return;
   let runs = [];
   try { runs = (await (await fetch("/api/runs")).json()).runs || []; } catch (_) { return; }
+  const cnt = $("runs-count");
+  if (cnt) cnt.textContent = runs.length ? `· ${runs.length}` : "";
   if (!runs.length) {
-    el.innerHTML = '<span class="muted">No runs recorded yet.</span>';
+    el.innerHTML = '<span class="muted" style="padding:12px;display:block">No runs recorded yet.</span>';
     return;
   }
   const stateCls = (s) => s === "done" ? "l-ok" : (s === "error" ? "l-error" : "l-warn");
@@ -584,13 +691,28 @@ function renderFromSnapshot(snap) {
   else renderResults(snap.results);
 }
 
+let LAST_CASES = [];
+
 function renderCases(cases) {
   const el = $("results");
+  updateFailFlag(cases);
+  LAST_CASES = cases || [];
+  const done = (cases || []).filter((c) => ["PASSED", "FAILED", "SKIPPED"].includes(c.status));
+  const tb = $("results-toolbar");
+  if (tb) tb.classList.toggle("hidden", done.length === 0);
   if (!cases || !cases.length) { el.innerHTML = ""; return; }
   const rows = cases.map((c) => caseRow(c)).join("");
   el.innerHTML = `<table>
-    <thead><tr><th>TC ID</th><th>Test Case</th><th>User</th><th>Status</th><th>Duration</th><th>Error</th></tr></thead>
+    <thead><tr><th>TC ID</th><th>Test Case</th><th>User</th><th>Status</th><th>Duration</th><th>Details</th><th>Rally</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
+  // delegation set up once in init(); rows replaced later still work
+}
+
+function updateFailFlag(cases) {
+  const flag = $("fail-flag");
+  if (!flag) return;
+  const n = (cases || []).filter((c) => c.status === "FAILED").length;
+  flag.textContent = n ? `${n} failed` : "";
 }
 function caseRow(c) {
   let err = c.error ? `<details><summary>error</summary><pre>${escapeHtml(c.error)}</pre></details>` : "";
@@ -599,11 +721,93 @@ function caseRow(c) {
     err += `<details><summary>📷 screenshot (where it got stuck)</summary>
       <a href="${url}" target="_blank"><img src="${url}" style="max-width:420px"></a></details>`;
   }
+  const ran = ["PASSED", "FAILED", "SKIPPED"].includes(c.status);
+  const rally = ran
+    ? `<button type="button" class="link post-rally" data-tc="${escapeAttr(c.tc_id)}"
+         title="Create a TestCaseResult in Rally for this run">→ Rally</button>`
+    : "";
   return `<tr data-tc="${escapeAttr(c.tc_id)}">
     <td>${escapeHtml(c.tc_id || "")}</td><td>${escapeHtml(c.tc_name || "")}</td>
     <td>${escapeHtml(c.username || "")}</td>
     <td class="st-${escapeHtml(c.status || "")}">${escapeHtml(c.status || "")}</td>
-    <td>${escapeHtml(c.duration || "")}</td><td>${err}</td></tr>`;
+    <td>${escapeHtml(c.duration || "")}</td><td>${err}</td><td>${rally}</td></tr>`;
+}
+
+// -------------------------------------------------- post results to Rally
+function verdictFor(status) {
+  return status === "PASSED" ? "Pass" : (status === "SKIPPED" ? "Inconclusive" : "Fail");
+}
+function defaultBuild() {
+  const p = ($("platform") && $("platform").value) || "WindowsEditor";
+  const d = new Date();
+  const s = d.getFullYear() + String(d.getMonth() + 1).padStart(2, "0") + String(d.getDate()).padStart(2, "0");
+  return `${p}-${s}`;
+}
+let POST_TARGET = null;
+function openRallyPost(c) {
+  POST_TARGET = c;
+  $("rm-tc").value = `${c.tc_id} — ${c.tc_name || ""}`;
+  $("rm-verdict").value = verdictFor(c.status);
+  $("rm-build").value = defaultBuild();
+  const noteLines = [`Automated run: ${c.status}`];
+  if (c.duration) noteLines.push(`Duration: ${c.duration}`);
+  if (c.error) noteLines.push("", c.error);
+  $("rm-notes").value = noteLines.join("\n");
+  const shotRow = $("rm-shot-row");
+  shotRow.style.display = c.screenshot ? "flex" : "none";
+  $("rm-attach").checked = !!c.screenshot;
+  $("rm-msg").textContent = "";
+  $("rally-modal").classList.remove("hidden");
+}
+function closeRallyPost() { $("rally-modal").classList.add("hidden"); POST_TARGET = null; }
+
+async function submitRallyPost() {
+  if (!POST_TARGET) return;
+  const btn = $("rm-post");
+  btn.disabled = true; $("rm-msg").textContent = "Posting…";
+  try {
+    const res = await fetch("/api/rally/post-result", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tc_id: POST_TARGET.tc_id,
+        verdict: $("rm-verdict").value,
+        build: $("rm-build").value,
+        notes: $("rm-notes").value,
+        screenshot: $("rm-attach").checked ? (POST_TARGET.screenshot || "") : "",
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) { $("rm-msg").textContent = data.error || "Failed to post."; return; }
+    $("rm-msg").textContent = data.message || "Posted.";
+    setTimeout(closeRallyPost, 900);
+  } catch (e) {
+    $("rm-msg").textContent = "Failed to post: " + e;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function postAllToRally() {
+  const cases = (LAST_CASES || []).filter((c) => ["PASSED", "FAILED", "SKIPPED"].includes(c.status));
+  if (!cases.length) return;
+  const msg = $("post-all-msg");
+  if (!confirm(`Post ${cases.length} result(s) to Rally?`)) return;
+  let ok = 0, fail = 0;
+  for (const c of cases) {
+    msg.textContent = `Posting ${c.tc_id}… (${ok + fail}/${cases.length})`;
+    try {
+      const res = await fetch("/api/rally/post-result", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tc_id: c.tc_id, verdict: verdictFor(c.status), build: defaultBuild(),
+          notes: `Automated run: ${c.status}` + (c.error ? "\n\n" + c.error : ""),
+          screenshot: c.screenshot || "",
+        }),
+      });
+      (res.ok ? ok++ : fail++);
+    } catch (e) { fail++; }
+  }
+  msg.textContent = `Posted ${ok} result(s) to Rally` + (fail ? `, ${fail} failed` : "");
 }
 function updateCaseRow(c) {
   if (!c) return;
@@ -613,8 +817,9 @@ function updateCaseRow(c) {
 
 function renderResults(groups) {
   const el = $("results");
-  if (!groups || !groups.length) { el.innerHTML = ""; return; }
+  if (!groups || !groups.length) { el.innerHTML = ""; updateFailFlagEntries(0); return; }
   el.innerHTML = "";
+  let fails = 0;
   groups.forEach((g) => {
     const wrap = document.createElement("div");
     const title = document.createElement("div");
@@ -622,7 +827,13 @@ function renderResults(groups) {
     title.textContent = `${g.username} · class ${g.class_id} · lessons ${g.lesson_from}-${g.lesson_to}`;
     wrap.appendChild(title);
     const rows = (g.entries || []).map((e) => {
-      const err = e.error ? `<details><summary>error</summary><pre>${escapeHtml(e.error)}</pre></details>` : "";
+      if (e.status === "FAILED") fails++;
+      let err = e.error ? `<details${e.status === "FAILED" ? " open" : ""}><summary>error</summary><pre>${escapeHtml(e.error)}</pre></details>` : "";
+      if (e.screenshot) {
+        const url = `/api/screenshots/${encodeURIComponent(e.screenshot)}`;
+        err += `<details><summary>📷 screenshot (where it got stuck)</summary>
+          <a href="${url}" target="_blank"><img src="${url}" style="max-width:420px"></a></details>`;
+      }
       return `<tr><td>${escapeHtml(e.activity || "")}</td>
         <td class="st-${escapeHtml(e.status || "")}">${escapeHtml(e.status || "")}</td>
         <td>${escapeHtml(e.duration || "")}</td><td>${err}</td></tr>`;
@@ -632,6 +843,12 @@ function renderResults(groups) {
       <tbody>${rows || '<tr><td colspan="4" class="muted">No activities yet…</td></tr>'}</tbody></table>`;
     el.appendChild(wrap);
   });
+  updateFailFlagEntries(fails);
+}
+
+function updateFailFlagEntries(n) {
+  const flag = $("fail-flag");
+  if (flag) flag.textContent = n ? `${n} failed` : "";
 }
 
 function showReports() {
@@ -646,6 +863,7 @@ function applyState(state) {
   badge.className = "badge " + state; badge.textContent = state;
   const running = state === "running";
   $("btn-run").disabled = running; $("btn-dry").disabled = running; $("btn-stop").disabled = !running;
+  if (!running) { const nl = $("now-line"); if (nl) nl.classList.add("hidden"); }
 }
 
 function appendLog(line, ts) {
@@ -660,7 +878,19 @@ function appendLog(line, ts) {
   span.textContent = (ts ? `[${ts}] ` : "") + line + "\n";
   log.appendChild(span);
   while (log.childNodes.length > 700) log.removeChild(log.firstChild);
-  if (atBottom) log.scrollTop = log.scrollHeight;
+  if (FOLLOW || atBottom) log.scrollTop = log.scrollHeight;
+  updateNowLine(line);
+}
+
+// Promote the latest meaningful event out of the log into the "Now:" line
+// under the progress bar, so the current step is visible without reading
+// the console.
+function updateNowLine(line) {
+  if (!/\[act\]|\[info\]|\[Activity\]|\[Map Navigation\]|\[Login\]|\[START\]|\[PASS\]|\[FAIL\]|progress /.test(line)) return;
+  const el = $("now-line");
+  if (!el) return;
+  el.classList.remove("hidden");
+  $("now-text").textContent = line.replace(/^\s*\[[0-9:]+\]\s*/, "").slice(0, 160);
 }
 
 function showError(msg) { const e = $("error"); e.textContent = msg; e.classList.remove("hidden"); }

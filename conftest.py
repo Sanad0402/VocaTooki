@@ -143,14 +143,15 @@ def altdriver(request):
 
     yield driver, platform
 
-    # Graceful shutdown
+    # Graceful shutdown — always sever the AltTester connection when the test
+    # session ends. NOTE: this driver version has no close(); stop() is the
+    # real API (the old close()-first code only ever worked via its fallback).
     try:
-        driver.close()
-    except Exception:
-        try:
-            driver.stop()
-        except Exception:
-            pass
+        driver.stop()
+        logging.info("[AltDriver] connection closed after the test run.")
+        print("[INFO] AltDriver connection closed.")
+    except Exception as e:
+        logging.warning(f"[AltDriver] failed to close connection: {e}")
 
 
 # -----------------------------

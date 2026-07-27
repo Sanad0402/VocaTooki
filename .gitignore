@@ -42,3 +42,5 @@ debug_*.py
 data/test_users.py
 # Panel runtime state (Last-runs history)
 data/run_history.json
+panel.log
+panel.err.log

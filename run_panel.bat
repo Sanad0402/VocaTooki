@@ -25,9 +25,12 @@ if %errorlevel%==0 (
 )
 
 echo Starting Voca Tooki Test Runner...
-REM Launch in its own window via "cmd /k" so that if the server crashes on
-REM startup the traceback stays visible instead of the window vanishing.
-start "Voca Tooki Runner" cmd /k "%PY%" -u run_panel.py
+REM Output goes to panel.log / panel.err.log instead of a console window.
+REM A console window is a trap on Windows: one click inside it turns on
+REM QuickEdit text selection, which SUSPENDS all writes — every Flask thread
+REM then freezes mid-request and the page loads forever. On a startup crash,
+REM read panel.err.log for the traceback.
+start "Voca Tooki Runner" /min cmd /c ""%PY%" -u run_panel.py 1>panel.log 2>panel.err.log"
 
 REM Wait until the server is actually listening (up to ~20s) before opening the
 REM browser, so a slow cold start doesn't show "can't reach this page".
@@ -48,7 +51,7 @@ if defined UP (
     start "" http://127.0.0.1:5000/
 ) else (
     echo [ERROR] The server did not start within 20 seconds.
-    echo Check the "Voca Tooki Runner" window for a Python error/traceback.
+    echo Check panel.err.log for the Python error/traceback.
     pause
 )
 endlocal
