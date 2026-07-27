@@ -293,7 +293,8 @@ def run_activity(altdriver, activity):
         'BRICKOUT':A.brickout,
         'PIPES':A.pipes,
         'RINGS':A.rings,
-        'PARASHOOT':A.parashoot
+        'PARASHOOT':A.parashoot,
+        'TETRIS':A.tetris
     }
 
     if scene not in activity_map:
@@ -575,6 +576,7 @@ def get_activity_solver_map():
         'PIPES': A.pipes,
         'RINGS': A.rings,
         'PARASHOOT': A.parashoot,
+        'TETRIS': A.tetris,
     }
 
 
