@@ -156,3 +156,13 @@ pytest -m "not stub" --platform WindowsEditor --host 127.0.0.1 --port 13000
 ```
 
 Reports are written to `REPORTS_DIR` (default `~/Downloads/reports`).
+
+---
+
+## The app itself
+
+[APP_MAP.md](APP_MAP.md) documents what the automation sees inside the game —
+every scene and how to get between them, the start-screen features and what
+identifies each one, how activities/exams/daily games are recognised and solved,
+and the practical traps (2-driver licence limit, the changing app-id, UTF-8).
+Read it before writing a Rally case or adding a solver.
