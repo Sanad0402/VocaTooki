@@ -18,12 +18,11 @@ MANUAL_EDIT = False
 
 
 @pytest.mark.stub
-@pytest.mark.skip(reason="TC452: auto-generated from Rally, not implemented yet. "
-                         "Implement the steps below, remove this skip, then set MANUAL_EDIT = True.")
+@pytest.mark.skip(reason="TC452: targets the VT-CRM admin system (web), not the Unity client. AltTester drives the Unity client only — automate this with a web/API driver instead.")
 def test_tc452_evt_01_open_events_page_successfully(altdriver):
     driver, _platform = altdriver
 
-    # TODO: implement the Rally steps below against the live app (AltTester):
+    # OUT OF SCOPE for AltTester: this case targets the VT-CRM admin system (web), not the Unity client.
     # (No steps recorded in Rally — add them to the case and re-sync.)
 
     # When implemented: delete the @pytest.mark.skip above and set MANUAL_EDIT = True

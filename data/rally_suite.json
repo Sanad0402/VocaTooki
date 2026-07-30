@@ -414,6 +414,31 @@
       "id": "TF288",
       "name": "Pipes",
       "parent": "TF181"
+    },
+    {
+      "id": "TF289",
+      "name": "Brickout",
+      "parent": "TF181"
+    },
+    {
+      "id": "TF290",
+      "name": "Rings",
+      "parent": "TF181"
+    },
+    {
+      "id": "TF292",
+      "name": "Parashoot",
+      "parent": "TF181"
+    },
+    {
+      "id": "TF293",
+      "name": "Tetris",
+      "parent": "TF181"
+    },
+    {
+      "id": "RALLY_UNGROUPED",
+      "name": "Ungrouped",
+      "parent": null
     }
   ],
   "test_cases": [
@@ -566,13 +591,160 @@
         "kind": "pytest",
         "nodeid": "Tests/rally/TF181_Voca_Tooki_(Client_Side)/TF288_Pipes/test_tc1150_pipes_activity_successful_finish_in_medium_level.py::test_tc1150_pipes_activity_successful_finish_in_medium_level"
       }
+    },
+    {
+      "id": "TC1151",
+      "name": "Brickout - Solve successful Brickout activity on Medium difficulty",
+      "folder": "TF289",
+      "description": "Test Case: Solve Successful Brickout Activity on Medium Difficulty\n\nType: Functional\nPriority: Important\nComponent: Brickout Activity\nTest Account: Username: vt233624 / Password: 3690\nLevel: 43\n\nPreconditions:\n- User is logged in with account vt233624\n- User has access to level 43\n- Brickout activity is available at the configured level\n- Activity difficulty is set to Medium",
+      "owner": "",
+      "status": "",
+      "user": {
+        "username": "vt233624",
+        "password": "3690"
+      },
+      "steps": [],
+      "validation": {
+        "input": "1. Log in to Voca Tooki with username: vt233624 / password: 3690\n2. Navigate to level 43\n3. Open the Brickout activity\n4. Verify the difficulty is set to Medium\n5. Start the Brickout activity\n6. Control the paddle to bounce the ball and break all the bricks\n7. Complete the activity by breaking all bricks without losing all lives\n8. Observe the completion/result screen",
+        "expected": "- Brickout activity loads correctly on Medium difficulty\n- Ball and paddle controls respond properly\n- Bricks are destroyed on contact with the ball\n- Activity completes successfully when all bricks are broken\n- Score/stars are awarded correctly upon completion\n- Success screen is displayed with correct feedback\n- Progress is saved and the activity is marked as completed"
+      },
+      "action": {
+        "kind": "pytest",
+        "nodeid": "Tests/rally/TF181_Voca_Tooki_(Client_Side)/TF289_Brickout/test_tc1151_brickout_solve_successful_brickout_activity_on_medium_difficulty.py::test_tc1151_brickout_solve_successful_brickout_activity_on_medium_difficulty"
+      }
+    },
+    {
+      "id": "TC1152",
+      "name": "Rings - Solve Rings activity on Medium difficulty",
+      "folder": "TF290",
+      "description": "Test Case: Solve Rings Activity on Medium Difficulty\n\nType: Functional\nPriority: Important\nComponent: Rings Activity\nTest Account: Username: vt233624 / Password: 3690\nLevel: 43\n\nPreconditions:\n- User is logged in with account vt233624\n- User has access to level 43\n- Rings activity is available at the configured level\n- Activity difficulty is set to Medium",
+      "owner": "",
+      "status": "",
+      "user": {
+        "username": "vt233624",
+        "password": "3690"
+      },
+      "steps": [],
+      "validation": {
+        "input": "1. Log in to Voca Tooki with username: vt233624 / password: 3690\n2. Navigate to level 43\n3. Open the Rings activity\n4. Verify the difficulty is set to Medium\n5. Start the Rings activity\n6. Complete the activity by matching/placing all rings correctly\n7. Observe the completion/result screen",
+        "expected": "- Rings activity loads correctly on Medium difficulty\n- Rings controls respond properly to user input\n- Activity completes successfully when all rings are correctly placed/matched\n- Score/stars are awarded correctly upon completion\n- Success screen is displayed with correct feedback\n- Progress is saved and the activity is marked as completed"
+      },
+      "action": {
+        "kind": "pytest",
+        "nodeid": "Tests/rally/TF181_Voca_Tooki_(Client_Side)/TF290_Rings/test_tc1152_rings_solve_rings_activity_on_medium_difficulty.py::test_tc1152_rings_solve_rings_activity_on_medium_difficulty"
+      }
+    },
+    {
+      "id": "TC1153",
+      "name": "Solve Medium Level in Tetris",
+      "folder": "RALLY_UNGROUPED",
+      "description": "Feature: Tetris\nTest Type: Functional\nPriority: Medium\nSeverity: Medium\n\nDescription:\nVerify that a user can successfully solve/complete level 33 in Tetris.\n\nPreconditions:\n- Username: vt233624\n- Password: 3690\n- User must be logged in and have access to Tetris\n- User must have reached level 33",
+      "owner": "",
+      "status": "",
+      "user": {
+        "username": "vt233624",
+        "password": "3690"
+      },
+      "steps": [],
+      "validation": {
+        "input": "1. Log in with username: vt233624 and password: 3690\n2. Navigate to the Tetris game\n3. Open/select level 33 (Medium level)\n4. Play through the level\n5. Complete the level successfully",
+        "expected": "User successfully completes level 33 in Tetris. Level is marked as solved/completed. Score and progress are saved correctly."
+      },
+      "action": {
+        "kind": "pytest",
+        "nodeid": "Tests/rally/test_tc1153_solve_medium_level_in_tetris.py::test_tc1153_solve_medium_level_in_tetris"
+      }
+    },
+    {
+      "id": "TC1154",
+      "name": "Solve Parashoot Successfully in Medium Level",
+      "folder": "TF292",
+      "description": "Feature: Parashoot\nTest Type: Functional\nPriority: Medium\nSeverity: Medium\n\nDescription:\nVerify that a user can successfully solve/complete level 33 in Parashoot.\n\nPreconditions:\n- Username: vt233624\n- Password: 3690\n- User must be logged in and have access to Parashoot\n- User must have reached level 33",
+      "owner": "",
+      "status": "",
+      "user": {
+        "username": "vt233624",
+        "password": "3690"
+      },
+      "steps": [],
+      "validation": {
+        "input": "1. Log in with username: vt233624 and password: 3690\n2. Navigate to the Parashoot game\n3. Open/select level 33 (Medium level)\n4. Play through the level\n5. Complete the level successfully",
+        "expected": "User successfully completes level 33 in Parashoot. Level is marked as solved/completed. Score and progress are saved correctly."
+      },
+      "action": {
+        "kind": "pytest",
+        "nodeid": "Tests/rally/TF181_Voca_Tooki_(Client_Side)/TF292_Parashoot/test_tc1154_solve_parashoot_successfully_in_medium_level.py::test_tc1154_solve_parashoot_successfully_in_medium_level"
+      }
+    },
+    {
+      "id": "TC1155",
+      "name": "Tetris - Solve medium level",
+      "folder": "TF293",
+      "description": "Test Type: Functional\nPriority: Normal\nFeature: Tetris\nLevel: Medium (Level 33)\n\nPreconditions:\n- User is logged in with username: vt233624\n- Password: 3690\n- Navigate to Tetris game",
+      "owner": "",
+      "status": "",
+      "user": {
+        "username": "vt233624",
+        "password": "3690"
+      },
+      "steps": [],
+      "validation": {
+        "input": "1. Login with username: vt233624, password: 3690\n2. Open the Tetris game\n3. Start the game\n4. Play and progress to level 33 (medium)\n5. Complete the level successfully",
+        "expected": "User is able to complete level 33 (medium difficulty) in Tetris without errors or crashes"
+      },
+      "action": {
+        "kind": "pytest",
+        "nodeid": "Tests/rally/TF181_Voca_Tooki_(Client_Side)/TF293_Tetris/test_tc1155_tetris_solve_medium_level.py::test_tc1155_tetris_solve_medium_level"
+      }
+    },
+    {
+      "id": "TC1156",
+      "name": "Tetris - Solve hard level",
+      "folder": "TF293",
+      "description": "Test Type: Functional\nPriority: Normal\nFeature: Tetris\nLevel: Hard (Level 34)\n\nPreconditions:\n- User is logged in with username: vt233624\n- Password: 3690\n- Navigate to Tetris game",
+      "owner": "",
+      "status": "",
+      "user": {
+        "username": "vt233624",
+        "password": "3690"
+      },
+      "steps": [],
+      "validation": {
+        "input": "1. Login with username: vt233624, password: 3690\n2. Open the Tetris game\n3. Start the game\n4. Play and progress to level 34 (hard)\n5. Complete the level successfully",
+        "expected": "User is able to complete level 34 (hard difficulty) in Tetris without errors or crashes"
+      },
+      "action": {
+        "kind": "pytest",
+        "nodeid": "Tests/rally/TF181_Voca_Tooki_(Client_Side)/TF293_Tetris/test_tc1156_tetris_solve_hard_level.py::test_tc1156_tetris_solve_hard_level"
+      }
+    },
+    {
+      "id": "TC1157",
+      "name": "Exams- Solve exam pages successfully",
+      "folder": "TF187",
+      "description": "Test Type: Functional\nPriority: Normal\nFeature: exam\nLevel: 40 (Exam)\n\nPreconditions:\n- User is logged in with username: vt233624\n- Password: 3690",
+      "owner": "",
+      "status": "",
+      "user": {
+        "username": "vt233624",
+        "password": "3690"
+      },
+      "steps": [],
+      "validation": {
+        "input": "1. Login with username: vt233624, password: 3690\n2. Open the Tetris game\n3. Progress to level 40\n4. Start the exam pages\n5. Complete all exam pages",
+        "expected": "User is able to complete all exam pages at level 40 successfully without errors or crashes"
+      },
+      "action": {
+        "kind": "pytest",
+        "nodeid": "Tests/rally/TF181_Voca_Tooki_(Client_Side)/TF187_Exams/test_tc1157_exams_solve_exam_pages_successfully.py::test_tc1157_exams_solve_exam_pages_successfully"
+      }
     }
   ],
   "metadata": {
     "project_id": "622679112169",
-    "total_cases": 8,
+    "total_cases": 15,
     "automated_only": true,
     "synced_from": "Rally API",
-    "synced_at": "2026-07-23T15:37:29.464624+00:00"
+    "synced_at": "2026-07-30T14:38:54.128531+00:00"
   }
 }

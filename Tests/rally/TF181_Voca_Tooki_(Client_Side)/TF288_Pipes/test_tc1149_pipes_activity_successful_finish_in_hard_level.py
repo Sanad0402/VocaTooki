@@ -24,6 +24,10 @@ TC_ID = "TC1149"
 MANUAL_EDIT = False
 
 ACTIVITY_SCENE = "PIPES"
+# Label printed on the activity's thumb in the level (not confirmed live — utilsdemo matches its known aliases). The test
+# clicks that thumb directly instead of opening activities until it finds the
+# right one.
+ACTIVITY_TITLE = ""
 MAP_LEVEL = 44          # from the Rally description
 USERNAME = "vt233624"
 PASSWORD = "3690"
@@ -47,9 +51,12 @@ def test_tc1149_pipes_activity_successful_finish_in_hard_level(altdriver):
         f"{TC_ID}: activity selection screen was not reached"
 
     # 4. Find the PIPES activity in this level and play it to completion.
+    #    The thumb is chosen by its printed title (ACTIVITY_TITLE), so the test
+    #    never plays a different activity by mistake.
     #    On any failed assert below the test stays on the failing screen, so
     #    the failure screenshot (conftest hook) shows the actual state.
-    result = utilsdemo.solve_activity_in_level(driver, ACTIVITY_SCENE)
+    result = utilsdemo.solve_activity_in_level(driver, ACTIVITY_SCENE,
+                                               title_hint=ACTIVITY_TITLE)
     assert result["found"], \
         f"{TC_ID}: PIPES activity was not found in level {MAP_LEVEL}"
     assert result["total"] > 0 and result["done"] >= result["total"], (

@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "alttester": {
-      "command": "alttester",
+      "command": "C:\\Users\\sanad\\.alttester\\CLI\\alttester.exe",
       "args": ["mcp"]
     }
   }

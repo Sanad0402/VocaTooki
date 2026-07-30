@@ -251,20 +251,32 @@ function implBadge(impl) {
   return `<span class="impl-badge ${b.cls}" title="${b.title}">${b.txt}</span>`;
 }
 
+// Per-case "generate". Live-first: the connection settings are sent so the
+// server reads the RUNNING app (AltTester) and wires the real element names
+// into the test; it only falls back to offline templates if the app is down.
 async function generateCase(c, btn) {
-  const msg = $("skeleton-msg");
-  btn.disabled = true; btn.textContent = "generating…";
-  try {
-    const res = await fetch(`/api/suite/case/${encodeURIComponent(c.id)}/generate`, { method: "POST" });
-    const data = await res.json();
-    if (!res.ok) { msg.textContent = data.error || "Generation failed."; return; }
-    msg.textContent = data.message || `${c.id}: generated.`;
-    if (data.suite) setSuite(data.suite);
-  } catch (e) {
-    msg.textContent = "Generation failed: " + e;
-  } finally {
-    btn.disabled = false; btn.textContent = "generate";
-  }
+  const cfg = gatherConfig(false);
+  setSkeletonMsg(`${c.id}: reading the live app at ${cfg.host}:${cfg.port}…`, "info");
+  await withBusy(btn, "generating…", async () => {
+    try {
+      const res = await fetch(`/api/suite/case/${encodeURIComponent(c.id)}/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          host: cfg.host, port: cfg.port, platform: cfg.platform,
+          app_id: cfg.app_id, device_instance_id: cfg.device_instance_id,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setSkeletonMsg(data.error || "Generation failed.", "err"); return; }
+      // Offline fallback means the app wasn't read — amber, not green.
+      setSkeletonMsg(data.message || `${c.id}: generated.`,
+                     data.source === "offline" ? "warn" : "ok");
+      if (data.suite) setSuite(data.suite);
+    } catch (e) {
+      setSkeletonMsg("Generation failed: " + e, "err");
+    }
+  });
 }
 
 function toggleFolder(id) {
@@ -304,7 +316,7 @@ function renderSuiteTree() {
       ${implBadge(c.impl)}
       <span class="row-actions">
         ${c.impl === "real" ? "" :
-          `<button type="button" class="link c-gen" title="Write this case's test code into the project">generate</button>`}
+          `<button type="button" class="link c-gen" title="Read the running app (AltTester) and write this case's test code into the project">generate</button>`}
         ${c.impl === "unlinked" ? "" :
           `<button type="button" class="link c-impl">${c.impl === "stub" ? "make real" : "make stub"}</button>`}
         <button type="button" class="link c-edit">edit</button>
@@ -319,9 +331,9 @@ function renderSuiteTree() {
     const genBtn = row.querySelector(".c-gen");
     if (genBtn) genBtn.addEventListener("click", () => generateCase(c, genBtn));
     const implBtn = row.querySelector(".c-impl");
-    if (implBtn) implBtn.addEventListener("click", () => toggleImpl(c));
+    if (implBtn) implBtn.addEventListener("click", (e) => toggleImpl(c, e.currentTarget));
     row.querySelector(".c-edit").addEventListener("click", () => showCaseForm(c));
-    row.querySelector(".c-del").addEventListener("click", () => deleteCase(c));
+    row.querySelector(".c-del").addEventListener("click", (e) => deleteCase(c, e.currentTarget));
     el.appendChild(row);
   };
 
@@ -351,7 +363,7 @@ function renderSuiteTree() {
       e.target.checked ? SEL_FOLDERS.add(f.id) : SEL_FOLDERS.delete(f.id); saveCfg(); updateSelCount();
     });
     row.querySelector(".f-edit").addEventListener("click", () => showFolderForm(f));
-    row.querySelector(".f-del").addEventListener("click", () => deleteFolder(f));
+    row.querySelector(".f-del").addEventListener("click", (e) => deleteFolder(f, e.currentTarget));
     el.appendChild(row);
 
     if (expanded) {
@@ -400,10 +412,11 @@ function showFolderForm(folder) {
       <span id="sf_msg" class="error hidden"></span>
     </div>`;
   $("sf_cancel").addEventListener("click", () => $("suite-form").classList.add("hidden"));
-  $("sf_save").addEventListener("click", async () => {
+  $("sf_save").addEventListener("click", async (e) => {
     const body = { id: $("sf_id").value.trim(), name: $("sf_name").value.trim(), parent: $("sf_parent").value };
     if (editing) body._action = "update";
-    await suitePost("/api/suite/folder", body, "sf_msg");
+    await withBusy(e.currentTarget, "saving…",
+                   () => suitePost("/api/suite/folder", body, "sf_msg"));
   });
 }
 
@@ -426,13 +439,14 @@ function showCaseForm(c) {
       <span id="sc_msg" class="error hidden"></span>
     </div>`;
   $("sc_cancel").addEventListener("click", () => $("suite-form").classList.add("hidden"));
-  $("sc_save").addEventListener("click", async () => {
+  $("sc_save").addEventListener("click", async (e) => {
     const body = {
       id: $("sc_id").value.trim(), name: $("sc_name").value.trim(), folder: $("sc_folder").value,
       action_kind: "pytest", nodeid: $("sc_nodeid").value.trim(),
     };
     if (editing) body._action = "update";
-    await suitePost("/api/suite/case", body, "sc_msg");
+    await withBusy(e.currentTarget, "saving…",
+                   () => suitePost("/api/suite/case", body, "sc_msg"));
   });
 }
 
@@ -444,47 +458,90 @@ async function suitePost(url, body, msgId) {
   $("suite-form").classList.add("hidden");
 }
 
-async function deleteFolder(f) {
-  if (!confirm(`Delete folder ${f.id} – ${f.name}? (subfolders and test cases inside it will also be deleted)`)) return;
-  const res = await fetch(`/api/suite/folder/${encodeURIComponent(f.id)}?cascade=1`, { method: "DELETE" });
-  const data = await res.json();
-  if (!res.ok) { showError(data.error || "Delete failed."); return; }
-  SEL_FOLDERS.delete(f.id); setSuite(data);
+async function deleteFolder(f, btn) {
+  if (!confirm(`Delete folder ${f.id} – ${f.name}? (subfolders and test cases inside it will also be deleted, along with their generated test files)`)) return;
+  await withBusy(btn, "deleting…", async () => {
+    const res = await fetch(`/api/suite/folder/${encodeURIComponent(f.id)}?cascade=1`, { method: "DELETE" });
+    const data = await res.json();
+    if (!res.ok) { showError(data.error || "Delete failed."); return; }
+    SEL_FOLDERS.delete(f.id); setSuite(data);
+    if (data.prune_message) {
+      setSkeletonMsg(`${f.id} deleted · ${data.prune_message}`,
+                     (data.kept_tests || []).length ? "warn" : "ok");
+    }
+  });
 }
 
-async function deleteCase(c) {
-  if (!confirm(`Delete test case ${c.id} – ${c.name}?`)) return;
-  const res = await fetch(`/api/suite/case/${encodeURIComponent(c.id)}`, { method: "DELETE" });
-  const data = await res.json();
-  if (!res.ok) { showError(data.error || "Delete failed."); return; }
-  SEL_CASES.delete(c.id); setSuite(data);
+async function deleteCase(c, btn) {
+  if (!confirm(`Delete test case ${c.id} – ${c.name}?\n\nIts generated test file is removed from the project too.`)) return;
+  await withBusy(btn, "deleting…", async () => {
+    const res = await fetch(`/api/suite/case/${encodeURIComponent(c.id)}`, { method: "DELETE" });
+    const data = await res.json();
+    if (!res.ok) { showError(data.error || "Delete failed."); return; }
+    SEL_CASES.delete(c.id); setSuite(data);
+    // Say what left the project — silent file deletions are worse than noisy ones.
+    if (data.prune_message) {
+      setSkeletonMsg(`${c.id} deleted · ${data.prune_message}`,
+                     (data.kept_tests || []).length ? "warn" : "ok");
+    }
+  });
 }
 
-function setSkeletonMsg(text, isErr) {
+// Suite message line. `level` is "ok" | "warn" | "err" | "info" — a plain
+// boolean still works (true = error) for older call sites. Success is green:
+// it used to share the amber warning box, which read as "something is off".
+function setSkeletonMsg(text, level) {
   const el = $("skeleton-msg");
   if (!el) return;
+  const lvl = level === true ? "err"
+            : (level === false || level == null) ? "ok"
+            : String(level);
   el.textContent = text || "";
-  el.style.color = isErr ? "#b91c1c" : "#475569";
+  el.style.color = "";        // colour comes from the state class now
+  el.classList.remove("msg-ok", "msg-warn", "msg-err", "msg-info");
+  el.classList.add(`msg-${["ok", "warn", "err", "info"].includes(lvl) ? lvl : "ok"}`);
+}
+
+// Show a button as busy while an await runs: spinner + optional label, disabled
+// so it can't be double-fired, always restored. Used by every action that waits
+// on the server (generate, Rally sync/post, saves).
+async function withBusy(btn, busyLabel, fn) {
+  if (!btn) return fn();
+  const prevHTML = btn.innerHTML;
+  const wasDisabled = btn.disabled;
+  btn.disabled = true;
+  btn.classList.add("is-busy");
+  btn.innerHTML = `<span class="spinner" aria-hidden="true"></span>${busyLabel || prevHTML}`;
+  try {
+    return await fn();
+  } finally {
+    btn.classList.remove("is-busy");
+    btn.innerHTML = prevHTML;
+    btn.disabled = wasDisabled;
+  }
 }
 
 // Manually flip a case between 'real' and 'stub' (edits the test file's markers,
 // locks MANUAL_EDIT=True so a re-sync keeps the choice).
-async function toggleImpl(c) {
+async function toggleImpl(c, btn) {
   const target = c.impl === "stub" ? "real" : "stub";
   if (target === "real" && !confirm(
     `Mark ${c.id} as REAL? It will run instead of skipping. If it isn't implemented yet it may pass without testing anything.`)) return;
-  try {
-    const res = await fetch("/api/suite/case/impl", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: c.id, impl: target }),
-    });
-    const data = await res.json();
-    if (!res.ok) { setSkeletonMsg(data.error || "Could not change status.", true); return; }
-    if (data.suite) { SUITE = data.suite; renderSuiteTree(); }
-    setSkeletonMsg(`${c.id} → ${data.impl}` + (data.warning ? " · " + data.warning : ""), !!data.warning);
-  } catch (e) {
-    setSkeletonMsg("Request failed: " + e.message, true);
-  }
+  await withBusy(btn, "saving…", async () => {
+    try {
+      const res = await fetch("/api/suite/case/impl", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: c.id, impl: target }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setSkeletonMsg(data.error || "Could not change status.", "err"); return; }
+      if (data.suite) { SUITE = data.suite; renderSuiteTree(); }
+      setSkeletonMsg(`${c.id} → ${data.impl}` + (data.warning ? " · " + data.warning : ""),
+                     data.warning ? "warn" : "ok");
+    } catch (e) {
+      setSkeletonMsg("Request failed: " + e.message, "err");
+    }
+  });
 }
 
 // #4 — discover elements on the LIVE app and turn selected stub cases into real
@@ -492,34 +549,32 @@ async function toggleImpl(c) {
 async function generateFromLiveApp() {
   const ids = [...SEL_CASES];
   if (!ids.length) {
-    setSkeletonMsg("Tick at least one test case (checkbox) first — this reads the running app's current scene.", true);
+    setSkeletonMsg("Tick at least one test case (checkbox) first — this reads the running app's current scene.", "warn");
     return;
   }
   const cfg = gatherConfig(false);
-  const btn = $("btn-live-skeleton");
-  btn.disabled = true;
-  setSkeletonMsg(`Connecting to ${cfg.host}:${cfg.port} and discovering elements…`, false);
-  try {
-    const res = await fetch("/api/suite/skeleton", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        test_cases: ids, host: cfg.host, port: cfg.port, platform: cfg.platform,
-        app_id: cfg.app_id, device_instance_id: cfg.device_instance_id,
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok) { setSkeletonMsg(data.error || "Generation failed.", true); return; }
-    if (data.suite) { SUITE = data.suite; renderSuiteTree(); }
-    const failed = (data.results || []).filter((r) => !r.ok);
-    let msg = data.message || "Done.";
-    if (failed.length) msg += " · Failed: " + failed.map((r) => `${r.id} (${r.error})`).join(", ");
-    setSkeletonMsg(msg, failed.length > 0);
-  } catch (e) {
-    setSkeletonMsg("Request failed: " + e.message, true);
-  } finally {
-    btn.disabled = false;
-  }
+  setSkeletonMsg(`Connecting to ${cfg.host}:${cfg.port} and discovering elements…`, "info");
+  await withBusy($("btn-live-skeleton"), "discovering…", async () => {
+    try {
+      const res = await fetch("/api/suite/skeleton", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          test_cases: ids, host: cfg.host, port: cfg.port, platform: cfg.platform,
+          app_id: cfg.app_id, device_instance_id: cfg.device_instance_id,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setSkeletonMsg(data.error || "Generation failed.", "err"); return; }
+      if (data.suite) { SUITE = data.suite; renderSuiteTree(); }
+      const failed = (data.results || []).filter((r) => !r.ok);
+      let msg = data.message || "Done.";
+      if (failed.length) msg += " · Failed: " + failed.map((r) => `${r.id} (${r.error})`).join(", ");
+      setSkeletonMsg(msg, failed.length ? "warn" : "ok");
+    } catch (e) {
+      setSkeletonMsg("Request failed: " + e.message, "err");
+    }
+  });
 }
 
 // ---------------------------------------------------------------- config
@@ -763,28 +818,27 @@ function closeRallyPost() { $("rally-modal").classList.add("hidden"); POST_TARGE
 
 async function submitRallyPost() {
   if (!POST_TARGET) return;
-  const btn = $("rm-post");
-  btn.disabled = true; $("rm-msg").textContent = "Posting…";
-  try {
-    const res = await fetch("/api/rally/post-result", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        tc_id: POST_TARGET.tc_id,
-        verdict: $("rm-verdict").value,
-        build: $("rm-build").value,
-        notes: $("rm-notes").value,
-        screenshot: $("rm-attach").checked ? (POST_TARGET.screenshot || "") : "",
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok) { $("rm-msg").textContent = data.error || "Failed to post."; return; }
-    $("rm-msg").textContent = data.message || "Posted.";
-    setTimeout(closeRallyPost, 900);
-  } catch (e) {
-    $("rm-msg").textContent = "Failed to post: " + e;
-  } finally {
-    btn.disabled = false;
-  }
+  $("rm-msg").textContent = "Posting…";
+  await withBusy($("rm-post"), "posting…", async () => {
+    try {
+      const res = await fetch("/api/rally/post-result", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tc_id: POST_TARGET.tc_id,
+          verdict: $("rm-verdict").value,
+          build: $("rm-build").value,
+          notes: $("rm-notes").value,
+          screenshot: $("rm-attach").checked ? (POST_TARGET.screenshot || "") : "",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { $("rm-msg").textContent = data.error || "Failed to post."; return; }
+      $("rm-msg").textContent = data.message || "Posted.";
+      setTimeout(closeRallyPost, 900);
+    } catch (e) {
+      $("rm-msg").textContent = "Failed to post: " + e;
+    }
+  });
 }
 
 async function postAllToRally() {
@@ -792,22 +846,27 @@ async function postAllToRally() {
   if (!cases.length) return;
   const msg = $("post-all-msg");
   if (!confirm(`Post ${cases.length} result(s) to Rally?`)) return;
-  let ok = 0, fail = 0;
-  for (const c of cases) {
-    msg.textContent = `Posting ${c.tc_id}… (${ok + fail}/${cases.length})`;
-    try {
-      const res = await fetch("/api/rally/post-result", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tc_id: c.tc_id, verdict: verdictFor(c.status), build: defaultBuild(),
-          notes: `Automated run: ${c.status}` + (c.error ? "\n\n" + c.error : ""),
-          screenshot: c.screenshot || "",
-        }),
-      });
-      (res.ok ? ok++ : fail++);
-    } catch (e) { fail++; }
-  }
-  msg.textContent = `Posted ${ok} result(s) to Rally` + (fail ? `, ${fail} failed` : "");
+  // One request per case, so the button counts them off as it goes.
+  await withBusy($("btn-post-all"), `posting 0/${cases.length}…`, async () => {
+    const btn = $("btn-post-all");
+    let ok = 0, fail = 0;
+    for (const c of cases) {
+      msg.textContent = `Posting ${c.tc_id}… (${ok + fail}/${cases.length})`;
+      btn.innerHTML = `<span class="spinner" aria-hidden="true"></span>posting ${ok + fail + 1}/${cases.length}…`;
+      try {
+        const res = await fetch("/api/rally/post-result", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tc_id: c.tc_id, verdict: verdictFor(c.status), build: defaultBuild(),
+            notes: `Automated run: ${c.status}` + (c.error ? "\n\n" + c.error : ""),
+            screenshot: c.screenshot || "",
+          }),
+        });
+        (res.ok ? ok++ : fail++);
+      } catch (e) { fail++; }
+    }
+    msg.textContent = `Posted ${ok} result(s) to Rally` + (fail ? `, ${fail} failed` : "");
+  });
 }
 function updateCaseRow(c) {
   if (!c) return;
@@ -959,68 +1018,69 @@ function toggleProjectPicker() {
 
 async function testRally() {
   const statusEl = $("rally-status");
-  const btn = $("btn-rally-test");
   statusEl.textContent = "Testing…";
   statusEl.className = "rally-status syncing";
-  btn.disabled = true;
-  try {
-    const r = await (await fetch("/api/rally/test", { method: "POST" })).json();
-    statusEl.textContent = (r.ok ? "✓ " : "✕ ") + r.message;
-    statusEl.className = "rally-status " + (r.ok ? "success" : "error");
-    $("rally-dot").classList.toggle("ok", !!r.ok);
-  } catch (err) {
-    statusEl.textContent = "✕ " + err.message;
-    statusEl.className = "rally-status error";
-  } finally {
-    btn.disabled = false;
-  }
+  await withBusy($("btn-rally-test"), "testing…", async () => {
+    try {
+      const r = await (await fetch("/api/rally/test", { method: "POST" })).json();
+      statusEl.textContent = (r.ok ? "✓ " : "✕ ") + r.message;
+      statusEl.className = "rally-status " + (r.ok ? "success" : "error");
+      $("rally-dot").classList.toggle("ok", !!r.ok);
+    } catch (err) {
+      statusEl.textContent = "✕ " + err.message;
+      statusEl.className = "rally-status error";
+    }
+  });
 }
 
 async function syncRally() {
   const statusEl = $("rally-status");
-  const syncBtn = $("btn-sync-rally");
   const projectId = $("rally-project") ? $("rally-project").value : "";
 
   statusEl.textContent = "Syncing…";
   statusEl.className = "rally-status syncing";
-  syncBtn.disabled = true;
 
-  try {
-    const response = await fetch("/api/rally/sync", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ project_id: projectId }),
-    });
+  await withBusy($("btn-sync-rally"), "syncing…", async () => {
+    try {
+      const response = await fetch("/api/rally/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_id: projectId }),
+      });
 
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "Sync failed");
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Sync failed");
 
-    statusEl.textContent = "✓ " + (result.message || "Synced");
-    statusEl.className = "rally-status success";
+      statusEl.textContent = "✓ " + (result.message || "Synced");
+      statusEl.className = "rally-status success";
 
-    if (result.suite) { SUITE = result.suite; renderSuiteTree(); }
-    // Surface the freshly imported tree: switch to the Test Folder view.
-    if ($("run_type").value === "lesson_range") {
-      $("run_type").value = "test_folder";
-      onRunTypeChange();
-      saveCfg();
+      if (result.suite) { SUITE = result.suite; renderSuiteTree(); }
+      // Surface the freshly imported tree: switch to the Test Folder view.
+      if ($("run_type").value === "lesson_range") {
+        $("run_type").value = "test_folder";
+        onRunTypeChange();
+        saveCfg();
+      }
+      if (result.synced_at) {
+        renderLastSync({ synced_at: result.synced_at, total_cases: result.count });
+      }
+      // A sync can delete code for cases removed in Rally — never silently.
+      if (result.prune_message) {
+        setSkeletonMsg("Sync · " + result.prune_message,
+                       (result.kept_tests || []).length ? "warn" : "ok");
+      }
+      hideError();
+
+      setTimeout(() => {
+        statusEl.textContent = "";
+        statusEl.className = "rally-status";
+      }, 4000);
+
+    } catch (err) {
+      statusEl.textContent = "✕ " + err.message;
+      statusEl.className = "rally-status error";
     }
-    if (result.synced_at) {
-      renderLastSync({ synced_at: result.synced_at, total_cases: result.count });
-    }
-    hideError();
-
-    setTimeout(() => {
-      statusEl.textContent = "";
-      statusEl.className = "rally-status";
-      syncBtn.disabled = false;
-    }, 4000);
-
-  } catch (err) {
-    statusEl.textContent = "✕ " + err.message;
-    statusEl.className = "rally-status error";
-    syncBtn.disabled = false;
-  }
+  });
 }
 
 function formatRelativeTime(iso) {

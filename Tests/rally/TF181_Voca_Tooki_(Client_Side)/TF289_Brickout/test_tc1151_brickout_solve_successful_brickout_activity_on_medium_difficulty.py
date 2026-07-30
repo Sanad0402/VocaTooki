@@ -1,16 +1,16 @@
 """
-TC1150 — Pipes Activity - Successful finish in Medium level
+TC1151 — Brickout - Solve successful Brickout activity on Medium difficulty
 
 Auto-generated from Rally (Method = Automated).
 
 Description:
-    Test Type: Functional Priority: Important Feature: Pipes Activity Level: Medium Description: Verify that a user can successfully complete the Pipes activity when playing at Medium difficulty level. The activity should register as finished and award appropriate points/progress. Preconditions: - Username: vt233624 - Password: 3690 - Account is at level 43 - Pipes activity is available and unlocked
+    Test Case: Solve Successful Brickout Activity on Medium Difficulty Type: Functional Priority: Important Component: Brickout Activity Test Account: Username: vt233624 / Password: 3690 Level: 43 Preconditions: - User is logged in with account vt233624 - User has access to level 43 - Brickout activity is available at the configured level - Activity difficulty is set to Medium
 
 (No test steps recorded in Rally — add them to the case, then re-sync.)
 
 Validation (from Rally):
-    Input:    1. Log in with username: vt233624, password: 3690 2. Navigate to the Pipes activity 3. Select Medium level 4. Complete all required steps of the activity 5. Submit/finish the activity
-    Expected: The Pipes activity is marked as successfully finished at Medium level. The completion is registered, appropriate feedback/score is shown to the user, and progress/points are updated correctly.
+    Input:    1. Log in to Voca Tooki with username: vt233624 / password: 3690 2. Navigate to level 43 3. Open the Brickout activity 4. Verify the difficulty is set to Medium 5. Start the Brickout activity 6. Control the paddle to bounce the ball and break all the bricks 7. Complete the activity by breaking all bricks without losing all lives 8. Observe the completion/result screen
+    Expected: - Brickout activity loads correctly on Medium difficulty - Ball and paddle controls respond properly - Bricks are destroyed on contact with the ball - Activity completes successfully when all bricks are broken - Score/stars are awarded correctly upon completion - Success screen is displayed with correct feedback - Progress is saved and the activity is marked as completed
 """
 
 import time
@@ -18,12 +18,12 @@ import pytest
 from Utilities import utilsdemo
 
 # Rally test case ID (for sync and maintenance)
-TC_ID = "TC1150"
+TC_ID = "TC1151"
 # Regenerated from the Rally case on every sync so the level/credentials stay
 # current with the description. Hand-editing? Set MANUAL_EDIT = True to lock.
 MANUAL_EDIT = False
 
-ACTIVITY_SCENE = "PIPES"
+ACTIVITY_SCENE = "BRICKOUT"
 # Label printed on the activity's thumb in the level (not confirmed live — utilsdemo matches its known aliases). The test
 # clicks that thumb directly instead of opening activities until it finds the
 # right one.
@@ -33,7 +33,7 @@ USERNAME = "vt233624"
 PASSWORD = "3690"
 
 
-def test_tc1150_pipes_activity_successful_finish_in_medium_level(altdriver):
+def test_tc1151_brickout_solve_successful_brickout_activity_on_medium_difficulty(altdriver):
     driver, _platform = altdriver
 
     # 1. Login with the credentials from the Rally description. When several
@@ -50,7 +50,7 @@ def test_tc1150_pipes_activity_successful_finish_in_medium_level(altdriver):
     assert utilsdemo.open_level_to_activities(driver), \
         f"{TC_ID}: activity selection screen was not reached"
 
-    # 4. Find the PIPES activity in this level and play it to completion.
+    # 4. Find the BRICKOUT activity in this level and play it to completion.
     #    The thumb is chosen by its printed title (ACTIVITY_TITLE), so the test
     #    never plays a different activity by mistake.
     #    On any failed assert below the test stays on the failing screen, so
@@ -58,12 +58,12 @@ def test_tc1150_pipes_activity_successful_finish_in_medium_level(altdriver):
     result = utilsdemo.solve_activity_in_level(driver, ACTIVITY_SCENE,
                                                title_hint=ACTIVITY_TITLE)
     assert result["found"], \
-        f"{TC_ID}: PIPES activity was not found in level {MAP_LEVEL}"
+        f"{TC_ID}: BRICKOUT activity was not found in level {MAP_LEVEL}"
     assert result["total"] > 0 and result["done"] >= result["total"], (
-        f"{TC_ID}: PIPES did not complete — progress "
-        f"{result['done']}/{result['total']}. Expected: The Pipes activity is marked as successfully finished at Medium level. The completion is registered, appropriate feedback/score is shown to the user, and progress/points are updated correctly.")
+        f"{TC_ID}: BRICKOUT did not complete — progress "
+        f"{result['done']}/{result['total']}. Expected: - Brickout activity loads correctly on Medium difficulty - Ball and paddle controls respond properly - Bricks are destroyed on contact with the ball - Activity completes successfully when all bricks are broken - Score/stars are awarded correctly upon completion - Success screen is displayed with correct feedback - Progress is saved and the activity is marked as completed")
     assert result["feedback"], \
-        f"{TC_ID}: PIPES reached {result['done']}/{result['total']} but the final feedback screen never appeared"
+        f"{TC_ID}: BRICKOUT reached {result['done']}/{result['total']} but the final feedback screen never appeared"
 
     # 5. Clean state for the next test case: back to the level map (no logout —
     #    the next case in this run reuses the session and just clicks its level)

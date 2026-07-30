@@ -1,3 +1,12 @@
 {
-  "enabledMcpjsonServers": ["alttester"]
+  "permissions": {
+    "allow": [
+      "Bash(python -m py_compile Utilities/utilsdemo.py runner/test_generator.py runner/live_skeleton.py runner/mcp_discovery.py run_panel.py)",
+      "Bash(python -c ' *)",
+      "Bash(python -)"
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "alttester"
+  ]
 }

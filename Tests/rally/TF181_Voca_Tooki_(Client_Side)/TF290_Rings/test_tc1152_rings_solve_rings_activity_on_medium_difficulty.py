@@ -1,16 +1,16 @@
 """
-TC1150 — Pipes Activity - Successful finish in Medium level
+TC1152 — Rings - Solve Rings activity on Medium difficulty
 
 Auto-generated from Rally (Method = Automated).
 
 Description:
-    Test Type: Functional Priority: Important Feature: Pipes Activity Level: Medium Description: Verify that a user can successfully complete the Pipes activity when playing at Medium difficulty level. The activity should register as finished and award appropriate points/progress. Preconditions: - Username: vt233624 - Password: 3690 - Account is at level 43 - Pipes activity is available and unlocked
+    Test Case: Solve Rings Activity on Medium Difficulty Type: Functional Priority: Important Component: Rings Activity Test Account: Username: vt233624 / Password: 3690 Level: 43 Preconditions: - User is logged in with account vt233624 - User has access to level 43 - Rings activity is available at the configured level - Activity difficulty is set to Medium
 
 (No test steps recorded in Rally — add them to the case, then re-sync.)
 
 Validation (from Rally):
-    Input:    1. Log in with username: vt233624, password: 3690 2. Navigate to the Pipes activity 3. Select Medium level 4. Complete all required steps of the activity 5. Submit/finish the activity
-    Expected: The Pipes activity is marked as successfully finished at Medium level. The completion is registered, appropriate feedback/score is shown to the user, and progress/points are updated correctly.
+    Input:    1. Log in to Voca Tooki with username: vt233624 / password: 3690 2. Navigate to level 43 3. Open the Rings activity 4. Verify the difficulty is set to Medium 5. Start the Rings activity 6. Complete the activity by matching/placing all rings correctly 7. Observe the completion/result screen
+    Expected: - Rings activity loads correctly on Medium difficulty - Rings controls respond properly to user input - Activity completes successfully when all rings are correctly placed/matched - Score/stars are awarded correctly upon completion - Success screen is displayed with correct feedback - Progress is saved and the activity is marked as completed
 """
 
 import time
@@ -18,12 +18,12 @@ import pytest
 from Utilities import utilsdemo
 
 # Rally test case ID (for sync and maintenance)
-TC_ID = "TC1150"
+TC_ID = "TC1152"
 # Regenerated from the Rally case on every sync so the level/credentials stay
 # current with the description. Hand-editing? Set MANUAL_EDIT = True to lock.
 MANUAL_EDIT = False
 
-ACTIVITY_SCENE = "PIPES"
+ACTIVITY_SCENE = "RINGS"
 # Label printed on the activity's thumb in the level (not confirmed live — utilsdemo matches its known aliases). The test
 # clicks that thumb directly instead of opening activities until it finds the
 # right one.
@@ -33,7 +33,7 @@ USERNAME = "vt233624"
 PASSWORD = "3690"
 
 
-def test_tc1150_pipes_activity_successful_finish_in_medium_level(altdriver):
+def test_tc1152_rings_solve_rings_activity_on_medium_difficulty(altdriver):
     driver, _platform = altdriver
 
     # 1. Login with the credentials from the Rally description. When several
@@ -50,7 +50,7 @@ def test_tc1150_pipes_activity_successful_finish_in_medium_level(altdriver):
     assert utilsdemo.open_level_to_activities(driver), \
         f"{TC_ID}: activity selection screen was not reached"
 
-    # 4. Find the PIPES activity in this level and play it to completion.
+    # 4. Find the RINGS activity in this level and play it to completion.
     #    The thumb is chosen by its printed title (ACTIVITY_TITLE), so the test
     #    never plays a different activity by mistake.
     #    On any failed assert below the test stays on the failing screen, so
@@ -58,12 +58,12 @@ def test_tc1150_pipes_activity_successful_finish_in_medium_level(altdriver):
     result = utilsdemo.solve_activity_in_level(driver, ACTIVITY_SCENE,
                                                title_hint=ACTIVITY_TITLE)
     assert result["found"], \
-        f"{TC_ID}: PIPES activity was not found in level {MAP_LEVEL}"
+        f"{TC_ID}: RINGS activity was not found in level {MAP_LEVEL}"
     assert result["total"] > 0 and result["done"] >= result["total"], (
-        f"{TC_ID}: PIPES did not complete — progress "
-        f"{result['done']}/{result['total']}. Expected: The Pipes activity is marked as successfully finished at Medium level. The completion is registered, appropriate feedback/score is shown to the user, and progress/points are updated correctly.")
+        f"{TC_ID}: RINGS did not complete — progress "
+        f"{result['done']}/{result['total']}. Expected: - Rings activity loads correctly on Medium difficulty - Rings controls respond properly to user input - Activity completes successfully when all rings are correctly placed/matched - Score/stars are awarded correctly upon completion - Success screen is displayed with correct feedback - Progress is saved and the activity is marked as completed")
     assert result["feedback"], \
-        f"{TC_ID}: PIPES reached {result['done']}/{result['total']} but the final feedback screen never appeared"
+        f"{TC_ID}: RINGS reached {result['done']}/{result['total']} but the final feedback screen never appeared"
 
     # 5. Clean state for the next test case: back to the level map (no logout —
     #    the next case in this run reuses the session and just clicks its level)

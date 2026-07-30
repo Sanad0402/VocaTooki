@@ -208,10 +208,33 @@ details.advanced summary { cursor: pointer; color: var(--ink-2); font-size: 12.5
 
 .suite-toolbar { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 #skeleton-msg { margin: 0; }
+/* Colour follows the outcome — a success used to be shown on the same amber
+   "warning" background as a failure, which read as "something went wrong". */
 #skeleton-msg:not(:empty) {
   display: block; margin-top: 10px; padding: 9px 12px; border-radius: 9px;
-  font-size: 12.5px; background: var(--warn-soft); color: var(--ink);
+  font-size: 12.5px; background: var(--surface-2); color: var(--ink);
+  border-left: 3px solid var(--line);
 }
+#skeleton-msg.msg-ok   { background: var(--pass-soft); color: var(--ink); border-left-color: var(--pass); }
+#skeleton-msg.msg-warn { background: var(--warn-soft); color: var(--ink); border-left-color: var(--warn); }
+#skeleton-msg.msg-err  { background: var(--fail-soft); color: var(--ink); border-left-color: var(--fail); }
+#skeleton-msg.msg-info { background: var(--surface-2); color: var(--ink-2); border-left-color: var(--accent); }
+/* ---------------- busy buttons ----------------
+   Any action that waits on the server shows a spinner in its own button, so a
+   slow generate / Rally call never looks like a dead click. */
+.spinner {
+  display: inline-block; width: 11px; height: 11px; margin-right: 6px;
+  vertical-align: -1px; border-radius: 50%;
+  border: 2px solid currentColor; border-top-color: transparent;
+  animation: spin .7s linear infinite;
+}
+.is-busy { opacity: .8; cursor: progress; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  /* Slow, not stopped — the spinner is the only "still working" signal. */
+  .spinner { animation-duration: 2.4s; }
+}
+
 .suite-form {
   margin-top: 10px; padding: 12px; border: 1px solid var(--line);
   border-radius: 9px; background: var(--surface-2);

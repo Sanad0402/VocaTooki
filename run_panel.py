@@ -94,6 +94,41 @@ def _last_sync_info():
     }
 
 
+def _prune_generated_tests():
+    """Reconcile the whole project with the suite after cases disappear.
+
+    Deleting a case (or a whole folder) in the panel, or dropping it in Rally
+    and re-syncing, used to leave its generated test file in ``Tests/rally``,
+    where it kept on running and no longer belonged to any Rally case. Every
+    removal path now sweeps the whole tree instead of tracking single ids.
+
+    Returns response fields for the UI: ``removed_tests`` (paths deleted),
+    ``kept_tests`` (hand-locked files left in place) and a ``prune_message``,
+    all omitted when there was nothing to do.
+    """
+    from runner.test_generator import RallyTestGenerator
+    try:
+        result = RallyTestGenerator(_ROOT).prune_to_suite()
+    except Exception:
+        logger.exception("pruning generated tests failed")
+        return {}
+
+    deleted = [os.path.relpath(p, _ROOT) for p in result.get("deleted", [])]
+    kept = [os.path.relpath(p, _ROOT) for p in result.get("kept", [])]
+    if not deleted and not kept:
+        return {}
+
+    parts = []
+    if deleted:
+        parts.append(f"removed {len(deleted)} generated test(s): " + ", ".join(deleted))
+    if kept:
+        parts.append(f"kept {len(kept)} hand-edited file(s) (MANUAL_EDIT = True): "
+                     + ", ".join(kept) + " — delete manually if no longer needed")
+    logger.info("Prune: " + "; ".join(parts))
+    return {"removed_tests": deleted, "kept_tests": kept,
+            "prune_message": "; ".join(parts)}
+
+
 def _get_rally_config():
     """Get Rally configuration from environment."""
     rally_token = os.getenv("RALLY_API_TOKEN", "")
@@ -300,9 +335,13 @@ def api_rally_sync():
             return jsonify({"error": "Failed to sync from Rally"}), 500
 
         # Refresh ONLY already-generated tests; new cases stay "not generated"
-        # until the user explicitly clicks generate on them.
+        # until the user explicitly clicks generate on them. Cases that no
+        # longer exist in Rally have their code removed from the project.
         generator = RallyTestGenerator(_ROOT)
-        refreshed = generator.refresh_generated_tests()
+        # prune=False: _prune_generated_tests does the sweep, so the deletions
+        # are reported to the UI instead of happening silently.
+        refreshed = generator.refresh_generated_tests(prune=False)
+        pruned = _prune_generated_tests()
 
         # Reload suite tree
         new_suite = suite.tree()
@@ -310,10 +349,13 @@ def api_rally_sync():
         total = sum(len(f.get("cases", [])) for f in new_suite.get("folders", []))
         logger.info(f"Synced {total} case(s) from {project_name}; refreshed {len(refreshed)} generated test(s)")
 
+        removed = len(pruned.get("removed_tests", []))
         return jsonify({
             "success": True,
             "message": (f"Synced {total} case(s) from {project_name} "
-                        f"({len(refreshed)} generated test(s) refreshed)"),
+                        f"({len(refreshed)} generated test(s) refreshed"
+                        + (f", {removed} removed" if removed else "") + ")"),
+            **pruned,
             "suite": new_suite,
             "project_name": project_name,
             "count": total,
@@ -345,7 +387,8 @@ def api_suite_folder_delete(folder_id):
         tree = suite.delete_folder(folder_id, cascade=cascade)
     except suite.SuiteError as e:
         return jsonify({"error": str(e)}), 400
-    return jsonify(tree)
+    pruned = _prune_generated_tests()
+    return jsonify({**tree, **pruned})
 
 
 @app.route("/api/suite/skeleton", methods=["POST"])
@@ -433,7 +476,9 @@ def api_suite_case_delete(tc_id):
         tree = suite.delete_case(tc_id)
     except suite.SuiteError as e:
         return jsonify({"error": str(e)}), 400
-    return jsonify(tree)
+    # The case is gone from the suite; its generated code must not stay behind.
+    pruned = _prune_generated_tests()
+    return jsonify({**tree, **pruned})
 
 
 @app.route("/api/run", methods=["POST"])
@@ -502,9 +547,13 @@ def api_report_html():
 def api_case_generate(tc_id):
     """Explicitly generate the pytest file for one Rally case.
 
-    This is the panel's per-case "generate" action: sync imports the case as
-    "not generated"; this writes the actual test code into the project (a real
-    playthrough for activity/login/logout cases, an honest stub otherwise)."""
+    LIVE-FIRST: when the game + AltTester are reachable on the configured
+    host/port, the code is generated *from the running app* — the current
+    scene's real element names are discovered and wired into the test (same
+    engine as the batch "Generate from live app" button). Only when the app is
+    unreachable (or the caller passes ``live: false``) does this fall back to
+    the offline template generator, and the response says which path was used.
+    """
     from runner.test_generator import RallyTestGenerator
     import json as _json
     try:
@@ -515,17 +564,69 @@ def api_case_generate(tc_id):
     tc = next((t for t in cases if t.get("id") == tc_id), None)
     if not tc:
         return jsonify({"error": f"{tc_id} not found in the synced Rally suite. Sync first."}), 404
+
+    d = request.get_json(force=True, silent=True) or {}
+    host = d.get("host") or "127.0.0.1"
     try:
-        path = RallyTestGenerator(_ROOT).generate_test(tc)
-    except Exception as e:
-        logger.exception("generate failed for %s", tc_id)
-        return jsonify({"error": f"Generation failed: {e}"}), 500
+        port = int(d.get("port") or 13000)
+    except (TypeError, ValueError):
+        port = 13000
+    want_live = d.get("live", True)
+
+    path, elements, source, live_error = None, {}, "offline", None
+    if want_live:
+        # Cheap TCP check first so an unreachable app fails fast instead of
+        # blocking the request on the connect timeout.
+        if manager._preflight(host, port, timeout=1.5):
+            from runner.live_skeleton import generate_from_live_app
+            try:
+                path, elements, source = generate_from_live_app(
+                    tc_id, host=host, port=port,
+                    platform=d.get("platform") or "WindowsEditor",
+                    app_id=d.get("app_id") or "",
+                    device_instance_id=d.get("device_instance_id") or "",
+                )
+            except Exception as e:  # noqa: BLE001 - fall back, never lose the click
+                logger.exception("live generation failed for %s; falling back offline", tc_id)
+                live_error = str(e)
+        else:
+            live_error = f"AltTester not reachable at {host}:{port}"
+
+    if path is None:
+        try:
+            path = RallyTestGenerator(_ROOT).generate_test(tc)
+        except Exception as e:
+            logger.exception("generate failed for %s", tc_id)
+            return jsonify({"error": f"Generation failed: {e}"}), 500
+
     rel = os.path.relpath(str(path), _ROOT)
     impl = suite.impl_status((tc.get("action") or {}).get("nodeid") or "")
-    msg = (f"{tc_id}: generated {rel}" if impl == "real"
-           else f"{tc_id}: wrote a stub ({rel}) — add credentials/level to the Rally "
-                f"description and re-sync, or use “Generate from live app”.")
+
+    if source in ("mcp", "altdriver"):
+        via = "the MCP CLI" if source == "mcp" else "AltDriver (MCP CLI unavailable)"
+        msg = (f"{tc_id}: generated {rel} from the LIVE app via {via} — scene "
+               f"'{elements.get('scene')}' ({len(elements.get('inputs', []))} inputs, "
+               f"{len(elements.get('buttons', []))} buttons).")
+        activity = (elements.get("activity") or {}).get("title")
+        if activity:
+            msg += f" Activity thumb confirmed on screen: “{activity}”."
+        if impl != "real":
+            msg += (" Still a stub: the current scene didn't cover this case — "
+                    "navigate the app to the screen it tests and generate again, "
+                    "or finish the pre-wired TODOs.")
+    else:
+        msg = f"{tc_id}: generated {rel} offline (templates only, app not read)."
+        if live_error:
+            msg += f" Live generation skipped: {live_error}."
+        if impl != "real":
+            msg += (" Wrote a stub — add credentials/level to the Rally description "
+                    "and re-sync, or start the game and generate again.")
+
     return jsonify({"ok": True, "impl": impl, "path": rel, "message": msg,
+                    "source": source, "live_error": live_error,
+                    "scene": elements.get("scene"),
+                    "inputs": elements.get("inputs", []),
+                    "buttons": elements.get("buttons", []),
                     "suite": suite.tree()})
 
 

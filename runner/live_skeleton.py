@@ -59,21 +59,11 @@ def discover_elements(driver):
     return {"scene": scene, "inputs": inputs, "buttons": buttons, "all": names}
 
 
-def generate_live_skeleton(tc_id, host="127.0.0.1", port=13000, platform="WindowsEditor",
-                           app_id="", device_instance_id=""):
-    """Discover elements on the live app and (re)write ``tc_id``'s test skeleton.
-
-    Returns (written_path, elements). Raises if the case is unknown or the app
-    is unreachable. A file locked with ``MANUAL_EDIT = True`` is left untouched.
-    """
+def _discover_with_driver(host, port, platform, app_id="", device_instance_id=""):
+    """Element discovery over a short-lived AltDriver connection."""
     from alttester import AltDriver
 
-    data = suite_mod.load()
-    tc = next((c for c in data["test_cases"] if c.get("id") == tc_id), None)
-    if not tc:
-        raise ValueError(f"Test case {tc_id} not found in the suite (data/rally_suite.json).")
-
-    kwargs = dict(host=host, port=port, platform=platform, enable_logging=False)
+    kwargs = dict(host=host, port=int(port), platform=platform, enable_logging=False)
     if (app_id or "").strip():
         kwargs["app_id"] = app_id.strip()
     if (device_instance_id or "").strip():
@@ -81,7 +71,7 @@ def generate_live_skeleton(tc_id, host="127.0.0.1", port=13000, platform="Window
 
     driver = AltDriver(**kwargs)
     try:
-        elements = discover_elements(driver)
+        return discover_elements(driver)
     finally:
         try:
             driver.close()
@@ -91,11 +81,80 @@ def generate_live_skeleton(tc_id, host="127.0.0.1", port=13000, platform="Window
             except Exception:
                 pass
 
-    logger.info(f"[{tc_id}] discovered {len(elements['inputs'])} input(s), "
-                f"{len(elements['buttons'])} button(s) on scene '{elements['scene']}'")
-    path = RallyTestGenerator(str(suite_mod._ROOT)).generate_skeleton(tc, elements)
-    logger.info(f"[{tc_id}] wrote skeleton: {path}")
-    return str(path), elements
+
+def discover_live(host="127.0.0.1", port=13000, platform="WindowsEditor",
+                  app_id="", device_instance_id="", activity_aliases=()):
+    """What the app looks like right now — through the MCP CLI when possible.
+
+    The panel's generate button reads the game the same way the MCP tooling
+    does: the ``alttester`` CLI. That also answers questions AltDriver's plain
+    object list cannot, such as which activity title is printed on each thumb.
+    If the CLI is missing or its session cannot be established, this falls back
+    to a direct AltDriver connection.
+
+    Returns ``(elements, source)`` with source ``"mcp"`` or ``"altdriver"``.
+    """
+    from runner import mcp_discovery
+
+    try:
+        elements = mcp_discovery.discover(host=host, port=int(port), app_id=app_id,
+                                          activity_aliases=activity_aliases)
+        logger.info(f"[discovery] via MCP CLI — scene '{elements.get('scene')}', "
+                    f"{len(elements.get('all', []))} objects, "
+                    f"activity={elements.get('activity') or 'n/a'}")
+        return elements, "mcp"
+    except Exception as e:  # noqa: BLE001 - the CLI is optional, never fatal
+        logger.info(f"[discovery] MCP CLI unavailable ({e}); using AltDriver")
+
+    elements = _discover_with_driver(host, port, platform, app_id, device_instance_id)
+    elements.setdefault("activity", {})
+    elements["source"] = "altdriver"
+    return elements, "altdriver"
+
+
+def generate_from_live_app(tc_id, host="127.0.0.1", port=13000, platform="WindowsEditor",
+                           app_id="", device_instance_id=""):
+    """Generate one Rally case's test from the live app (MCP-first).
+
+    Beyond plain element discovery this resolves what the case is *about*: for
+    an activity case it asks the running game whether that activity's thumb is
+    on screen, and bakes the exact printed label into the test.
+
+    Returns ``(path, elements, source)``.
+    """
+    data = suite_mod.load()
+    tc = next((c for c in data["test_cases"] if c.get("id") == tc_id), None)
+    if not tc:
+        raise ValueError(f"Test case {tc_id} not found in the suite (data/rally_suite.json).")
+
+    gen = RallyTestGenerator(str(suite_mod._ROOT))
+    nodeid = (tc.get("action") or {}).get("nodeid") or ""
+    scene = gen._infer_activity_scene(tc.get("name", ""), tc.get("description", ""), nodeid)
+    aliases = gen.activity_aliases(scene) if scene else []
+
+    elements, source = discover_live(host=host, port=port, platform=platform,
+                                     app_id=app_id, device_instance_id=device_instance_id,
+                                     activity_aliases=aliases)
+    path = gen.generate_skeleton(tc, elements)
+    logger.info(f"[{tc_id}] generated {path} from the live app via {source}")
+    return str(path), elements, source
+
+
+def generate_live_skeleton(tc_id, host="127.0.0.1", port=13000, platform="WindowsEditor",
+                           app_id="", device_instance_id=""):
+    """Discover elements on the live app and (re)write ``tc_id``'s test skeleton.
+
+    Returns (written_path, elements). Raises if the case is unknown or the app
+    is unreachable. A file locked with ``MANUAL_EDIT = True`` is left untouched.
+
+    Thin wrapper over :func:`generate_from_live_app` (kept for the CLI and for
+    callers that don't care which transport was used).
+    """
+    path, elements, _source = generate_from_live_app(
+        tc_id, host=host, port=port, platform=platform,
+        app_id=app_id, device_instance_id=device_instance_id,
+    )
+    return path, elements
 
 
 def generate_skeletons_live(tc_ids, host="127.0.0.1", port=13000, platform="WindowsEditor",
@@ -107,30 +166,25 @@ def generate_skeletons_live(tc_ids, host="127.0.0.1", port=13000, platform="Wind
     Returns (results, elements) where results is a list of per-case dicts:
     ``{"id", "ok", "path"?, "error"?}``. Raises only if the app is unreachable.
     """
-    from alttester import AltDriver
-
     data = suite_mod.load()
     by_id = {c.get("id"): c for c in data["test_cases"]}
-
-    kwargs = dict(host=host, port=int(port), platform=platform, enable_logging=False)
-    if (app_id or "").strip():
-        kwargs["app_id"] = app_id.strip()
-    if (device_instance_id or "").strip():
-        kwargs["device_instance_id"] = device_instance_id.strip()
-
-    driver = AltDriver(**kwargs)
-    try:
-        elements = discover_elements(driver)
-    finally:
-        try:
-            driver.close()
-        except Exception:
-            try:
-                driver.stop()
-            except Exception:
-                pass
-
     gen = RallyTestGenerator(str(suite_mod._ROOT))
+
+    # One discovery pass for the whole batch. Activity titles are probed for
+    # every selected activity case, so each of them can still be matched
+    # against what is actually on screen.
+    aliases = []
+    for tc_id in tc_ids:
+        tc = by_id.get(tc_id) or {}
+        scene = gen._infer_activity_scene(tc.get("name", ""), tc.get("description", ""),
+                                          (tc.get("action") or {}).get("nodeid") or "")
+        if scene:
+            aliases += [a for a in gen.activity_aliases(scene) if a not in aliases]
+
+    elements, _source = discover_live(host=host, port=port, platform=platform,
+                                      app_id=app_id, device_instance_id=device_instance_id,
+                                      activity_aliases=aliases)
+
     results = []
     for tc_id in tc_ids:
         tc = by_id.get(tc_id)

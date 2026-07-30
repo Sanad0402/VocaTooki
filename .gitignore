@@ -44,3 +44,6 @@ data/test_users.py
 data/run_history.json
 panel.log
 panel.err.log
+
+# AltTester CLI scratch (scene snapshots written by every MCP/CLI command)
+.alttester-cli/

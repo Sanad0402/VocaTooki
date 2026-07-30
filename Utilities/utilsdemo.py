@@ -598,31 +598,425 @@ def _find_level_icons(altdriver):
     return []
 
 
-def enter_level_number(altdriver, level_num, retries=3):
-    """Click the map level labelled ``level_num`` (as shown on the icon).
+# A map node's prefab name says what kind of level it is, and every icon is
+# suffixed with the level number it opens ("TestLevelIcon(Clone) 40").
+# Read off the live map: 248 nodes, exams every 4-5 levels.
+LEVEL_ICON_KINDS = {
+    "LessonLevelIcon": "lesson",        # the usual 3-activity level
+    "TestLevelIcon": "exam",            # 4, 8, 13, 17, 22, 26, 31, 35, 40, ...
+    "DialogueLevelIcon": "dialogue",
+    "AiDialogueLevelIcon": "ai_dialogue",
+    "RCLevelIcon": "reading",           # reading comprehension
+    "TaskLevelIcon": "task",
+}
 
-    For Rally cases whose description names the exact map level ("level 44"),
-    so no lesson/difficulty resolution through the class map is needed.
-    The number is the HUMAN-VISIBLE label: icons are numbered from 1 on screen
-    while the icon list is 0-based, so label N is index N-1 (clicking index 44
-    opened the level labelled 45).
-    Right after login the app is on the home screen, not the map, so when no
-    icons are visible this first navigates there via the GO-Map button.
+
+def _level_icon_by_number(altdriver, level_num):
+    """The map icon that opens ``level_num``, whatever kind of level it is.
+
+    Icons are named after the level they open, so this beats counting: it
+    cannot drift when the map has gaps, a different prefab, or an ordering the
+    icon list doesn't reflect. Every prefab kind is tried, because an exam node
+    ("TestLevelIcon(Clone) 40") is not a lesson node.
+
+    Returns ``(AltObject|None, name|None, kind|None)``.
     """
-    logging.info(f"[Map Navigation] Entering level number {level_num} directly")
+    for prefab, kind in LEVEL_ICON_KINDS.items():
+        for name in (f"{prefab}(Clone) {level_num}",
+                     f"{prefab} Variant(Clone) {level_num}"):
+            obj = find_element(altdriver, name)
+            if obj is not None:
+                return obj, name, kind
+    return None, None, None
+
+
+def level_kind(altdriver, level_num):
+    """What kind of level ``level_num`` is on the map ("lesson", "exam", ...).
+
+    Lets a test say out loud what it expects — an exam case pointed at a lesson
+    node is a Rally data mistake worth failing on, not a mystery timeout.
+    Returns None when the map is not showing or the level does not exist.
+    """
+    _obj, _name, kind = _level_icon_by_number(altdriver, level_num)
+    return kind
+
+
+START_SCENE = "NewStartScene"   # the screen GO-Map lives on; back from the map lands here
+MAP_SCENE = "MapScene"
+
+# Every feature reachable from the start screen, surveyed on the live app.
+# button  - what to click on the start screen
+# scene   - the scene it loads ("" when it opens a popup on the start screen)
+# markers - objects that prove the feature is really open
+# back    - how to leave it (None: no back control exists, needs ensure_on_map)
+APP_FEATURES = {
+    "map":            {"button": "GO-Map", "scene": MAP_SCENE,
+                       "markers": ["BackButton"], "back": "BackButton"},
+    "tasks":          {"button": "GO-Tasks", "scene": "TasksSelectionScene",
+                       "markers": ["ALL-NavigationTab", "Open-NavigationTab"], "back": "prev"},
+    "events":         {"button": "GO-Events", "scene": "EventSelectionScene",
+                       "markers": ["EventCard(Clone)", "StartButton", "WinnersButton"],
+                       "back": "BackButton"},
+    "audiobook":      {"button": "GO-Audiobook", "scene": "AudiobookLibraryScene",
+                       "markers": ["BookCard(Clone)", "PlayButton"], "back": "BackButton"},
+    "competitions":   {"button": "GO-Competitions", "scene": "TournamentSelectionScene",
+                       "markers": ["Toggles"], "back": "BackButton"},
+    "treasure island": {"button": "GO-Treasure_Island", "scene": "TreasureIsland",
+                        "markers": ["GO-TI-Progress_Bar-Tube (1)"], "back": None},
+    "daily games":    {"button": "GO-Daily", "scene": "DailyGamesSelection",
+                       "markers": ["WinnersCards", "Ctrl-Card_1st"], "back": "prev"},
+    "dialogue":       {"button": "GO-Dialogue", "scene": "DialogueSelectionScene",
+                       "markers": ["DialogueSelectionButton(Clone)"], "back": "BackButton"},
+    "multiplayer":    {"button": "GO-Multiplayer", "scene": "MultiplayerHub",
+                       "markers": ["Head_to_Head-Enter_Button", "DraWin-Enter_Button"],
+                       "back": None},
+    "avatar builder": {"button": "GO-Avatar_Builder", "scene": "AvatarBuilderScene",
+                       "markers": ["Level1_ButtonGroup"], "back": "BackButton"},
+    "settings":       {"button": "SettingsButton", "scene": "",
+                       "markers": ["SoundOnButton", "MusicOnButton", "LanguageToggleGroup"],
+                       "back": "Exit"},
+    "word list":      {"button": "WordListButton", "scene": "WordListScene",
+                       "markers": ["audioButton", "upButton", "downButton"],
+                       "back": "nextButton"},
+    "user state":     {"button": "UserStateButton", "scene": "",
+                       "markers": ["Button"], "back": "Button"},
+}
+
+
+# The two Daily Games and the scene each one loads. GetCurrentActivity returns
+# "Undefined" for them, so the SCENE is the only reliable identifier.
+DAILY_GAMES = {
+    "wordle": {"entry": "//Wordle/GameIcon", "scene": "VTWordGuess"},
+    "word connect": {"entry": "//Word Connect/GameIcon", "scene": "VTWORD_CONNECT"},
+}
+_WC_CARD_NAMES = ("WordsConnectCard_4 Variant(Clone)", "WordsConnectCard_5 Variant(Clone)",
+                  "WordsConnectCard_3 Variant(Clone)", "WordsConnectCard_6 Variant(Clone)")
+
+
+def _word_connect_cards(altdriver):
+    """(card objects, letters) for the Word Connect board, or ([], [])."""
+    for name in _WC_CARD_NAMES:
+        cards = altdriver.find_objects(By.NAME, name)
+        if not cards:
+            continue
+        letters = []
+        for c in cards:
+            try:
+                letters.append(c.find_object_from_object(By.PATH, "//Letter")
+                               .get_text().strip().lower())
+            except Exception:
+                letters.append("")
+        return cards, letters, name
+    return [], [], ""
+
+
+def word_connect_words(altdriver):
+    """Today's target words, read from the game itself.
+
+    ``WordConnect.WordsConnect`` on GameCanvas carries the whole puzzle bank as
+    ``levels`` (each ``{letters, words}``) plus ``currentLevel``. The level is
+    matched by the letters ACTUALLY on the cards rather than trusting the index,
+    so an off-by-one or a rolled-over level can't make the solver swipe words
+    that aren't on the board. Returns [] when it cannot be determined.
+    """
+    gc = find_element(altdriver, "GameCanvas")
+    if gc is None:
+        logging.error("[Daily] GameCanvas not found — not in Word Connect?")
+        return []
     try:
-        level_objs = []
-        for attempt in range(retries):
-            level_objs = _find_level_icons(altdriver)
-            if level_objs:
+        levels = gc.get_component_property(
+            "WordConnect.WordsConnect", "levels", "Assembly-CSharp") or []
+        index = gc.get_component_property(
+            "WordConnect.WordsConnect", "currentLevel", "Assembly-CSharp")
+    except Exception as e:  # noqa: BLE001
+        logging.error(f"[Daily] could not read the Word Connect puzzle bank: {e}")
+        return []
+
+    _cards, letters, _name = _word_connect_cards(altdriver)
+    on_board = sorted(l for l in letters if l)
+    logging.info(f"[Daily] Word Connect level {index}, letters on board: {on_board}")
+
+    def words_of(entry):
+        return [str(w).upper() for w in (entry or {}).get("words", [])]
+
+    if isinstance(index, int) and 0 <= index < len(levels):
+        entry = levels[index]
+        if not on_board or sorted(str(c).lower() for c in entry.get("letters", [])) == on_board:
+            return words_of(entry)
+        logging.warning(f"[Daily] level {index} letters {entry.get('letters')} do not match "
+                        f"the board {on_board} — searching the bank by letters")
+
+    for entry in levels:
+        if sorted(str(c).lower() for c in entry.get("letters", [])) == on_board:
+            return words_of(entry)
+
+    logging.error(f"[Daily] no level in the bank matches the board {on_board}")
+    return []
+
+
+def solve_daily_game(altdriver, game, username=None, password=None):
+    """Open a Daily Game from the start screen and play it to a win.
+
+    ``game`` is "wordle" or "word connect". Returns
+    ``{"opened", "solved", "scene", "note"}`` — never raises, so a test can
+    assert on the fields and a failure leaves the app on the failing screen.
+
+    Daily Games are once per day per account: when the game has already been
+    played the entry has no Play button, which comes back as opened=False with
+    a note saying so, NOT as a pass.
+    """
+    from Activities import activitiesDemo as A
+
+    key = (game or "").strip().lower()
+    spec = DAILY_GAMES.get(key)
+    result = {"opened": False, "solved": False, "scene": None, "note": ""}
+    if not spec:
+        result["note"] = f"unknown daily game '{game}'"
+        return result
+
+    if not open_feature(altdriver, "daily games", username=username, password=password):
+        result["note"] = "the Daily Games page did not open (already played today?)"
+        return result
+
+    icons = altdriver.find_objects(By.PATH, spec["entry"])
+    if not icons:
+        result["note"] = f"'{game}' is not on the Daily Games page"
+        return result
+    icons[0].tap()
+    time.sleep(4)
+
+    play = find_element(altdriver, "PlayNowButton")
+    if play is None:
+        result["note"] = f"no Play button for '{game}' — already played today"
+        return result
+    play.tap()
+
+    deadline = time.time() + 45
+    while time.time() < deadline:
+        if _current_scene(altdriver) == spec["scene"]:
+            break
+        time.sleep(2)
+    result["scene"] = _current_scene(altdriver)
+    if result["scene"] != spec["scene"]:
+        result["note"] = f"expected scene {spec['scene']}, got {result['scene']}"
+        return result
+    result["opened"] = True
+    time.sleep(3)
+
+    try:
+        if key == "wordle":
+            A.wordle(altdriver)                 # reads the answer off GameplayManager
+        else:
+            words = word_connect_words(altdriver)
+            if not words:
+                result["note"] = "could not read today's Word Connect words"
+                return result
+            logging.info(f"[Daily] solving Word Connect with {words}")
+            _cards, _letters, card_name = _word_connect_cards(altdriver)
+            A.word_connect(altdriver, words=words, card_name=card_name)
+    except Exception as e:  # noqa: BLE001 - report, don't mask
+        result["note"] = f"solver failed: {e}"
+        return result
+
+    time.sleep(5)
+    result["solved"] = daily_game_won(altdriver)
+    if not result["solved"]:
+        result["note"] = "the game did not report a win"
+    return result
+
+
+def daily_game_won(altdriver, timeout=20):
+    """True when the daily game shows its win/feedback screen."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if find_element(altdriver, "DailyGamesFinalFeedback") is not None:
+            return True
+        for o in altdriver.find_objects(By.NAME, "Text (TMP)"):
+            try:
+                if "won" in (o.get_text() or "").lower():
+                    return True
+            except Exception:
+                continue
+        time.sleep(2)
+    return False
+
+
+def open_feature(altdriver, feature, username=None, password=None, timeout=40):
+    """Open a start-screen feature by name ("events", "tasks", ...).
+
+    Goes back to the start screen first (from wherever the app is), clicks the
+    feature's button, and waits until its scene loads or one of its marker
+    objects appears. Returns True only when the feature is really showing —
+    a click that lands nowhere is a failure, not a pass.
+    """
+    spec = APP_FEATURES.get((feature or "").strip().lower())
+    if not spec:
+        logging.error(f"[Feature] unknown feature '{feature}'")
+        return False
+
+    if username:
+        ensure_logged_in(altdriver, username, password)
+    if not return_to_start(altdriver):
+        ensure_on_map(altdriver, username, password)
+        return_to_start(altdriver)
+
+    btn = find_element(altdriver, spec["button"])
+    if btn is None:
+        logging.error(f"[Feature] '{spec['button']}' is not on the start screen")
+        return False
+    click_by_name(altdriver, spec["button"])
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if spec["scene"] and _current_scene(altdriver) == spec["scene"]:
+            logging.info(f"[Feature] '{feature}' open (scene {spec['scene']})")
+            return True
+        for marker in spec["markers"]:
+            if find_element(altdriver, marker) is not None:
+                logging.info(f"[Feature] '{feature}' open (found {marker})")
+                return True
+        time.sleep(2)
+
+    logging.error(f"[Feature] '{feature}' did not open "
+                  f"(scene: {_current_scene(altdriver)})")
+    return False
+
+
+def _current_scene(altdriver):
+    try:
+        return altdriver.get_current_scene()
+    except Exception:
+        return None
+
+
+def return_to_start(altdriver, max_steps=10):
+    """Back out all the way to the start screen.
+
+    The app's reliable anchor: pressing back from the MAP leads here, and from
+    here GO-Map opens the map again. So when backing out one screen at a time
+    has not found the map, keep going until the start screen shows and come
+    back down the known path. Never raises.
+    """
+    for step in range(max_steps):
+        if _current_scene(altdriver) == START_SCENE:
+            logging.info("[Map Navigation] Reached the start screen.")
+            return True
+        clicked = None
+        for name in _BACK_BUTTON_NAMES:
+            obj = find_element(altdriver, name)
+            if obj is None:
+                continue
+            try:
+                obj.click()
+                clicked = name
                 break
-            # Not on the map (e.g. fresh login lands on the home screen).
-            logging.info("[Map Navigation] No level icons visible — clicking GO-Map")
+            except Exception:
+                continue
+        if not clicked:
+            logging.info("[Map Navigation] No back/close button on this screen.")
+            break
+        logging.info(f"[Map Navigation] back step {step + 1}: clicked '{clicked}'")
+        time.sleep(3)
+    return _current_scene(altdriver) == START_SCENE
+
+
+def ensure_on_map(altdriver, username=None, password=None, max_rounds=4):
+    """Get to the level map from WHEREVER the app currently is.
+
+    A generated test can start anywhere: on the map, on the start screen, deep
+    inside an activity, on a feedback popup, or logged out. Rather than assume,
+    this escalates one step at a time:
+
+      1. level icons visible          -> done
+      2. login screen                 -> log in (needs credentials)
+      3. start screen (GO-Map)        -> press it
+      4. anywhere else                -> press back/close one screen at a time
+                                         (``return_to_map``)
+      5. still stuck                  -> keep backing out to the START screen
+                                         (``return_to_start``), then GO-Map
+      6. still stuck, creds available -> log out and back in
+
+    Returns True when the map is showing. Never raises.
+    """
+    for rnd in range(max_rounds):
+        if _find_level_icons(altdriver):
+            return True
+
+        if _login_screen_visible(altdriver):
+            if not username:
+                logging.error("[Map Navigation] On the login screen and no credentials given.")
+                return False
+            logging.info("[Map Navigation] On the login screen — logging in")
+            login(altdriver, username, password)
+            time.sleep(2)
+            continue
+
+        if _current_scene(altdriver) == START_SCENE or find_element(altdriver, "GO-Map") is not None:
+            logging.info("[Map Navigation] On the start screen — clicking GO-Map")
             click_by_name(altdriver, "GO-Map")
-            time.sleep(12)      # the map scene takes a while to load
-        if not level_objs:
-            logging.error("[Map Navigation] No level icons found (not on a map?).")
+            time.sleep(12)              # the map scene takes a while to load
+            continue
+
+        # Somewhere inside a level/activity/exam: walk out like a user.
+        logging.info(f"[Map Navigation] Not on the map (round {rnd + 1}) — backing out")
+        if return_to_map(altdriver):
+            return True
+
+        # Keep going back: the start screen is always reachable that way, and
+        # GO-Map from there is a known-good route to the map.
+        if return_to_start(altdriver):
+            logging.info("[Map Navigation] At the start screen — clicking GO-Map")
+            click_by_name(altdriver, "GO-Map")
+            time.sleep(12)
+            continue
+
+        # Last resort: a clean session beats a stuck screen.
+        if username:
+            logging.warning("[Map Navigation] Still stuck — logging out and back in")
+            try:
+                call_method(altdriver, "AltTesterUtils", "Logout")
+                time.sleep(3)
+            except Exception as e:
+                logging.warning(f"[Map Navigation] Logout failed: {e}")
+            global _LAST_LOGIN_USER
+            _LAST_LOGIN_USER = None      # force a real login next time
+            login(altdriver, username, password)
+            time.sleep(2)
+
+    ok = bool(_find_level_icons(altdriver))
+    if not ok:
+        try:
+            scene = altdriver.get_current_scene()
+        except Exception:
+            scene = "unknown"
+        logging.error(f"[Map Navigation] Could not reach the map (scene: {scene}).")
+    return ok
+
+
+def enter_level_number(altdriver, level_num, retries=3, username=None, password=None):
+    """Open the map level labelled ``level_num``, from wherever the app is.
+
+    Navigation is self-recovering: ``ensure_on_map`` first walks the app back to
+    the map (backing out of an activity, or logging in again if the session
+    dropped), then the icon is picked BY NAME — icons are named after the level
+    they open, so no counting. The 0-based index is kept as a fallback for
+    builds whose icons aren't named that way (label N is index N-1).
+    """
+    logging.info(f"[Map Navigation] Entering level number {level_num}")
+    try:
+        if not ensure_on_map(altdriver, username=username, password=password,
+                             max_rounds=max(retries, 2)):
             return False
+
+        obj, name, kind = _level_icon_by_number(altdriver, level_num)
+        if obj is not None:
+            obj.click()
+            time.sleep(4)
+            logging.info(f"[Map Navigation] Entered level {level_num} "
+                         f"({kind} level, icon '{name}').")
+            return True
+
+        level_objs = _find_level_icons(altdriver)
         index = level_num - 1          # label 44 -> icon index 43
         if index < 0 or index >= len(level_objs):
             logging.error(f"[Map Navigation] Level {level_num} out of range ({len(level_objs)} icons).")
@@ -636,28 +1030,54 @@ def enter_level_number(altdriver, level_num, retries=3):
         return False
 
 
-def open_level_to_activities(altdriver, timeout=30):
+def open_level_to_activities(altdriver, timeout=90):
     """From a just-clicked level, reach ActivitySelectionScene.
 
-    Tolerant version of the opening steps of handle_level_flow: an already
-    opened level goes straight there; a fresh one passes the intro
-    (nextButton) and the vending machine (Toggle). Returns True when the
+    Same route as handle_level_flow — an already-opened level goes straight to
+    the activity selection, a level opened for the FIRST time shows the intro
+    (nextButton) and then the vending machine (Toggle) — but driven as a loop
+    instead of one shot per step. That matters for a not-yet-opened level: the
+    intro can be more than one page, and both the vending scene and the
+    selection screen take several seconds to load, so a single "click next,
+    look once" pass gets stuck on whatever is still loading.
+
+    Never raises (click_by_name swallows misses); returns True once the
     activity selection screen is showing.
     """
-    time.sleep(2)
-    scene = altdriver.get_current_scene()
-    if scene != 'ActivitySelectionScene':
-        click_by_name(altdriver, "nextButton")
-        time.sleep(3)
-        if altdriver.get_current_scene() == 'VendingMachineScene':
-            click_by_name(altdriver, "Toggle")
-            time.sleep(15)
     deadline = time.time() + timeout
+    last_scene = object()          # sentinel: log the first scene we see
     while time.time() < deadline:
-        if altdriver.get_current_scene() == 'ActivitySelectionScene':
+        try:
+            scene = altdriver.get_current_scene()
+        except Exception as e:     # scene swap in progress
+            logging.debug(f"[Level Flow] get_current_scene failed: {e}")
+            scene = None
+
+        if scene == 'ActivitySelectionScene':
             return True
-        time.sleep(2)
-    logging.error(f"[Level Flow] ActivitySelectionScene not reached (now: {altdriver.get_current_scene()})")
+        if scene != last_scene:
+            logging.info(f"[Level Flow] on '{scene}' — opening the level")
+            last_scene = scene
+
+        if scene == 'VendingMachineScene':
+            # First visit to a level: pick a prize to get past the machine.
+            click_by_name(altdriver, "Toggle")
+            time.sleep(12)
+            continue
+
+        # Level intro: keep pressing next for as long as one is on screen.
+        if find_element(altdriver, "nextButton") is not None:
+            click_by_name(altdriver, "nextButton")
+            time.sleep(3)
+            continue
+
+        time.sleep(2)              # still loading — look again
+
+    try:
+        now = altdriver.get_current_scene()
+    except Exception:
+        now = "unknown"
+    logging.error(f"[Level Flow] ActivitySelectionScene not reached in {timeout}s (now: {now})")
     return False
 
 
@@ -681,10 +1101,17 @@ def ensure_logged_in(altdriver, username, password):
 
 
 # Buttons a real user presses to leave a screen, most specific first: the
-# activity/feedback exit ("prev"), close/X popups, generic back, then the home
+# activity/feedback exit ("prev"), close/X popups, "Exit" (how Settings and the
+# location popup are closed — matched EXACTLY so it can never hit the start
+# screen's ExitButton_1, which quits the app), generic back, then the home
 # screen's GO-Map. Whichever exists on the current screen gets clicked.
-_BACK_BUTTON_NAMES = ("prev", "X", "x", "CloseButton", "close", "Close",
-                      "BackButton", "backButton", "Back", "HomeButton", "GO-Map")
+_BACK_BUTTON_NAMES = ("prev", "X", "x", "CloseButton", "close", "Close", "Exit",
+                      "BackButton", "backButton", "Back", "HomeButton", "GO-Map",
+                      # Last resort: the word list has no back/close at all —
+                      # "next" is how you leave it (same button that carries the
+                      # level intro forward). Tried only when nothing else fits,
+                      # so it can't skip a step on a screen that has a real back.
+                      "nextButton")
 
 
 def return_to_map(altdriver, max_steps=8):
@@ -777,12 +1204,147 @@ def dismiss_replay_popup(altdriver):
     return False
 
 
-def solve_activity_in_level(altdriver, target_scene):
-    """Find the activity thumb that opens ``target_scene``, solve AND VERIFY it.
+# Unity activity scene -> the title printed on its thumb in
+# ActivitySelectionScene. Read off the live app: the thumbs are all named
+# "ActivityThumb", but each one has a title label above it, so the target
+# activity can be picked directly instead of opening them one by one.
+ACTIVITY_UI_TITLES = {
+    "PIPES": ("pipes",),
+    "BRICKOUT": ("break out", "brickout", "breakout"),
+    "RINGS": ("rings",),
+    "PARASHOOT": ("parashoot", "parachute"),
+    "TURTLE_ISLAND": ("turtle island", "turtle"),
+    "PUZZLES": ("puzzle", "puzzles"),
+    "CROSSWORD": ("crossword",),
+    "CROSSWORD2": ("crossword",),
+    "MISSING_BUBBLE": ("missing bubble", "bubble"),
+    "GAP_GURU": ("gap guru",),
+    "TYPE_IT_RIGHT": ("type it right",),
+    "FROGGER": ("frogger", "frog"),
+    "RADAR": ("radar",),
+    "TETRIS": ("tetris",),
+    "MEMMORY_CARDS": ("memory", "memory cards"),
+    "LISTEN_FIND": ("listen", "listen & find", "listen and find"),
+    "SEARCH": ("search",),
+    "HANGWORDS": ("hangwords", "hang words"),
+    "BEE_CAREFUL": ("bee careful", "bee"),
+    "ISPY": ("i spy", "ispy"),
+    "ECHO_ORDER": ("echo order", "echo"),
+    "TRANSLATION_WIZ": ("translation wiz", "translation"),
+    "UNSCRAMBLE_QUIZ": ("unscramble", "lexi match"),
+}
 
-    A level holds several ActivityThumbs and which one is which activity is
-    only knowable by opening it: click a thumb, read GetCurrentActivity, and
-    if it is not the target go back and try the next.
+# The lesson title sits well above the thumb row; activity titles are printed
+# directly over their own thumb, so a title belongs to the thumb it lines up
+# with horizontally.
+_TITLE_X_TOLERANCE = 60
+
+
+def list_level_activities(altdriver):
+    """Read ActivitySelectionScene: which activity is on which thumb.
+
+    Every thumb is named "ActivityThumb" and every label "Text - RTLTMP", but
+    a label shares its thumb's x position, so they pair up by proximity.
+
+    Returns ``[{"title": "Break Out", "thumb": <AltObject>, "x": 792}, ...]``
+    in on-screen (left-to-right) order. Titles that cannot be read come back
+    empty rather than raising — the caller falls back to probing.
+    """
+    try:
+        thumbs = altdriver.find_objects(By.NAME, "ActivityThumb")
+    except Exception as e:  # noqa: BLE001
+        logging.warning(f"[Activity] could not list thumbs: {e}")
+        return []
+
+    labels = []
+    try:
+        for t in altdriver.find_objects(By.NAME, "Text - RTLTMP"):
+            try:
+                text = (t.get_text() or "").strip()
+            except Exception:
+                continue
+            if text:
+                labels.append((t.x, text))
+    except Exception as e:  # noqa: BLE001
+        logging.warning(f"[Activity] could not read activity titles: {e}")
+
+    out = []
+    for th in sorted(thumbs, key=lambda o: o.x):
+        best, best_dx = "", None
+        for x, text in labels:
+            dx = abs(x - th.x)
+            if dx <= _TITLE_X_TOLERANCE and (best_dx is None or dx < best_dx):
+                best, best_dx = text, dx
+        out.append({"title": best, "thumb": th, "x": th.x})
+    return out
+
+
+def find_activity_thumb(altdriver, target_scene, title_hint=None):
+    """The thumb whose printed title is ``target_scene``'s activity, or None.
+
+    ``title_hint`` is the exact label seen when the test was generated (e.g.
+    "Break Out"); it is tried first, then the aliases in ACTIVITY_UI_TITLES.
+    Returning None is normal (older builds, unlabelled thumbs) and makes the
+    caller fall back to opening thumbs one by one.
+    """
+    activities = list_level_activities(altdriver)
+    if not activities:
+        return None
+
+    wanted = [str(title_hint).strip().lower()] if title_hint else []
+    wanted += [a for a in ACTIVITY_UI_TITLES.get(target_scene, ())]
+    # Last resort: the scene name itself ("PIPES" -> "pipes").
+    wanted.append(str(target_scene).replace("_", " ").lower())
+
+    seen = [a["title"] for a in activities]
+    logging.info(f"[Activity] this level offers: {seen}")
+    for want in wanted:
+        if not want:
+            continue
+        for a in activities:
+            title = (a["title"] or "").strip().lower()
+            if not title:
+                continue
+            if title == want or want in title or title in want:
+                logging.info(f"[Activity] '{a['title']}' matches {target_scene} — clicking it directly")
+                return a["thumb"]
+    logging.info(f"[Activity] no printed title matches {target_scene} ({seen}) — probing thumbs")
+    return None
+
+
+def _play_activity(altdriver, target_scene, solvers, result):
+    """Solve the activity that is already open and fill in ``result``.
+
+    Shared by both selection paths (title match / thumb probing) so the
+    completion checks are identical either way.
+    """
+    result["found"] = True
+    dismiss_replay_popup(altdriver)          # replayed activities are blocked by it
+    solvers[target_scene](altdriver)
+    time.sleep(2)
+    done, tot = read_activity_progress(altdriver)
+    result["done"], result["total"] = done, tot
+    if tot > 0 and done < tot:
+        logging.error(f"[Activity] {target_scene} INCOMPLETE at {done}/{tot} "
+                      f"— staying on the activity for the failure screenshot")
+        return result
+    result["feedback"] = wait_for_finish_feedback(altdriver)
+    if not result["feedback"]:
+        logging.error(f"[Activity] {target_scene} reached {done}/{tot} but the "
+                      f"final feedback screen never appeared")
+        return result
+    when_finish_activity(altdriver)
+    time.sleep(2)
+    return result
+
+
+def solve_activity_in_level(altdriver, target_scene, title_hint=None):
+    """Open ``target_scene``'s activity in the current level, solve AND VERIFY it.
+
+    Picks the right activity by the title printed on its thumb (see
+    ``find_activity_thumb``). Only when no title matches does it fall back to
+    the old behaviour of opening each thumb in turn and asking the game which
+    activity it landed on.
 
     Returns a result dict — callers must assert on its fields, not on
     truthiness (a dict is always truthy):
@@ -798,6 +1360,28 @@ def solve_activity_in_level(altdriver, target_scene):
     if target_scene not in solvers:
         logging.error(f"[Activity] No solver mapped for '{target_scene}'")
         return result
+
+    # Preferred path: click the thumb whose printed title is the target.
+    thumb = find_activity_thumb(altdriver, target_scene, title_hint=title_hint)
+    if thumb is not None:
+        try:
+            prev_scene = call_method(altdriver, "AltTesterUtils", "GetCurrentActivity")
+        except Exception:
+            prev_scene = None
+        thumb.click()
+        time.sleep(8)
+        scene = _get_current_activity_with_retry(altdriver, prev_scene=prev_scene)
+        if scene == target_scene:
+            return _play_activity(altdriver, target_scene, solvers, result)
+        # The label promised one activity and the game opened another: don't
+        # solve the wrong game — go back and fall through to probing.
+        logging.warning(f"[Activity] title matched but the game opened '{scene}', "
+                        f"not {target_scene} — falling back to probing")
+        try:
+            call_method(altdriver, "AltTesterUtils", "LoadPreviousScene")
+        except Exception:
+            when_finish_activity(altdriver)
+        time.sleep(5)
 
     thumbs = altdriver.find_objects(By.NAME, "ActivityThumb")
     total = len(thumbs)
@@ -816,24 +1400,7 @@ def solve_activity_in_level(altdriver, target_scene):
         scene = _get_current_activity_with_retry(altdriver, prev_scene=prev_scene)
         if scene == target_scene:
             logging.info(f"[Activity] Found {target_scene} at thumb {i}; solving")
-            result["found"] = True
-            dismiss_replay_popup(altdriver)      # replayed activities are blocked by it
-            solvers[target_scene](altdriver)
-            time.sleep(2)
-            done, tot = read_activity_progress(altdriver)
-            result["done"], result["total"] = done, tot
-            if tot > 0 and done < tot:
-                logging.error(f"[Activity] {target_scene} INCOMPLETE at {done}/{tot} "
-                              f"— staying on the activity for the failure screenshot")
-                return result
-            result["feedback"] = wait_for_finish_feedback(altdriver)
-            if not result["feedback"]:
-                logging.error(f"[Activity] {target_scene} reached {done}/{tot} but the "
-                              f"final feedback screen never appeared")
-                return result
-            when_finish_activity(altdriver)
-            time.sleep(2)
-            return result
+            return _play_activity(altdriver, target_scene, solvers, result)
         # Not the one — back out to the activity selection and try the next.
         logging.info(f"[Activity] thumb {i} opened '{scene}', not {target_scene}; going back")
         try:
@@ -1040,15 +1607,42 @@ def detect_exam_type(altdriver):
     return "unknown"
 
 
-def solve_exam(altdriver, class_id, lesson_num):
+def open_exam(altdriver, timeout=60):
+    """From a just-clicked exam level on the map, wait until the exam is showing.
+
+    Same idea as ``open_level_to_activities`` but for an exam node: press
+    through whatever intro the level shows and return once the exam pages are
+    up (``TestNumText`` is the "1/3" counter). Never raises.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if find_element(altdriver, "TestNumText") is not None:
+            return True
+        if find_element(altdriver, "nextButton") is not None:
+            click_by_name(altdriver, "nextButton")
+            time.sleep(3)
+            continue
+        time.sleep(2)
+    try:
+        now = altdriver.get_current_scene()
+    except Exception:
+        now = "unknown"
+    logging.error(f"[Exam] exam pages not reached in {timeout}s (scene: {now})")
+    return False
+
+
+def solve_exam_pages(altdriver, label=""):
+    """Solve the 3 pages of an exam that is ALREADY open, and submit it.
+
+    Split out of ``solve_exam`` so a test can navigate to the exam its own way
+    (e.g. a Rally case that names a map level) and still reuse the proven
+    per-page detection and solvers.
+
+    Returns ``{"parts": int, "problems": [str], "submitted": bool}`` and never
+    raises: a caller that fails on ``problems`` leaves the app on the screen
+    that broke, so the failure screenshot shows it.
+    """
     from Activities import activitiesDemo as A  # local import breaks circulars
-
-
-    """
-    Efficiently solves all 3 exam parts based on fast detection of type.
-    """
-    enter_to_level(altdriver, class_id, lesson_num, type="exam")
-    time.sleep(4)
 
     def next_test():
         click_by_name(altdriver, "Next_Test")
@@ -1068,13 +1662,16 @@ def solve_exam(altdriver, class_id, lesson_num):
 
     }
 
-    from datetime import datetime as _dt
-    _start = _dt.now()
     problems = []          # parts that failed or couldn't be solved
     parts_seen = 0
+    submitted = False
 
     for part in ['1/3', '2/3', '3/3']:
-        test_num = get_text_by_name(altdriver, "TestNumText")
+        try:
+            test_num = get_text_by_name(altdriver, "TestNumText")
+        except Exception as e:      # exam not on screen at all
+            logging.error(f"[Exam] could not read the part counter: {e}")
+            break
         if test_num != part:
             continue
         parts_seen += 1
@@ -1104,20 +1701,36 @@ def solve_exam(altdriver, class_id, lesson_num):
             time.sleep(5)
             click_by_name(altdriver, "BackButton")
             time.sleep(2)
+            submitted = True
 
-    logging.info("[Exam] Finished all parts.")
+    logging.info(f"[Exam] Finished {parts_seen}/3 part(s)"
+                 + (f" for {label}" if label else "")
+                 + (f"; problems: {problems}" if problems else ""))
+    return {"parts": parts_seen, "problems": problems, "submitted": submitted}
 
-    # Surface the exam outcome. On success record a PASSED row so lesson-range
-    # runs SHOW the exam instead of an empty "No activities yet" table. On
-    # failure RAISE (without a row) so the runner records one FAILED row that
-    # includes the stuck-screen screenshot — no duplicate.
+
+def solve_exam(altdriver, class_id, lesson_num):
+    """Navigate to a lesson's exam through the class map and solve it.
+
+    Unchanged behaviour for the runner's lesson flows: raises on failure so the
+    run records a FAILED row with the stuck-screen screenshot, and appends a
+    PASSED row on success so the exam shows up in the report.
+    """
+    from datetime import datetime as _dt
+    _start = _dt.now()
+
+    enter_to_level(altdriver, class_id, lesson_num, type="exam")
+    time.sleep(4)
+    result = solve_exam_pages(altdriver, label=f"lesson {lesson_num}")
+
     dur = f"{int((_dt.now() - _start).total_seconds())}s"
-    if parts_seen == 0:
+    if result["parts"] == 0:
         raise RuntimeError(
             f"Exam lesson {lesson_num} never opened — no exam parts were found "
             f"(navigation/level issue).")
-    if problems:
-        raise RuntimeError(f"Exam lesson {lesson_num} failed: " + " | ".join(problems))
+    if result["problems"]:
+        raise RuntimeError(f"Exam lesson {lesson_num} failed: "
+                           + " | ".join(result["problems"]))
     activity_report.append({
         "activity": f"Exam · lesson {lesson_num}",
         "status": "PASSED",
