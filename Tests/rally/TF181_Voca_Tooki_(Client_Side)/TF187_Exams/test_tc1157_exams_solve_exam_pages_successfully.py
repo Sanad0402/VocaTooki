@@ -52,8 +52,9 @@ def test_tc1157_exams_solve_exam_pages_successfully(altdriver):
     #    assert the test stays on the failing screen, so the failure screenshot
     #    (conftest hook) shows the actual state.
     result = utilsdemo.solve_exam_pages(driver, label=f"{TC_ID} level {MAP_LEVEL}")
-    assert result["parts"] == 3, (
-        f"{TC_ID}: only {result['parts']}/3 exam pages were reached. "
+    # Exams are not always 3 pages — check every page the exam actually has.
+    assert result["total"] and result["parts"] == result["total"], (
+        f"{TC_ID}: answered {result['parts']}/{result['total']} exam pages. "
         f"Expected: User is able to complete all exam pages at level 40 successfully without errors or crashes")
     assert not result["problems"], (
         f"{TC_ID}: exam pages failed — " + " | ".join(result["problems"]))

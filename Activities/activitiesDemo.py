@@ -3904,3 +3904,129 @@ def exam_swap_letters(altdriver, max_swaps_per_word=40, row_attempts=3):
         print(f"[WARN] rows still unsolved: {unsolved}")
     else:
         print("[INFO] all rows solved")
+
+
+def exam_shuffled_context(altdriver, question_attempts=3):
+    """Solve the shuffled-context (sentence building) exam page.
+
+    Each question is a sentence with blanks and a bank of words underneath.
+    Nothing has to be guessed, because both sides name themselves:
+
+        WordSpace(Clone)             -> SpaceToFillWithWord.word    (what this blank wants)
+        WordInShuffledContext(Clone) -> WordInShuffledContext.word  (what this tile is)
+
+    so every bank tile is dragged onto the blank carrying the same word. A tile
+    already sitting on its blank is left alone.
+
+    Same three rules as the swap-letters page, for the same reasons: questions
+    are addressed by INDEXED PATH (never matched by y), the list is scrolled
+    with the ScrollRect so the question is really in view, and the gesture is a
+    MOUSE press-move-release. Each question is verified and retried before
+    moving to the next.
+    """
+    Q = "//QuestionInShuffledContextTest(Clone)"
+
+    def questions():
+        return len(altdriver.find_objects(By.NAME, "QuestionInShuffledContextTest(Clone)"))
+
+    def slots(i):
+        try:
+            return altdriver.find_objects(By.PATH, f"{Q}[{i}]/SpacesPanel/*")
+        except Exception:
+            return []
+
+    def tiles(i):
+        try:
+            return altdriver.find_objects(By.PATH, f"{Q}[{i}]/WordsPanel/*")
+        except Exception:
+            return []
+
+    def word_of(obj, component):
+        try:
+            return (obj.get_component_property(component, "word", "Assembly-CSharp") or "").strip()
+        except Exception:
+            return ""
+
+    def on_slot(tile, slot):
+        """A tile is in a blank when it is sitting on top of it."""
+        return abs(tile.x - slot.x) < 25 and abs(tile.y - slot.y) < 30
+
+    def scroll_to(i, total):
+        if total < 2:
+            return
+        try:
+            view = altdriver.find_object(By.NAME, "Scroll View")
+            view.set_component_property("UnityEngine.UI.ScrollRect",
+                                        "verticalNormalizedPosition",
+                                        "UnityEngine.UI",
+                                        max(0.0, min(1.0, 1.0 - (i / float(total - 1)))))
+            time.sleep(0.45)
+        except Exception as e:
+            print(f"[WARN] could not scroll to question {i}: {e}")
+
+    def drag(a, b):
+        altdriver.move_mouse([a.x, a.y], duration=0.1, wait=True)
+        altdriver.key_down(alttester.AltKeyCode.Mouse0)
+        time.sleep(0.15)
+        altdriver.move_mouse([b.x, b.y], duration=0.3, wait=True)
+        time.sleep(0.15)
+        altdriver.key_up(alttester.AltKeyCode.Mouse0)
+        time.sleep(0.4)
+
+    def missing(i):
+        """[(slot, wanted_word)] for blanks that have no tile on them."""
+        sl, tl = slots(i), tiles(i)
+        out = []
+        for s in sl:
+            if not any(on_slot(t, s) for t in tl):
+                out.append((s, word_of(s, "SpaceToFillWithWord")))
+        return out
+
+    total = questions()
+    print(f"[INFO] shuffled-context exam: {total} question(s)")
+
+    unsolved = []
+    for i in range(total):
+        sentence = " ".join(word_of(s, "SpaceToFillWithWord") for s in slots(i))
+        done = False
+
+        for attempt in range(1, question_attempts + 1):
+            scroll_to(i, total)
+            gaps = missing(i)
+            if not gaps:
+                done = True
+                break
+
+            used = []
+            for slot, wanted in gaps:
+                # a free tile carrying this word (not already sitting in a blank)
+                current_slots = slots(i)
+                pick = None
+                for t in tiles(i):
+                    if id(t) in used or word_of(t, "WordInShuffledContext") != wanted:
+                        continue
+                    if any(on_slot(t, s) for s in current_slots):
+                        continue
+                    pick = t
+                    break
+                if pick is None:
+                    print(f"[WARN] q{i + 1}: no free tile for '{wanted}'")
+                    continue
+                used.append(id(pick))
+                drag(pick, slot)
+
+            gaps_after = missing(i)
+            if not gaps_after:
+                print(f"[INFO] q{i + 1} solved (attempt {attempt}): {sentence}")
+                done = True
+                break
+            print(f"[WARN] q{i + 1} still missing "
+                  f"{[w for _s, w in gaps_after]} after attempt {attempt}")
+
+        if not done:
+            unsolved.append(sentence)
+
+    if unsolved:
+        print(f"[WARN] questions still unsolved: {unsolved}")
+    else:
+        print("[INFO] all questions solved")

@@ -1590,6 +1590,9 @@ def detect_exam_type(altdriver):
     # Rows of scrambled letters; drag one onto another to swap them.
     if altdriver.find_objects(By.NAME, "SwapLetterText(Clone)"):
         return "swap_letters"
+    # Sentences with blanks; drag each word from the bank into its blank.
+    if altdriver.find_objects(By.NAME, "WordInShuffledContext(Clone)"):
+        return "shuffled_context"
     if altdriver.find_objects(By.NAME, "SpellingInputField"):
         return "spelling"
     if altdriver.find_objects(By.NAME, "LetterTestPanel(Clone)"):
@@ -1667,12 +1670,28 @@ def solve_exam_pages(altdriver, label=""):
         "image_4_voices":A.exams_image_for_voices,
         "audio_to_image":A.exams_image_to_audio,
         "swap_letters": A.exam_swap_letters,
+        "shuffled_context": A.exam_shuffled_context,
 
     }
 
     problems = []          # parts that failed or couldn't be solved
     parts_seen = 0
     submitted = False
+
+    # Start from the first page. The exam can be entered part-way through (a
+    # previous attempt, or a human clicking ahead), and the loop only moves
+    # forward — without rewinding, earlier pages would be submitted unanswered.
+    for _ in range(6):
+        try:
+            page = (get_text_by_name(altdriver, "TestNumText") or "").strip()
+            index = int(page.split("/", 1)[0])
+        except Exception:
+            break
+        if index <= 1:
+            break
+        logging.info(f"[Exam] starting on page {page} — going back")
+        click_by_name(altdriver, "Prev_Test")
+        time.sleep(2)
 
     # The page count is whatever TestNumText says ("1/2", "1/3", ...) — exams
     # are not always 3 pages, and a page type can appear on any of them, so the
@@ -1722,10 +1741,18 @@ def solve_exam_pages(altdriver, label=""):
             submitted = True
             break
 
+    # Pages that were never opened are a failure, not a silent pass: entering an
+    # exam part-way through (Prev_Test does not go back) would otherwise submit
+    # with the earlier pages unanswered and still report no problems.
+    if total_pages and parts_seen < total_pages:
+        problems.append(f"only {parts_seen}/{total_pages} pages were answered — "
+                        f"the exam was entered part-way through")
+
     logging.info(f"[Exam] Finished {parts_seen}/{total_pages or '?'} page(s)"
                  + (f" for {label}" if label else "")
                  + (f"; problems: {problems}" if problems else ""))
-    return {"parts": parts_seen, "problems": problems, "submitted": submitted}
+    return {"parts": parts_seen, "total": total_pages,
+            "problems": problems, "submitted": submitted}
 
 
 def solve_exam(altdriver, class_id, lesson_num):
