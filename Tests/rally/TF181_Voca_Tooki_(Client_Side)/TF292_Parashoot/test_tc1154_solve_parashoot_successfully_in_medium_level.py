@@ -42,8 +42,11 @@ def test_tc1154_solve_parashoot_successfully_in_medium_level(altdriver):
     utilsdemo.ensure_logged_in(driver, USERNAME, PASSWORD)
     time.sleep(2)
 
-    # 2. Open the map level named in the description (navigates to the map first)
-    assert utilsdemo.enter_level_number(driver, MAP_LEVEL), \
+    # 2. Open the map level named in the description. Self-recovering: whatever
+    #    screen the app is on, it backs out to the map (and logs in again if the
+    #    session dropped) before clicking the level.
+    assert utilsdemo.enter_level_number(driver, MAP_LEVEL,
+                                        username=USERNAME, password=PASSWORD), \
         f"{TC_ID}: could not open level {MAP_LEVEL} on the map"
 
     # 3. Get into the level's activity selection (handles intro/vending flow)

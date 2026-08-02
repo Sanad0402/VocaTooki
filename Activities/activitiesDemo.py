@@ -3774,3 +3774,133 @@ def tetris(altdriver):
 
     a, b = progress()
     print("[warn] tetris: time budget exhausted at %d/%d." % (a, b))
+
+
+def exam_swap_letters(altdriver, max_swaps_per_word=40, row_attempts=3):
+    """Solve the "swap letters" exam page.
+
+    Each row shows one word scrambled; dragging letter A onto letter B swaps
+    them (verified live — a non-adjacent drag swaps, it does not insert). The
+    answer for every row is on the row itself, so nothing is guessed:
+
+        SwapWord(Clone)       -> com.kideo.learn.english.SwapTestWord.word
+        SwapLetterText(Clone) -> com.kideo.learn.english.SwapTestLetter (draggable)
+
+    Three things this has to get right, each learned the hard way on the app:
+
+    * **Rows are addressed by INDEXED PATH**, never by matching letters to a row
+      by y. The list scrolls, and a y-match across two queries silently pairs one
+      row's letters with another row's word (dictionary once "solved" as repeat).
+    * **The list is scrolled with the ScrollRect**, not the mouse wheel, so the
+      row being worked on is really in view — a drag at off-screen coordinates
+      does nothing.
+    * **The gesture is a MOUSE press-move-release.** On WindowsEditor the
+      EventSystem is mouse-driven and simulated touch is ignored.
+
+    Each row is verified against the game and retried before moving to the next,
+    so a drag that does not register is caught immediately rather than leaving
+    the page unsolvable (the page refuses to advance while any row is wrong).
+    """
+    def rows_count():
+        return len(altdriver.find_objects(By.NAME, "SwapWord(Clone)"))
+
+    def row_word(i):
+        try:
+            row = altdriver.find_object(By.PATH, f"//SwapWord(Clone)[{i}]")
+            return row.get_component_property(
+                "com.kideo.learn.english.SwapTestWord", "word", "Assembly-CSharp")
+        except Exception:
+            return None
+
+    def row_letters(i):
+        """The letter objects of row i only — by hierarchy, so never mismatched."""
+        try:
+            return altdriver.find_objects(By.PATH, f"//SwapWord(Clone)[{i}]/LettersContainer/*")
+        except Exception:
+            return []
+
+    def texts(objs):
+        out = []
+        for o in objs:
+            try:
+                # a blank slot is the space in a phrase ("find out")
+                out.append(((o.get_text() or " ").strip() or " ").lower())
+            except Exception:
+                out.append(" ")
+        return out
+
+    def scroll_to_row(i, total):
+        """Put row i in view. 1.0 is the top of the list, 0.0 the bottom."""
+        if total < 2:
+            return
+        try:
+            view = altdriver.find_object(By.NAME, "Scroll View")
+            value = max(0.0, min(1.0, 1.0 - (i / float(total - 1))))
+            view.set_component_property("UnityEngine.UI.ScrollRect",
+                                        "verticalNormalizedPosition",
+                                        "UnityEngine.UI", value)
+            time.sleep(0.45)
+        except Exception as e:
+            print(f"[WARN] could not scroll to row {i}: {e}")
+
+    def swap(a, b):
+        altdriver.move_mouse([a.x, a.y], duration=0.1, wait=True)
+        altdriver.key_down(alttester.AltKeyCode.Mouse0)
+        time.sleep(0.15)
+        altdriver.move_mouse([b.x, b.y], duration=0.25, wait=True)
+        time.sleep(0.15)
+        altdriver.key_up(alttester.AltKeyCode.Mouse0)
+        time.sleep(0.4)
+
+    total = rows_count()
+    words = [row_word(i) for i in range(total)]
+    print(f"[INFO] swap-letters exam: {total} word(s) -> {words}")
+
+    unsolved = []
+    for i, word in enumerate(words):
+        if not word:
+            continue
+        want = list(word.lower())
+        solved = False
+
+        for attempt in range(1, row_attempts + 1):
+            scroll_to_row(i, total)
+            have = texts(row_letters(i))
+            if have == want:
+                solved = True
+                break
+            if len(have) != len(want):
+                print(f"[WARN] '{word}': {len(have)} letters on screen, expected {len(want)}")
+                break
+
+            swaps = 0
+            for k in range(len(want)):
+                if have[k] == want[k]:
+                    continue
+                j = next((m for m in range(k + 1, len(have)) if have[m] == want[k]), None)
+                if j is None:
+                    break
+                objs = row_letters(i)              # fresh coordinates for this drag
+                if len(objs) != len(have):
+                    break
+                swap(objs[k], objs[j])
+                have[k], have[j] = have[j], have[k]
+                swaps += 1
+                if swaps >= max_swaps_per_word:
+                    break
+
+            # verify against the GAME before moving on, not against my own model
+            actual = texts(row_letters(i))
+            if actual == want:
+                print(f"[INFO] '{word}' solved ({swaps} swap(s), attempt {attempt})")
+                solved = True
+                break
+            print(f"[WARN] '{word}' is '{''.join(actual)}' after attempt {attempt} — retrying")
+
+        if not solved:
+            unsolved.append(word)
+
+    if unsolved:
+        print(f"[WARN] rows still unsolved: {unsolved}")
+    else:
+        print("[INFO] all rows solved")

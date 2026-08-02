@@ -436,6 +436,11 @@
       "parent": "TF181"
     },
     {
+      "id": "TF294",
+      "name": "translation wiz",
+      "parent": "TF181"
+    },
+    {
       "id": "RALLY_UNGROUPED",
       "name": "Ungrouped",
       "parent": null
@@ -738,13 +743,55 @@
         "kind": "pytest",
         "nodeid": "Tests/rally/TF181_Voca_Tooki_(Client_Side)/TF187_Exams/test_tc1157_exams_solve_exam_pages_successfully.py::test_tc1157_exams_solve_exam_pages_successfully"
       }
+    },
+    {
+      "id": "TC1158",
+      "name": "Translation Wiz - Solve activity successfully in medium difficulty",
+      "folder": "TF294",
+      "description": "Test Type: Functional\nPriority: Important\nSeverity: Major\nUsername: vt233624\npassword : 3690\nLevel: 33\n\nObjective:\nVerify that the Translation Wiz activity can be completed successfully when played in medium difficulty.",
+      "owner": "",
+      "status": "",
+      "user": {
+        "username": "vt233624",
+        "password": "3690"
+      },
+      "steps": [],
+      "validation": {
+        "input": "1. Launch the Voca Tooki application\n2. Log in with a vt233624 username pass 3690\n3. Navigate to level 33\n4. Open the Translation Wiz activity\n6. Start the activity\n7. Complete all translation questions presented\n8. Submit answers to finish the activity",
+        "expected": "The Translation Wiz activity completes successfully in medium difficulty. Player receives a score/reward upon completion. No errors or crashes occur during the activity. Progress is saved correctly after completion."
+      },
+      "action": {
+        "kind": "pytest",
+        "nodeid": "Tests/rally/TF181_Voca_Tooki_(Client_Side)/TF294_translation_wiz/test_tc1158_translation_wiz_solve_activity_successfully_in_medium_difficulty.py::test_tc1158_translation_wiz_solve_activity_successfully_in_medium_difficulty"
+      }
+    },
+    {
+      "id": "TC1159",
+      "name": "Tetris - Solve activity successfully in easy level",
+      "folder": "TF293",
+      "description": "Test Type: Functional\nPriority: Important\nSeverity: Major\nUsername: vt233624\npassword : 3690\nLevel: 32\n\nObjective:\nVerify that the Tetris activity can be completed successfully when played in easy level.",
+      "owner": "",
+      "status": "",
+      "user": {
+        "username": "vt233624",
+        "password": "3690"
+      },
+      "steps": [],
+      "validation": {
+        "input": "1. Launch the Voca Tooki application\n2. Log in with a valid student account (vt233624)\n3. Navigate to level 32\n4. Open the Tetris activity\n5. Set difficulty to Easy\n6. Start the activity\n7. Complete all word/translation blocks presented in the Tetris game\n8. Finish the activity successfully",
+        "expected": "The Tetris activity completes successfully in easy level. Player receives a score/reward upon completion. No errors or crashes occur during gameplay. Progress is saved correctly after completion."
+      },
+      "action": {
+        "kind": "pytest",
+        "nodeid": "Tests/rally/TF181_Voca_Tooki_(Client_Side)/TF293_Tetris/test_tc1159_tetris_solve_activity_successfully_in_easy_level.py::test_tc1159_tetris_solve_activity_successfully_in_easy_level"
+      }
     }
   ],
   "metadata": {
     "project_id": "622679112169",
-    "total_cases": 15,
+    "total_cases": 17,
     "automated_only": true,
     "synced_from": "Rally API",
-    "synced_at": "2026-07-30T14:38:54.128531+00:00"
+    "synced_at": "2026-08-02T11:32:18.274176+00:00"
   }
 }

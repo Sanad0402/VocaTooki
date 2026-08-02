@@ -1582,7 +1582,14 @@ def solve_level(altdriver, difficulty):
 
 
 def detect_exam_type(altdriver):
-    """Detect active exam type based on UI elements."""
+    """Detect active exam type based on UI elements.
+
+    Called per PAGE, not per exam: the pages of one exam are usually different
+    types, and a given type can appear on any page.
+    """
+    # Rows of scrambled letters; drag one onto another to swap them.
+    if altdriver.find_objects(By.NAME, "SwapLetterText(Clone)"):
+        return "swap_letters"
     if altdriver.find_objects(By.NAME, "SpellingInputField"):
         return "spelling"
     if altdriver.find_objects(By.NAME, "LetterTestPanel(Clone)"):
@@ -1658,7 +1665,8 @@ def solve_exam_pages(altdriver, label=""):
         "spelling":A.exam_spelling,
         'context':A.exam_multiple_choice,
         "image_4_voices":A.exams_image_for_voices,
-        "audio_to_image":A.exams_image_to_audio
+        "audio_to_image":A.exams_image_to_audio,
+        "swap_letters": A.exam_swap_letters,
 
     }
 
@@ -1666,33 +1674,43 @@ def solve_exam_pages(altdriver, label=""):
     parts_seen = 0
     submitted = False
 
-    for part in ['1/3', '2/3', '3/3']:
+    # The page count is whatever TestNumText says ("1/2", "1/3", ...) — exams
+    # are not always 3 pages, and a page type can appear on any of them, so the
+    # loop follows the counter instead of assuming a fixed list of labels.
+    total_pages = 0
+    seen = set()
+    while True:
         try:
-            test_num = get_text_by_name(altdriver, "TestNumText")
-        except Exception as e:      # exam not on screen at all
-            logging.error(f"[Exam] could not read the part counter: {e}")
+            label = (get_text_by_name(altdriver, "TestNumText") or "").strip()
+            current, total_pages = (int(p) for p in label.split("/", 1))
+        except Exception as e:      # exam not on screen, or an odd counter
+            logging.error(f"[Exam] could not read the page counter: {e}")
             break
-        if test_num != part:
-            continue
+        if label in seen:           # Next_Test did not advance — don't loop forever
+            logging.error(f"[Exam] still on page {label} after Next_Test; stopping")
+            problems.append(f"page {label}: did not advance")
+            break
+        seen.add(label)
         parts_seen += 1
 
-        logging.info(f"[Exam] Solving part {part}")
+        logging.info(f"[Exam] Solving page {label}")
         exam_type = detect_exam_type(altdriver)
         solver = exam_solvers.get(exam_type)
 
         if solver:
             try:
                 solver(altdriver)
-                logging.info(f"[Exam] Solved part {part} using {solver.__name__}")
+                logging.info(f"[Exam] Solved page {label} using {solver.__name__}")
             except Exception as e:
-                logging.error(f"[Exam] Failed on part {part} ({exam_type}): {e}")
-                problems.append(f"part {part} ({exam_type}): {e}")
+                logging.error(f"[Exam] Failed on page {label} ({exam_type}): {e}")
+                problems.append(f"page {label} ({exam_type}): {e}")
         else:
-            logging.warning(f"[Exam] Unknown exam type in part {part}, skipping.")
-            problems.append(f"part {part}: unknown exam type '{exam_type}'")
+            logging.warning(f"[Exam] Unknown exam type on page {label}, skipping.")
+            problems.append(f"page {label}: unknown exam type '{exam_type}'")
 
-        if part != '3/3':
+        if current < total_pages:
             next_test()
+            time.sleep(2)
         else:
             click_by_name(altdriver, "SubmitButton")
             click_by_name(altdriver, "YesButton")
@@ -1702,8 +1720,9 @@ def solve_exam_pages(altdriver, label=""):
             click_by_name(altdriver, "BackButton")
             time.sleep(2)
             submitted = True
+            break
 
-    logging.info(f"[Exam] Finished {parts_seen}/3 part(s)"
+    logging.info(f"[Exam] Finished {parts_seen}/{total_pages or '?'} page(s)"
                  + (f" for {label}" if label else "")
                  + (f"; problems: {problems}" if problems else ""))
     return {"parts": parts_seen, "problems": problems, "submitted": submitted}

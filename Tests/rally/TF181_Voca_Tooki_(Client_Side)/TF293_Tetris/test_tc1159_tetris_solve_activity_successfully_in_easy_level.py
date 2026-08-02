@@ -1,16 +1,16 @@
 """
-TC1156 — Tetris - Solve hard level
+TC1159 — Tetris - Solve activity successfully in easy level
 
 Auto-generated from Rally (Method = Automated).
 
 Description:
-    Test Type: Functional Priority: Normal Feature: Tetris Level: Hard (Level 34) Preconditions: - User is logged in with username: vt233624 - Password: 3690 - Navigate to Tetris game
+    Test Type: Functional Priority: Important Severity: Major Username: vt233624 password : 3690 Level: 32 Objective: Verify that the Tetris activity can be completed successfully when played in easy level.
 
 (No test steps recorded in Rally — add them to the case, then re-sync.)
 
 Validation (from Rally):
-    Input:    1. Login with username: vt233624, password: 3690 2. Open the Tetris game 3. Start the game 4. Play and progress to level 34 (hard) 5. Complete the level successfully
-    Expected: User is able to complete level 34 (hard difficulty) in Tetris without errors or crashes
+    Input:    1. Launch the Voca Tooki application 2. Log in with a valid student account (vt233624) 3. Navigate to level 32 4. Open the Tetris activity 5. Set difficulty to Easy 6. Start the activity 7. Complete all word/translation blocks presented in the Tetris game 8. Finish the activity successfully
+    Expected: The Tetris activity completes successfully in easy level. Player receives a score/reward upon completion. No errors or crashes occur during gameplay. Progress is saved correctly after completion.
 """
 
 import time
@@ -18,22 +18,22 @@ import pytest
 from Utilities import utilsdemo
 
 # Rally test case ID (for sync and maintenance)
-TC_ID = "TC1156"
+TC_ID = "TC1159"
 # Regenerated from the Rally case on every sync so the level/credentials stay
 # current with the description. Hand-editing? Set MANUAL_EDIT = True to lock.
 MANUAL_EDIT = False
 
 ACTIVITY_SCENE = "TETRIS"
-# Label printed on the activity's thumb in the level (not confirmed live — utilsdemo matches its known aliases). The test
+# Label printed on the activity's thumb in the level (read from the live app at generation time). The test
 # clicks that thumb directly instead of opening activities until it finds the
 # right one.
-ACTIVITY_TITLE = ""
-MAP_LEVEL = 34          # from the Rally description
+ACTIVITY_TITLE = "Tetris"
+MAP_LEVEL = 32          # from the Rally description
 USERNAME = "vt233624"
 PASSWORD = "3690"
 
 
-def test_tc1156_tetris_solve_hard_level(altdriver):
+def test_tc1159_tetris_solve_activity_successfully_in_easy_level(altdriver):
     driver, _platform = altdriver
 
     # 1. Login with the credentials from the Rally description. When several
@@ -64,7 +64,7 @@ def test_tc1156_tetris_solve_hard_level(altdriver):
         f"{TC_ID}: TETRIS activity was not found in level {MAP_LEVEL}"
     assert result["total"] > 0 and result["done"] >= result["total"], (
         f"{TC_ID}: TETRIS did not complete — progress "
-        f"{result['done']}/{result['total']}. Expected: User is able to complete level 34 (hard difficulty) in Tetris without errors or crashes")
+        f"{result['done']}/{result['total']}. Expected: The Tetris activity completes successfully in easy level. Player receives a score/reward upon completion. No errors or crashes occur during gameplay. Progress is saved correctly after completion.")
     assert result["feedback"], \
         f"{TC_ID}: TETRIS reached {result['done']}/{result['total']} but the final feedback screen never appeared"
 
