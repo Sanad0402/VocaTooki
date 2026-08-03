@@ -1056,13 +1056,19 @@ def magic_trace(altdriver):
 
     print("[INFO] magic_trace activity complete")
 
-def signs(altdriver, max_rounds=12, round_timeout=25):
+def _signs_entry(altdriver, max_rounds=12, round_timeout=25):
     """Letters Sorting ("signs"): solve whichever round is currently open.
 
-    SOLVER ONLY — it does not navigate. It works out which round it has been
-    dropped into and plays it; getting into the activity (and back out again) is
-    the caller's job, so this composes with solve_activity_in_level, the lesson
-    range runs and anything else that drives the map.
+    By default this is a SOLVER ONLY — it does not navigate. It works out which
+    round it has been dropped into and plays it; getting into the activity (and
+    back out again) is the caller's job, so it composes with
+    solve_activity_in_level, the lesson range runs and anything else that drives
+    the map.
+
+    Pass ``play_all_modes=True`` to play the whole activity in one call: after
+    an entry is finished it goes back ONE screen to the activity selection,
+    re-enters this same activity and plays the next mode, up to three entries.
+    That is opt-in precisely because the callers above do their own navigation.
 
     The activity has three modes, and they do NOT follow each other in place:
     the activity has to be left and re-entered to get the next one. So this
@@ -1118,12 +1124,16 @@ def signs(altdriver, max_rounds=12, round_timeout=25):
                     "SortingMonkeyController", "alphabet", "Assembly-CSharp") or {}
             except Exception:
                 continue
-            shown = str(alphabet.get("word") or "").strip()
+            # A LETTER sign carries `letter`; a PICTURE sign carries a word and
+            # no letter. `word` is not reliable for letter signs — it comes back
+            # empty in some rounds — so the letter field decides which it is.
+            letter = str(alphabet.get("letter") or "").strip()
+            shown = letter or str(alphabet.get("word") or "").strip()
             try:
-                word_id = int(alphabet.get("id"))
+                obj_id = int(alphabet.get("id"))
             except (TypeError, ValueError):
-                word_id = None
-            out.append((name, shown, word_id))
+                obj_id = None
+            out.append((name, shown, obj_id, bool(letter)))
         return out
 
     def diagnose(board, word_ids):
@@ -1140,8 +1150,7 @@ def signs(altdriver, max_rounds=12, round_timeout=25):
           from the data — and does not matter, because each half only shows the
           case it asks for, so matching on the letter is right either way)
         """
-        shown = [w for _n, w, _i in board]
-        if any(i is not None and i in word_ids for _n, _w, i in board) and                 any(len(w) > 1 for w in shown):
+        if any(not is_letter for _n, _w, _i, is_letter in board):
             return "find images (matching by word id)"
         try:
             has_audio = bool(altdriver.find_objects(By.NAME, "AudioButton"))
@@ -1193,7 +1202,11 @@ def signs(altdriver, max_rounds=12, round_timeout=25):
             letter, word_ids = target()
             done, total = read_activity_progress(altdriver)
             if letter and total and done < total:
-                return letter, word_ids, done, total
+                # The counter and the target appear BEFORE the signs finish
+                # populating — a board read too early looks like nine blank
+                # signs and nothing to click.
+                if any(shown for _n, shown, _o, _l in signs_on_board()):
+                    return letter, word_ids, done, total
             time.sleep(1.5)
         return None
 
@@ -1211,12 +1224,16 @@ def signs(altdriver, max_rounds=12, round_timeout=25):
 
         board = signs_on_board()
         print(f"[INFO] round {rnd}: {diagnose(board, word_ids)}")
-        # A sign is correct when it shows the target letter (letter rounds) or
-        # when its word is one of the letter's words (images round).
-        matches = [n for n, shown, wid in board
-                   if shown.lower() == letter or (wid is not None and wid in word_ids)]
+        # A LETTER sign is correct when it shows the target letter; a PICTURE
+        # sign when its word is one of the letter's words. The two are kept
+        # apart deliberately: word ids and letter ids overlap (the word "red"
+        # and the letter "I" are both id 10), so matching on id alone would
+        # click the wrong sign in the images round.
+        matches = [n for n, shown, oid, is_letter in board
+                   if (shown.lower() == letter if is_letter
+                       else (oid is not None and oid in word_ids))]
         print(f"[INFO] round {rnd}: target '{letter}' ({done}/{total}) — "
-              f"signs {[shown for _n, shown, _w in board]} -> clicking {len(matches)}")
+              f"signs {[shown for _n, shown, _o, _l in board]} -> clicking {len(matches)}")
         if not matches:
             print("[WARN] no sign carries the target letter; stopping")
             break
@@ -1234,7 +1251,8 @@ def signs(altdriver, max_rounds=12, round_timeout=25):
         rounds_played += 1
         print(f"[INFO] round {rnd} finished at {done}/{total}")
 
-    print(f"[INFO] Signs activity complete — {rounds_played} round(s) played")
+    print(f"[INFO] Signs entry complete — {rounds_played} board(s) played")
+    return rounds_played
 
 
 def search_3rd(altdriver):
@@ -4147,3 +4165,93 @@ def exam_shuffled_context(altdriver, question_attempts=3):
         print(f"[WARN] questions still unsolved: {unsolved}")
     else:
         print("[INFO] all questions solved")
+
+
+def signs(altdriver, max_rounds=12, round_timeout=25, play_all_modes=False, max_entries=3):
+    """Letters Sorting ("signs"). See _signs_entry for how a board is solved.
+
+    ``play_all_modes=False`` (default): solve the round that is open and return.
+    Unchanged behaviour for solve_activity_in_level and the lesson-range runs,
+    which navigate themselves.
+
+    ``play_all_modes=True``: also handle the navigation between modes — the
+    modes do not follow each other in place, so after each entry this goes back
+    ONE screen to the activity selection and re-enters the same activity. The
+    activity is found by trying thumbs until the LettersSorting scene loads
+    again, which works whatever language the thumb titles are in (this account
+    shows them in Arabic).
+    """
+    played = _signs_entry(altdriver, max_rounds=max_rounds, round_timeout=round_timeout)
+    if not play_all_modes:
+        return played
+
+    total_boards = played
+    for entry in range(2, max_entries + 1):
+        if not _reenter_signs(altdriver):
+            print("[INFO] no further Signs mode to play")
+            break
+        print(f"[INFO] Signs entry {entry}")
+        played = _signs_entry(altdriver, max_rounds=max_rounds, round_timeout=round_timeout)
+        total_boards += played
+        if played == 0:
+            break
+    print(f"[INFO] Signs activity complete — {total_boards} board(s) across all modes")
+    return total_boards
+
+
+def _reenter_signs(altdriver, timeout=40):
+    """Leave a finished Signs entry and open the activity again.
+
+    ONE back click reaches the activity selection (two would drop to the map).
+    The right thumb is found by opening thumbs until LettersSorting loads, so
+    no thumb title has to be recognised — titles are localised.
+    """
+    # Only leave if we are actually inside an activity — calling the exit from
+    # the selection screen just logs failed clicks.
+    try:
+        inside = altdriver.get_current_scene() != "ActivitySelectionScene"
+    except Exception:
+        inside = True
+    if inside:
+        try:
+            when_finish_activity(altdriver)
+        except Exception as e:
+            print(f"[WARN] could not leave the activity: {e}")
+        time.sleep(4)
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if altdriver.get_current_scene() == "ActivitySelectionScene":
+            break
+        time.sleep(1.5)
+    else:
+        print(f"[WARN] activity selection not reached "
+              f"(now: {altdriver.get_current_scene()})")
+        return False
+
+    for index in range(6):
+        # Re-read the thumbs every time: backing out of the wrong activity
+        # reloads the screen, and the handles from before are stale.
+        activities = list_level_activities(altdriver)
+        if index >= len(activities):
+            break
+        activity = activities[index]
+        try:
+            activity["thumb"].click()
+        except Exception as e:
+            print(f"[WARN] thumb {index} click failed: {e}")
+            continue
+        time.sleep(7)
+        scene = altdriver.get_current_scene()
+        if scene == "LettersSorting":
+            print(f"[INFO] re-entered Signs via thumb {index} "
+                  f"({activity.get('title') or 'untitled'})")
+            return True
+        # wrong activity — back out and try the next thumb
+        print(f"[INFO] thumb {index} opened '{scene}', not Signs; going back")
+        try:
+            call_method(altdriver, "AltTesterUtils", "LoadPreviousScene")
+        except Exception:
+            when_finish_activity(altdriver)
+        time.sleep(5)
+    return False
