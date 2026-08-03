@@ -1056,69 +1056,186 @@ def magic_trace(altdriver):
 
     print("[INFO] magic_trace activity complete")
 
-def signs(altdriver):
-    """Performs the Signs activity – finds and clicks all monkeys with the matching letter."""
-    print("[INFO] Starting Signs activity...")
+def signs(altdriver, max_rounds=12, round_timeout=25):
+    """Letters Sorting ("signs"): solve whichever round is currently open.
 
-    try:
-        # Step 1: Get the current letter from the WordPanel
-        current_letter_obj = altdriver.find_object(By.NAME, 'WordPanel')
-        current_letter_raw = current_letter_obj.get_component_property(
-            'WordPanel',
-            '<wordObj_>k__BackingField.levelData.letter',
-            'Assembly-CSharp'
-        )
+    SOLVER ONLY — it does not navigate. It works out which round it has been
+    dropped into and plays it; getting into the activity (and back out again) is
+    the caller's job, so this composes with solve_activity_in_level, the lesson
+    range runs and anything else that drives the map.
 
-        if not current_letter_raw:
-            print("[ERROR] Current letter is None or empty. Exiting activity.")
-            return
+    The activity has three modes, and they do NOT follow each other in place:
+    the activity has to be left and re-entered to get the next one. So this
+    plays the board(s) of the current entry and returns.
 
-        target_letter = current_letter_raw.lower()
-        print(f"[INFO] Target letter: '{target_letter}'")
+        listen & find                signs show letters, either case counts
+        find capital / find small    one entry, split into TWO boards — the
+                                     second appears in place, so it is played
+                                     without re-entering
+        find images                  signs show pictures; the correct ones are
+                                     the letter's own words, matched BY ID
+                                     ("kite" belongs to "I" by sound, which no
+                                     spelling rule would catch)
 
-    except Exception as e:
-        print(f"[ERROR] Failed to get current letter: {e}")
-        return
+    Nothing is read once: every board re-reads its target and its nine signs,
+    and the loop follows the activity's progress counter ("0/5") rather than any
+    fixed count. A sign takes TWO clicks — the first turns it round, the second
+    selects it — and each sign is addressed by its own path
+    (//GO-Monkey_i//Bn-Local_Root) so one can never be mistaken for another.
+    """
+    def target():
+        """(letter, word_ids) for the current board.
 
-    try:
-        # Step 2: Get monkeys and clickable roots
-        monkeys = [altdriver.find_object(By.NAME, "GO-Monkey" if i == 0 else f"GO-Monkey_{i}") for i in range(9)]
-        roots = altdriver.find_objects(By.NAME, "Bn-Local_Root")
-    except Exception as e:
-        print(f"[ERROR] Failed to find monkeys or roots: {e}")
-        return
-
-    found_any = False
-
-    # Step 3: Iterate and click all matching monkeys
-    for i, monkey in enumerate(monkeys):
+        The letter drives the letter rounds. ``word_ids`` drives the images
+        round, where the signs show PICTURES: the letter's data lists the ids of
+        the words that belong to it, so the right signs are matched by id rather
+        than by spelling — "kite" belongs to "I" by sound, and no string rule
+        would ever catch that.
+        """
         try:
-            monkey_letter_raw = monkey.get_component_property(
-                "SortingMonkeyController",
-                "alphabet.word",
-                "Assembly-CSharp"
-            )
-
-            if not monkey_letter_raw:
-                print(f"[WARN] Monkey {i}: No letter found.")
-                continue
-
-            monkey_letter = monkey_letter_raw.lower()
-
-            if monkey_letter == target_letter or target_letter in monkey_letter:
-                print(f"[INFO] Found match on monkey {i}: '{monkey_letter}' – clicking.")
-                roots[i].click()
-                time.sleep(1)
-                roots[i].click()
-                found_any = True
-
+            wp = altdriver.find_object(By.NAME, "WordPanel")
+            word = wp.get_component_property("WordPanel", "Word", "Assembly-CSharp") or {}
+            level = word.get("levelData") or {}
+            letter = (level.get("letter") or "").strip().lower()
+            ids = [int(i) for i in (level.get("words") or [])]
+            return letter, ids
         except Exception as e:
-            print(f"[ERROR] Failed to process monkey {i}: {e}")
+            print(f"[ERROR] could not read the target: {e}")
+            return "", []
 
-    if not found_any:
-        print("[WARN] No matching monkeys found.")
+    def signs_on_board():
+        """[(name, shown, word_id)] for the nine signs, read fresh.
 
-    print("[INFO] Signs activity complete ✅")
+        ``shown`` is the letter in the letter rounds and the word in the images
+        round; ``word_id`` identifies the word behind the picture.
+        """
+        out = []
+        for i in range(9):
+            name = "GO-Monkey" if i == 0 else f"GO-Monkey_{i}"
+            try:
+                monkey = altdriver.find_object(By.NAME, name)
+                alphabet = monkey.get_component_property(
+                    "SortingMonkeyController", "alphabet", "Assembly-CSharp") or {}
+            except Exception:
+                continue
+            shown = str(alphabet.get("word") or "").strip()
+            try:
+                word_id = int(alphabet.get("id"))
+            except (TypeError, ValueError):
+                word_id = None
+            out.append((name, shown, word_id))
+        return out
+
+    def diagnose(board, word_ids):
+        """Name the round we are in, from what is actually on the board.
+
+        The four round objects (ListenFindRound / FindLowerCase /
+        FindUpperCase / FindImages) all report enabled=True at once, so they
+        cannot be asked. What distinguishes them is the board:
+
+        * signs showing WORDS whose ids belong to the letter -> find images
+        * signs showing LETTERS with an AudioButton on screen  -> listen & find
+        * signs showing LETTERS with no audio                  -> the find
+          capital / find small round (which half it is cannot be told apart
+          from the data — and does not matter, because each half only shows the
+          case it asks for, so matching on the letter is right either way)
+        """
+        shown = [w for _n, w, _i in board]
+        if any(i is not None and i in word_ids for _n, _w, i in board) and                 any(len(w) > 1 for w in shown):
+            return "find images (matching by word id)"
+        try:
+            has_audio = bool(altdriver.find_objects(By.NAME, "AudioButton"))
+        except Exception:
+            has_audio = False
+        if has_audio:
+            return "listen & find (either case counts)"
+        return "find capital / find small letters"
+
+    def click_sign(name):
+        """Turn the sign, then select it."""
+        path = f"//{name}//Bn-Local_Root"
+        try:
+            altdriver.find_object(By.PATH, path).click()   # turns it round
+        except Exception as e:
+            print(f"[WARN] {name}: first click failed: {e}")
+            return False
+        time.sleep(1.2)
+        try:
+            altdriver.find_object(By.PATH, path).click()   # selects it
+        except Exception as e:
+            print(f"[WARN] {name}: second click failed: {e}")
+            return False
+        time.sleep(0.8)
+        return True
+
+    def wait_for_round(timeout=30):
+        """Wait for a round to be ready.
+
+        Returns (letter, done, total), or None when this entry has no more
+        rounds. Two different things end a round:
+
+        * The find-upper/lower mode is split in half — when the first half is
+          done a SECOND board appears in the same entry, so a completed
+          progress bar is not necessarily the end.
+        * The modes themselves (listen & find -> upper/lower -> images) do NOT
+          follow each other in place: the activity has to be left and re-entered
+          from the activity selection screen to get the next one. So once a
+          board is finished and no new one appears, this returns and the caller
+          re-enters for the next mode.
+        """
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                if altdriver.get_current_scene() != "LettersSorting":
+                    return None                     # activity closed
+            except Exception:
+                pass
+            letter, word_ids = target()
+            done, total = read_activity_progress(altdriver)
+            if letter and total and done < total:
+                return letter, word_ids, done, total
+            time.sleep(1.5)
+        return None
+
+    print("[INFO] Signs activity: starting")
+    rounds_played = 0
+
+    for rnd in range(1, max_rounds + 1):
+        # Generous wait for the FIRST board (the activity is still loading),
+        # short afterwards: a second board only appears for the split
+        # upper/lower mode, otherwise this entry is done.
+        ready = wait_for_round(timeout=30 if rnd == 1 else 10)
+        if ready is None:
+            break
+        letter, word_ids, done, total = ready
+
+        board = signs_on_board()
+        print(f"[INFO] round {rnd}: {diagnose(board, word_ids)}")
+        # A sign is correct when it shows the target letter (letter rounds) or
+        # when its word is one of the letter's words (images round).
+        matches = [n for n, shown, wid in board
+                   if shown.lower() == letter or (wid is not None and wid in word_ids)]
+        print(f"[INFO] round {rnd}: target '{letter}' ({done}/{total}) — "
+              f"signs {[shown for _n, shown, _w in board]} -> clicking {len(matches)}")
+        if not matches:
+            print("[WARN] no sign carries the target letter; stopping")
+            break
+
+        for name in matches:
+            click_sign(name)
+
+        # Wait for this round to be counted complete.
+        deadline = time.time() + round_timeout
+        while time.time() < deadline:
+            done, total = read_activity_progress(altdriver)
+            if total and done >= total:
+                break
+            time.sleep(1.5)
+        rounds_played += 1
+        print(f"[INFO] round {rnd} finished at {done}/{total}")
+
+    print(f"[INFO] Signs activity complete — {rounds_played} round(s) played")
+
 
 def search_3rd(altdriver):
     time.sleep(10)
