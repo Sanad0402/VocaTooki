@@ -1969,7 +1969,6 @@ def rings(altdriver):
     NOTE: the app must have OS focus while this runs -- Unity pauses play mode
     when the window is in the background.
     """
-    NUDGES = (10, 25, 45, 70)
     SETTLE = 4.0          # the score animation lags - reading earlier lies
     REGEN_WAIT = 5.0      # past halfway the round spawns fresh structures
 
@@ -1997,9 +1996,19 @@ def rings(altdriver):
         * inv_x  -- where to press to scroll the inventory (over the panel, not
                     the board)
         """
-        g = {"ADJ": 75.0, "PANEL_X": 980.0, "inv_x": 1057.0,
+        # Fallbacks, used only when a measurement fails outright (no Letter
+        # hexes on screen, no scroll arrows). They were tuned on a 1600x900
+        # window, so they are scaled to the window in use rather than left as
+        # values that are simply wrong on any other size.
+        try:
+            sw, sh = altdriver.get_application_screensize()
+        except Exception:
+            sw, sh = 1600.0, 900.0
+        fx, fy = float(sw) / 1600.0, float(sh) / 900.0
+        g = {"ADJ": 75.0 * fx, "PANEL_X": 980.0 * fx, "inv_x": 1057.0 * fx,
+             "SPACING": 101.0 * fx, "PITCH": 150.0 * fy,
              "bx0": -1e9, "bx1": 1e9, "by0": -1e9, "by1": 1e9,
-             "VIS_LO": 120.0, "VIS_HI": 500.0}
+             "VIS_LO": 120.0 * fy, "VIS_HI": 500.0 * fy}
 
         bx, by = [], []
         for e in altdriver.get_all_elements(enabled=False):
@@ -2023,20 +2032,33 @@ def rings(altdriver):
                         best = min(best, ((a[0]-b[0])**2 + (a[1]-b[1])**2) ** 0.5)
                 nn.append(best)
             nn.sort()
-            g["ADJ"] = max(75.0, nn[len(nn)//2] * 1.35)
+            g["ADJ"] = max(75.0 * fx, nn[len(nn)//2] * 1.35)
+            g["SPACING"] = nn[len(nn)//2]        # raw hex spacing, for scaling
 
         hx = []
+        cover_pts = []
         for e in altdriver.get_all_elements(enabled=False):
             if e.name.startswith("CoverHolder-"):
                 try:
-                    hx.append(e.get_screen_position()[0])
+                    pos = e.get_screen_position()
                 except Exception:
-                    pass
+                    continue
+                hx.append(pos[0])
+                cover_pts.append(pos)
         if hx:
             hx.sort()
             g["inv_x"] = hx[len(hx)//2]
             if g["bx1"] > -1e8:
                 g["PANEL_X"] = (g["bx1"] + min(hx)) / 2.0
+
+        # How far apart the inventory covers sit: scrolling by exactly one
+        # pitch advances the list by exactly one cover, whatever the window
+        # size. A fixed step scrolls a fraction of a cover on a large window
+        # and several on a small one.
+        cover_ys = sorted(p[1] for p in cover_pts)
+        gaps = [b - a for a, b in zip(cover_ys, cover_ys[1:]) if b - a > 1]
+        if gaps:
+            g["PITCH"] = sorted(gaps)[len(gaps)//2]
 
         arrows = {}
         for e in altdriver.get_all_elements(enabled=True):
@@ -2057,6 +2079,22 @@ def rings(altdriver):
     ADJ = geom["ADJ"]
     PANEL_X = geom["PANEL_X"]
     VIS_LO, VIS_HI = geom["VIS_LO"], geom["VIS_HI"]
+
+    # The gesture constants below were tuned when the board's hex spacing was
+    # ~101px. The window is not always that size (it has been seen at 2153x1093,
+    # where the spacing is 135), and a nudge that is proportionally too small
+    # never engages the drag — the "drag never engaged" failure. Scale them off
+    # the live board instead of leaving them as pixels.
+    SCALE = max(0.5, geom["SPACING"] / 101.0)
+    NUDGES = tuple(int(round(n * SCALE)) for n in (10, 25, 45, 70))
+    ENGAGE_EPS = 8.0 * SCALE          # "did it move?" threshold
+    PITCH = geom["PITCH"]             # one inventory cover
+    # "same cell" radius: a quarter of the hex spacing, so it means the same
+    # thing on every board size (it was a flat 25px, which is a quarter of a
+    # hex at spacing 101 but under a fifth at 135).
+    SAME_CELL_R2 = (0.25 * geom["SPACING"]) ** 2
+    print("[info] rings scale: spacing=%.0f x%.2f nudges=%s pitch=%.0f"
+          % (geom["SPACING"], SCALE, NUDGES, PITCH))
     TOL = max(16.0, ADJ * 0.16)
     print("[info] rings geometry: ADJ=%.0f PANEL_X=%.0f VIS=[%.0f,%.0f] inv_x=%.0f"
           % (ADJ, PANEL_X, VIS_LO, VIS_HI, geom["inv_x"]))
@@ -2171,12 +2209,13 @@ def rings(altdriver):
                     return None
         return None
 
-    def scroll_inventory(dy=-150):
+    def scroll_inventory(dy=None):
         """A vertical drag inside the panel scrolls it to reach hidden covers.
 
         Always the same direction: alternating merely oscillates between two
         positions and never cycles the list.
         """
+        dy = -PITCH if dy is None else dy   # one cover per scroll, whatever the size
         x = geom["inv_x"]                 # press over the panel, not the board
         y0 = (VIS_LO + VIS_HI) / 2.0
         altdriver.move_mouse((x, y0), duration=0.15)
@@ -2214,7 +2253,7 @@ def rings(altdriver):
                 continue
             if p[0] > PANEL_X:                       # still in the inventory
                 continue
-            if any((p[0]-q[0])**2 + (p[1]-q[1])**2 < 25*25 for q in busy):
+            if any((p[0]-q[0])**2 + (p[1]-q[1])**2 < SAME_CELL_R2 for q in busy):
                 continue                             # an already-placed cover
             pts.append((p[0], p[1]))
         pts.sort(key=lambda p: (p[0]-hpos[0])**2 + (p[1]-hpos[1])**2)
@@ -2243,7 +2282,7 @@ def rings(altdriver):
                 altdriver.move_mouse(tuple(finger), duration=0.01)
                 time.sleep(0.12)
             here = pos_of(cid)
-            if here and abs(here[0]-start[0]) < 8 and abs(here[1]-start[1]) < 8:
+            if here and abs(here[0]-start[0]) < ENGAGE_EPS and abs(here[1]-start[1]) < ENGAGE_EPS:
                 print("[warn] drag never engaged")
                 return False
 
@@ -2340,7 +2379,7 @@ def rings(altdriver):
                 print("[warn] nothing placeable — stopping.")
                 break
             if idle % 3 == 0:
-                scroll_inventory(-150)
+                scroll_inventory()
             else:
                 # the round generates fresh structures as it goes
                 failed.clear()
