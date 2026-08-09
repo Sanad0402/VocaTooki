@@ -38,7 +38,10 @@ def _now():
 
 
 def _blank():
-    return {"release": "", "platform": "web", "folder": "", "cases": {}}
+    # scope = what counts toward the release percentage. Whole folders and/or
+    # individual cases, chosen in the panel. Empty scope = the whole suite.
+    return {"release": "", "platform": "web",
+            "scope": {"folders": [], "cases": []}, "cases": {}}
 
 
 def load():
@@ -51,6 +54,16 @@ def load():
     base.update({k: data.get(k, base[k]) for k in base})
     if not isinstance(base.get("cases"), dict):
         base["cases"] = {}
+    scope = base.get("scope")
+    if not isinstance(scope, dict):
+        scope = {"folders": [], "cases": []}
+    scope.setdefault("folders", [])
+    scope.setdefault("cases", [])
+    # An earlier version scoped to a single folder id.
+    legacy = str(data.get("folder") or "").strip()
+    if legacy and legacy not in scope["folders"]:
+        scope["folders"].append(legacy)
+    base["scope"] = scope
     return base
 
 
@@ -62,16 +75,37 @@ def _save(data):
     os.replace(tmp, _PATH)
 
 
-def configure(release=None, platform=None, folder=None):
-    """Set the release being tested, the runner's platform, and the scope folder."""
+def configure(release=None, platform=None):
+    """Set the release being tested and the platform the runner is driving."""
     with _lock:
         data = load()
         if release is not None:
             data["release"] = str(release).strip()
         if platform is not None and str(platform).strip().lower() in PLATFORMS:
             data["platform"] = str(platform).strip().lower()
-        if folder is not None:
-            data["folder"] = str(folder).strip()
+        _save(data)
+        return data
+
+
+def set_scope(kind, value, add=True):
+    """Add or remove a folder / test case from what the release percentage counts.
+
+    A folder that is not in the synced suite is still accepted — the regression
+    folder can be named before it has been synced from Rally — and simply
+    contributes no cases until it is.
+    """
+    key = "folders" if str(kind).lower().startswith("folder") else "cases"
+    value = str(value or "").strip()
+    if not value:
+        return load()
+    with _lock:
+        data = load()
+        items = data["scope"][key]
+        if add:
+            if value not in items:
+                items.append(value)
+        elif value in items:
+            items.remove(value)
         _save(data)
         return data
 
@@ -118,23 +152,57 @@ def record_run(tc_id, run_status, platform=None):
 
 
 def summary(suite_tree):
-    """Progress per platform, plus a per-folder breakdown.
+    """What the release tab and the public page render.
 
-    ``suite_tree`` is ``runner.suite.tree()`` — the release scope comes from the
-    suite itself, so the tab counts the same cases the panel manages, including
-    the ones only a human can test.
+    The scope is what YOU chose — whole folders and/or individual cases — not
+    the whole suite, so the percentage means "the regression set is N% tested"
+    rather than "the project is". An empty scope falls back to everything, so
+    the page is never blank before the scope is set.
+
+    A scoped folder that is not in the synced suite (the regression folder can
+    be named before it holds anything) is reported with ``in_suite: false`` and
+    contributes no cases, instead of silently disappearing.
     """
     data = load()
-    scope = (data.get("folder") or "").strip()
+    scope = data.get("scope") or {"folders": [], "cases": []}
+    want_folders = list(scope.get("folders") or [])
+    want_cases = list(scope.get("cases") or [])
 
-    folders = []
+    by_folder = {}
+    case_meta = {}
     for folder in suite_tree.get("folders", []):
-        cases = folder.get("cases", [])
-        if not cases:
-            continue
-        if scope and scope not in (folder.get("id"), folder.get("parent")):
-            continue
-        folders.append(folder)
+        by_folder[folder.get("id")] = folder
+        for case in folder.get("cases", []):
+            case_meta[case["id"]] = {
+                "id": case["id"],
+                "name": case.get("name") or case["id"],
+                "folder": folder.get("id"),
+                "folder_name": folder.get("name") or folder.get("id"),
+                "impl": case.get("impl"),
+            }
+
+    def folder_case_ids(fid):
+        """Cases directly in a folder, plus those in its subfolders."""
+        ids = [c["id"] for c in (by_folder.get(fid, {}).get("cases") or [])]
+        for f in suite_tree.get("folders", []):
+            if f.get("parent") == fid:
+                ids += folder_case_ids(f.get("id"))
+        return ids
+
+    scoped_ids, seen = [], set()
+    for fid in want_folders:
+        for cid in folder_case_ids(fid):
+            if cid not in seen:
+                seen.add(cid)
+                scoped_ids.append(cid)
+    for cid in want_cases:
+        if cid not in seen:
+            seen.add(cid)
+            scoped_ids.append(cid)
+
+    scoped_from_scope = bool(want_folders or want_cases)
+    if not scoped_from_scope:                     # nothing chosen yet
+        scoped_ids = list(case_meta.keys())
 
     def counts_for(case_ids):
         out = {}
@@ -144,8 +212,9 @@ def summary(suite_tree):
                 verdict = ((data["cases"].get(tc_id) or {}).get(plat) or {}).get("verdict")
                 tally[verdict if verdict in VERDICTS else "not_run"] += 1
             total = max(1, len(case_ids))
-            # "Complete" means the case was actually exercised — a failure is a
-            # tested case, a blocked or unrun one is not.
+            # Tested means exercised: a failure is a result, blocked and not-run
+            # are not. Counting them would make the release look further along
+            # than it is.
             tally["total"] = len(case_ids)
             tally["tested"] = tally["passed"] + tally["failed"]
             tally["percent"] = round(100.0 * tally["tested"] / total, 1)
@@ -153,25 +222,52 @@ def summary(suite_tree):
             out[plat] = tally
         return out
 
+    # Folder rows: the scoped folders (even empty ones), else whatever holds cases.
     rows = []
-    all_ids = []
-    for folder in folders:
-        ids = [c["id"] for c in folder.get("cases", [])]
-        all_ids += ids
-        rows.append({
-            "id": folder.get("id"),
-            "name": folder.get("name") or folder.get("id"),
-            "total": len(ids),
-            "platforms": counts_for(ids),
-        })
+    if scoped_from_scope:
+        for fid in want_folders:
+            ids = folder_case_ids(fid)
+            folder = by_folder.get(fid)
+            rows.append({
+                "id": fid,
+                "name": (folder or {}).get("name") or fid,
+                "in_suite": folder is not None,
+                "total": len(ids),
+                "platforms": counts_for(ids),
+            })
+    else:
+        for folder in suite_tree.get("folders", []):
+            ids = [c["id"] for c in folder.get("cases", [])]
+            if ids:
+                rows.append({"id": folder.get("id"),
+                             "name": folder.get("name") or folder.get("id"),
+                             "in_suite": True, "total": len(ids),
+                             "platforms": counts_for(ids)})
+
+    cases = []
+    for cid in scoped_ids:
+        meta = case_meta.get(cid) or {"id": cid, "name": cid, "folder": "",
+                                      "folder_name": "(not in the synced suite)",
+                                      "impl": None}
+        entry = data["cases"].get(cid) or {}
+        cases.append({**meta, "platforms": {
+            plat: {"verdict": (entry.get(plat) or {}).get("verdict", ""),
+                   "source": (entry.get(plat) or {}).get("source", ""),
+                   "at": (entry.get(plat) or {}).get("at", "")}
+            for plat in PLATFORMS}})
 
     return {
         "release": data.get("release", ""),
         "platform": data.get("platform", "web"),
-        "folder": scope,
+        "scope": {"folders": want_folders, "cases": want_cases,
+                  "explicit": scoped_from_scope},
+        "available_folders": [{"id": f.get("id"), "name": f.get("name") or f.get("id"),
+                               "cases": len(f.get("cases") or [])}
+                              for f in suite_tree.get("folders", [])],
+        "available_cases": sorted(case_meta.values(), key=lambda c: c["id"]),
         "platforms": PLATFORMS,
-        "overall": counts_for(all_ids),
+        "overall": counts_for(scoped_ids),
         "folders": rows,
-        "total_cases": len(all_ids),
-        "cases": data.get("cases", {}),
+        "cases_detail": cases,
+        "total_cases": len(scoped_ids),
     }

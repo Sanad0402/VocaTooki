@@ -106,8 +106,17 @@ def api_status_config():
     """Set the release name, the platform the runner is testing, and the scope."""
     from runner import release_status
     d = request.get_json(force=True, silent=True) or {}
-    release_status.configure(release=d.get("release"), platform=d.get("platform"),
-                             folder=d.get("folder"))
+    release_status.configure(release=d.get("release"), platform=d.get("platform"))
+    return jsonify(release_status.summary(suite.tree()))
+
+
+@app.route("/api/status/scope", methods=["POST"])
+def api_status_scope():
+    """Add or remove a folder / case from what the release percentage counts."""
+    from runner import release_status
+    d = request.get_json(force=True, silent=True) or {}
+    release_status.set_scope(d.get("kind", "folder"), d.get("id", ""),
+                             add=bool(d.get("add", True)))
     return jsonify(release_status.summary(suite.tree()))
 
 

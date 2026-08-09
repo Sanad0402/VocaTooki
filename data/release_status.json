@@ -1,6 +1,11 @@
 {
   "release": "2026.08",
   "platform": "web",
-  "folder": "",
+  "scope": {
+    "folders": [
+      "TF295"
+    ],
+    "cases": []
+  },
   "cases": {}
 }

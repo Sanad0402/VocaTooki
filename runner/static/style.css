@@ -441,3 +441,29 @@ body.rs-page { max-width: 980px; margin: 0 auto; padding: 22px 18px; }
   border-radius: 8px; background: var(--surface); color: var(--ink); font: 13px/1.4 inherit;
   text-transform: none; letter-spacing: 0; font-weight: 400; }
 .rs-share { font-size: 11.5px; flex: 1 1 100%; }
+
+/* scope chips + per-case verdicts */
+.rs-scope { margin-top: 18px; }
+.rs-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.rs-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
+           background: var(--chip); border: 1px solid var(--line);
+           border-radius: 999px; padding: 3px 6px 3px 10px; }
+.rs-chip-missing { border-style: dashed; color: var(--ink-2); }
+.rs-chip-n { color: var(--ink-2); font-size: 11px; }
+.rs-x { border: 0; background: none; color: var(--ink-2); font-size: 14px;
+        line-height: 1; padding: 0 4px; border-radius: 50%; }
+.rs-x:hover { background: var(--fail-soft); color: var(--fail); }
+.rs-add { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.rs-add select, .rs-add input { padding: 5px 8px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--surface); color: var(--ink); font: 12.5px/1.4 inherit;
+  max-width: 260px; }
+.rs-tc { font-weight: 600; }
+.rs-cases th[scope="row"] { font-weight: 400; }
+.rs-cases .rs-fid { display: block; }
+.rs-set { padding: 3px 6px; border: 1px solid var(--line); border-radius: 7px;
+          background: var(--surface); color: var(--ink); font: 12px/1.3 inherit; }
+.rs-pill { font-size: 11.5px; padding: 2px 8px; border-radius: 999px;
+           background: var(--surface-2); color: var(--ink-2); }
+.rs-pill.rs-passed  { background: var(--pass-soft); color: var(--pass); }
+.rs-pill.rs-failed  { background: var(--fail-soft); color: var(--fail); }
+.rs-pill.rs-blocked { background: var(--warn-soft); color: var(--warn); }

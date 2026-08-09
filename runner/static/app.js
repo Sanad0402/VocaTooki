@@ -188,10 +188,10 @@ function showPane(which) {
 async function loadReleaseStatus() {
   try {
     const data = await (await fetch("/api/status/release")).json();
-    renderReleaseStatus($("release-status"), data);
+    renderReleaseStatus($("release-status"), data, true);
+    wireReleaseControls();
     if (!$("rs-release").value) $("rs-release").value = data.release || "";
     if (data.platform) $("rs-platform").value = data.platform;
-    if (!$("rs-folder").value) $("rs-folder").value = data.folder || "";
     const share = document.querySelector(".rs-share");
     if (share) {
       share.textContent = location.hostname === "127.0.0.1" || location.hostname === "localhost"
@@ -207,15 +207,54 @@ async function saveReleaseConfig() {
   const body = {
     release: $("rs-release").value.trim(),
     platform: $("rs-platform").value,
-    folder: $("rs-folder").value.trim(),
   };
   await withBusy($("rs-save"), "saving…", async () => {
     const data = await (await fetch("/api/status/config", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     })).json();
-    renderReleaseStatus($("release-status"), data);
+    renderReleaseStatus($("release-status"), data, true);
+    wireReleaseControls();
   });
+}
+
+// Scope edits and manual verdicts. Re-bound after every render because the
+// pane is rebuilt wholesale.
+function wireReleaseControls() {
+  const root = $("release-status");
+  if (!root) return;
+
+  root.querySelectorAll(".rs-x").forEach((b) => b.addEventListener("click", () =>
+    postScope(b.dataset.kind, b.dataset.id, false)));
+
+  const addBtn = root.querySelector("#rs-add-btn");
+  if (addBtn) addBtn.addEventListener("click", () => {
+    const folder = root.querySelector("#rs-add-folder").value;
+    const oneCase = root.querySelector("#rs-add-case").value;
+    const typed = root.querySelector("#rs-add-other").value.trim();
+    if (folder) return postScope("folder", folder, true);
+    if (oneCase) return postScope("case", oneCase, true);
+    if (typed) return postScope(/^TF/i.test(typed) ? "folder" : "case", typed, true);
+  });
+
+  root.querySelectorAll(".rs-set").forEach((sel) => sel.addEventListener("change", async () => {
+    const data = await (await fetch("/api/status/case", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: sel.dataset.case, platform: sel.dataset.platform,
+                             verdict: sel.value }),
+    })).json();
+    renderReleaseStatus($("release-status"), data, true);
+    wireReleaseControls();
+  }));
+}
+
+async function postScope(kind, id, add) {
+  const data = await (await fetch("/api/status/scope", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind, id, add }),
+  })).json();
+  renderReleaseStatus($("release-status"), data, true);
+  wireReleaseControls();
 }
 
 function updateModeDesc() {
