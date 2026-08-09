@@ -65,6 +65,65 @@ def index():
     return render_template("index.html")
 
 
+# ---- release status: the one thing the team may see -----------------------
+# The panel drives runs, holds Rally credentials and can delete generated code,
+# so it stays on localhost. The release status is read-only and safe to share,
+# so remote callers are allowed exactly that and nothing else.
+_PUBLIC_PATHS = ("/status", "/api/status/release", "/static/")
+_LOCAL_HOSTS = ("127.0.0.1", "::1", "localhost")
+
+
+def _is_local(addr):
+    return (addr or "").split("%")[0] in _LOCAL_HOSTS
+
+
+@app.before_request
+def _guard_remote_access():
+    if _is_local(request.remote_addr):
+        return None
+    path = request.path or "/"
+    if any(path == p or path.startswith(p) for p in _PUBLIC_PATHS):
+        if request.method != "GET":
+            return jsonify({"error": "read-only"}), 403
+        return None
+    return jsonify({"error": "This panel is local-only. Release status: /status"}), 403
+
+
+@app.route("/status")
+def status_page():
+    """Read-only release progress — the page to share with the team."""
+    return render_template("status.html")
+
+
+@app.route("/api/status/release")
+def api_status_release():
+    from runner import release_status
+    return jsonify(release_status.summary(suite.tree()))
+
+
+@app.route("/api/status/config", methods=["POST"])
+def api_status_config():
+    """Set the release name, the platform the runner is testing, and the scope."""
+    from runner import release_status
+    d = request.get_json(force=True, silent=True) or {}
+    release_status.configure(release=d.get("release"), platform=d.get("platform"),
+                             folder=d.get("folder"))
+    return jsonify(release_status.summary(suite.tree()))
+
+
+@app.route("/api/status/case", methods=["POST"])
+def api_status_case():
+    """Record one case on one platform by hand (the cases AltTester cannot run)."""
+    from runner import release_status
+    d = request.get_json(force=True, silent=True) or {}
+    tc_id = (d.get("id") or "").strip()
+    if not tc_id:
+        return jsonify({"error": "Missing test case id."}), 400
+    release_status.record(tc_id, d.get("verdict"), platform=d.get("platform"),
+                          source="manual", note=d.get("note", ""))
+    return jsonify(release_status.summary(suite.tree()))
+
+
 def _pick_auto_project(projects):
     """Pick the project Auto-detect would sync: first whose name contains 'dev',
     else the first project. Returns (project_id, project_name) or (None, None)."""
@@ -701,4 +760,11 @@ if __name__ == "__main__":
         raise SystemExit(1)
     print("Runner panel: http://127.0.0.1:5000")
     # threaded=True so SSE streaming + background run thread coexist with requests.
-    app.run(host="127.0.0.1", port=5000, threaded=True, debug=False)
+    # Localhost by default. Set PANEL_HOST=0.0.0.0 to let the team reach
+    # http://<this machine>:5000/status — every other route stays refused for
+    # remote callers (see _guard_remote_access).
+    host = os.environ.get("PANEL_HOST", "127.0.0.1")
+    if host != "127.0.0.1":
+        print(f"Release status shared on http://{host}:5000/status "
+              f"(control panel remains local-only)")
+    app.run(host=host, port=5000, threaded=True, debug=False)

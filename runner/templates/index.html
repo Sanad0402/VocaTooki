@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Voca Tooki - Test Runner</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=25">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=26">
 </head>
 <body>
   <header class="topbar">
@@ -142,6 +142,7 @@
         <div class="tabs">
           <button id="tab-results" class="on" type="button">Results <span id="fail-flag" class="flag"></span></button>
           <button id="tab-runs" type="button">Last runs <span id="runs-count" class="cnt"></span></button>
+          <button id="tab-status" type="button">Release status</button>
         </div>
         <div id="pane-results">
           <div id="results-toolbar" class="results-toolbar hidden">
@@ -150,6 +151,22 @@
             <span id="post-all-msg" class="hint" style="margin:0"></span>
           </div>
           <div id="results" class="results"></div>
+        </div>
+        <div id="pane-status" class="hidden">
+          <div class="rs-controls">
+            <label>Release <input id="rs-release" placeholder="2026.08"></label>
+            <label>Runner platform
+              <select id="rs-platform">
+                <option value="web">Web</option>
+                <option value="ios">iOS</option>
+                <option value="android">Android</option>
+              </select>
+            </label>
+            <label>Scope folder <input id="rs-folder" placeholder="all"></label>
+            <button type="button" class="small" id="rs-save">Save</button>
+            <span class="rs-share muted"></span>
+          </div>
+          <div id="release-status" class="rs-wrap"></div>
         </div>
         <div id="pane-runs" class="hidden">
           <div class="body" style="display:flex;justify-content:flex-end;padding-bottom:0">
@@ -207,6 +224,7 @@
     </div>
   </div>
 
-  <script src="{{ url_for('static', filename='app.js') }}?v=25"></script>
+  <script src="{{ url_for('static', filename='status.js') }}?v=26"></script>
+  <script src="{{ url_for('static', filename='app.js') }}?v=26"></script>
 </body>
 </html>

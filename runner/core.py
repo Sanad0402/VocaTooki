@@ -533,6 +533,15 @@ class RunManager:
                     self._update_case(idx, status=status, duration=_fmt_dur(rec.get("duration", 0)),
                                       error=rec.get("error", ""),
                                       screenshot=os.path.basename(rec.get("screenshot", "") or ""))
+                    # Feed the release status tab: an automated run counts as
+                    # coverage for whichever platform the runner is testing.
+                    # SKIPPED/CANCELLED are deliberately not recorded — a case
+                    # that never executed has not been tested.
+                    try:
+                        from runner import release_status
+                        release_status.record_run(self.cases[idx]["tc_id"], status)
+                    except Exception:
+                        logger.exception("could not record release status")
                     self._set_case_progress(done + 1, len(self.cases), self.cases[idx]["tc_name"])
                 offset = f.tell()
         except FileNotFoundError:

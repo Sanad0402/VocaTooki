@@ -90,6 +90,8 @@ async function init() {
   // Tabs (Results / Last runs)
   $("tab-results").addEventListener("click", () => showPane("results"));
   $("tab-runs").addEventListener("click", () => showPane("runs"));
+  $("tab-status").addEventListener("click", () => showPane("status"));
+  $("rs-save").addEventListener("click", saveReleaseConfig);
 
   // Live-log level filters + follow toggle
   document.querySelectorAll(".fchip[data-f]").forEach((chip) => {
@@ -172,8 +174,48 @@ async function pollAltTester() {
 function showPane(which) {
   $("pane-results").classList.toggle("hidden", which !== "results");
   $("pane-runs").classList.toggle("hidden", which !== "runs");
+  $("pane-status").classList.toggle("hidden", which !== "status");
   $("tab-results").classList.toggle("on", which === "results");
   $("tab-runs").classList.toggle("on", which === "runs");
+  $("tab-status").classList.toggle("on", which === "status");
+  if (which === "status") loadReleaseStatus();
+}
+
+// ---------------------------------------------------------------- release status
+// Automated runs record themselves (runner/core.py); this is where the release
+// is named, the platform being tested is chosen, and the cases AltTester cannot
+// run get ticked off by hand.
+async function loadReleaseStatus() {
+  try {
+    const data = await (await fetch("/api/status/release")).json();
+    renderReleaseStatus($("release-status"), data);
+    if (!$("rs-release").value) $("rs-release").value = data.release || "";
+    if (data.platform) $("rs-platform").value = data.platform;
+    if (!$("rs-folder").value) $("rs-folder").value = data.folder || "";
+    const share = document.querySelector(".rs-share");
+    if (share) {
+      share.textContent = location.hostname === "127.0.0.1" || location.hostname === "localhost"
+        ? "Share with the team: start the panel with PANEL_HOST=0.0.0.0, then send http://<this machine>:5000/status"
+        : "Shared read-only at /status";
+    }
+  } catch (e) {
+    $("release-status").innerHTML = '<p class="rs-loading">Could not load: ' + e.message + "</p>";
+  }
+}
+
+async function saveReleaseConfig() {
+  const body = {
+    release: $("rs-release").value.trim(),
+    platform: $("rs-platform").value,
+    folder: $("rs-folder").value.trim(),
+  };
+  await withBusy($("rs-save"), "saving…", async () => {
+    const data = await (await fetch("/api/status/config", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })).json();
+    renderReleaseStatus($("release-status"), data);
+  });
 }
 
 function updateModeDesc() {
