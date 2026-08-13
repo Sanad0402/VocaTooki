@@ -1,6 +1,7 @@
 # conftest.py
 import os
 import logging
+import shutil
 from datetime import datetime
 
 import pytest
@@ -184,7 +185,18 @@ def pytest_runtest_makereport(item, call):
                 # NOTE: the python driver's API is get_png_screenshot(path) —
                 # there is no get_screenshot(), which is why failure screenshots
                 # silently never appeared before.
-                driver.get_png_screenshot(screenshot_path)
+                #
+                # Shoot it into the run folder first (mandatory: a spent budget
+                # must never suppress the frame that shows the failure), then
+                # COPY it to the flat path the report/Rally pipeline expects.
+                # One capture, both homes. If the case is excluded from run
+                # screenshots the shooter returns None and we capture directly —
+                # the failure frame is never optional.
+                run_shot = _shoot_milestone(item, "failure", mandatory=True, driver=driver)
+                if run_shot is not None:
+                    shutil.copyfile(str(run_shot), screenshot_path)
+                else:
+                    driver.get_png_screenshot(screenshot_path)
                 logging.info(f"Screenshot saved: {screenshot_path}")
                 # This hook runs before the default makereport (tryfirst), so
                 # entries added here are copied onto the TestReport and reach
@@ -201,6 +213,82 @@ def pytest_runtest_makereport(item, call):
                 utilsdemo.return_to_map(driver)
             except Exception as e:
                 logging.warning(f"Post-failure recovery to map failed: {e}")
+
+
+# -----------------------------
+# Run screenshots (capped)
+# -----------------------------
+# Up to 3 frames per test case, captured at milestones without any test having to
+# ask: one once the app is up (setup) and one at the end of the test body. The
+# FAILURE frame is taken by the hook above and is deliberately not counted
+# against this budget — a spent allowance must never suppress the one screenshot
+# that shows why a test failed.
+#
+# Each frame is attached to item.user_properties("screenshot"), the same channel
+# the failure screenshot already uses, so the panel and the report pick them up
+# with no extra plumbing.
+
+_SHOOTERS = {}
+
+
+def _tc_id_of(item):
+    return getattr(getattr(item, "module", None), "TC_ID", None) or item.name
+
+
+def _shooter_for(item):
+    """The Shooter for this test, or None when the panel excluded the case."""
+    from runner import screenshots
+
+    key = item.nodeid
+    if key not in _SHOOTERS:
+        tc = _tc_id_of(item)
+        _SHOOTERS[key] = screenshots.Shooter.for_test(tc) if screenshots.wants(tc) else None
+    return _SHOOTERS[key]
+
+
+def _driver_of(item):
+    altdriver = (getattr(item, "funcargs", None) or {}).get("altdriver")
+    if not altdriver:
+        return None
+    return altdriver[0] if isinstance(altdriver, (tuple, list)) else altdriver
+
+
+def _shoot_milestone(item, label, mandatory=False, driver=None):
+    """Capture one budgeted frame for ``item``. Returns the Path or None.
+
+    Milestone frames are deliberately NOT put on item.user_properties: that
+    channel carries the single failure screenshot the report and the Rally
+    upload use, it is read as a dict (last value wins) and everything
+    downstream expects a bare filename in reports/screenshots/. Run frames live
+    in their own per-run folder and the panel lists them from there.
+    """
+    try:
+        shooter = _shooter_for(item)
+        if shooter is None:
+            return None
+        return shooter.shoot(driver or _driver_of(item), label, mandatory=mandatory)
+    except Exception as e:  # noqa: BLE001 - a screenshot must never fail a run
+        logging.debug(f"[shots] milestone '{label}' skipped: {e}")
+        return None
+
+
+@pytest.hookimpl(hookwrapper=True, trylast=True)
+def pytest_runtest_call(item):
+    """One frame as soon as the app is up (fixtures done), then run the test."""
+    _shoot_milestone(item, "start")
+    yield
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_teardown(item, nextitem):
+    """Last frame of the test body, before the fixtures tear the app down.
+
+    tryfirst is REQUIRED: pytest's own teardown hook runs the fixture
+    finalizers, and on the last test of a session that closes the AltDriver —
+    a trylast hook here would find a dead driver and silently lose the frame.
+    """
+    _shoot_milestone(item, "end")
+    _SHOOTERS.pop(item.nodeid, None)
 
 
 # -----------------------------

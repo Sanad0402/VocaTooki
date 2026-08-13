@@ -2,10 +2,33 @@
   "release": "2026.08",
   "platform": "web",
   "scope": {
-    "folders": [
-      "TF295"
-    ],
+    "folders": [],
     "cases": []
   },
-  "cases": {}
+  "cases": {
+    "TC1187": {
+      "web": {
+        "verdict": "passed",
+        "at": "2026-08-13T13:38:51.719483+00:00",
+        "source": "run",
+        "note": ""
+      }
+    },
+    "TC1175": {
+      "web": {
+        "verdict": "passed",
+        "at": "2026-08-13T14:20:54.552476+00:00",
+        "source": "run",
+        "note": ""
+      }
+    },
+    "TC1163": {
+      "web": {
+        "verdict": "passed",
+        "at": "2026-08-13T15:28:28.247064+00:00",
+        "source": "run",
+        "note": ""
+      }
+    }
+  }
 }

@@ -11,6 +11,7 @@ import sys
 import html
 import json
 import time
+import shutil
 import logging
 import tempfile
 import threading
@@ -25,6 +26,7 @@ from Pages.map_page import MapPage
 from .modes import MODES, DEFAULT_MODE
 from . import suite
 from . import emailer
+from . import screenshots
 
 
 REPORTS_DIR = os.getenv("REPORTS_DIR", os.path.expanduser("~/Downloads/reports"))
@@ -171,6 +173,7 @@ class RunManager:
             self._driver_closed = False
             self._proc = None            # pytest subprocess (suite runs)
             self._email_after = False    # email the report when the run finishes?
+            self._shooter = None         # capped run screenshots (lesson-range runs)
 
     def is_running(self):
         return self.state == "running"
@@ -459,7 +462,8 @@ class RunManager:
             if device:
                 cmd += ["--device_instance_id", device]
 
-            env = dict(os.environ, REPORTS_DIR=REPORTS_DIR, PYTHONIOENCODING="utf-8")
+            env = dict(os.environ, REPORTS_DIR=REPORTS_DIR, PYTHONIOENCODING="utf-8",
+                       **self._shot_env(cfg, cases))
             self._log(f"[INFO] Running {len(nodeids)} test case(s) via pytest...")
             proc = subprocess.Popen(cmd, cwd=_ROOT, env=env, stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT, text=True, bufsize=1)
@@ -739,6 +743,15 @@ class RunManager:
                 pass
             self._log("[INFO] Connected.")
 
+            # Up to 5 frames for the whole lesson run, spread over milestones
+            # (connected / after login / mid-run / end) plus any failure frame,
+            # which is mandatory and never budgeted away.
+            if cfg.get("shots_enabled", True):
+                self._shooter = screenshots.Shooter.for_mode(mode, stamp=time.strftime("%Y%m%d-%H%M%S"))
+                self._shoot("connected")
+            else:
+                self._log("[INFO] Screenshots disabled for this run.")
+
             utilsdemo.activity_report.clear()
 
             for ui, user in enumerate(users):
@@ -763,6 +776,7 @@ class RunManager:
                     start_screen.login(username, user["password"])
                     start_screen.go_to_map()
                     self._sleep(6)
+                    self._shoot(f"map-{username}")
                 except Exception as e:
                     if self._stopped():
                         break
@@ -778,6 +792,8 @@ class RunManager:
                     before = len(utilsdemo.activity_report)
                     try:
                         mode_run(map_page, driver, cid, lesson)
+                        if li == len(lessons) // 2:      # one frame from mid-run
+                            self._shoot(f"lesson-{lesson}")
                         # A lesson that recorded nothing and raised nothing still
                         # did nothing useful — surface it rather than show a blank.
                         if len(utilsdemo.activity_report) == before:
@@ -795,6 +811,7 @@ class RunManager:
                 if self._stopped():
                     break
 
+            self._shoot("end")
             fails = sum(1 for e in utilsdemo.activity_report if e.get("status") == "FAILED")
             if self._stopped():
                 final = "stopped"
@@ -838,17 +855,58 @@ class RunManager:
             root.setLevel(prev_level)
             self._record_run_history("lessons")
 
+    def _shot_env(self, cfg, cases):
+        """Environment that tells the pytest subprocess which cases may shoot.
+
+        The panel asks after Run is clicked; ``shot_cases`` is the answer (a
+        list of TC ids). Absent key = every case shoots (someone POSTing to
+        /api/run directly keeps the old, useful default); an EMPTY list means
+        the user unticked them all, which must disable capture rather than be
+        read as "no filter".
+        """
+        picked = cfg.get("shot_cases")
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        if picked is None:
+            return {"RUN_SHOTS": "1", "RUN_SHOT_CASES": "", "RUN_SHOT_STAMP": stamp}
+        picked = [str(t).strip() for t in picked if str(t).strip()]
+        if not picked:
+            self._log("[INFO] Screenshots disabled for this run.")
+            return {"RUN_SHOTS": "0", "RUN_SHOT_CASES": "", "RUN_SHOT_STAMP": stamp}
+        self._log(f"[INFO] Screenshots: up to 3 frames for {len(picked)} of {len(cases)} case(s).")
+        return {"RUN_SHOTS": "1", "RUN_SHOT_CASES": ",".join(picked), "RUN_SHOT_STAMP": stamp}
+
+    def _shoot(self, label, mandatory=False):
+        """One budgeted milestone frame for the lesson run. Never raises."""
+        shooter = self._shooter
+        driver = self._driver
+        if shooter is None or driver is None or self._driver_closed:
+            return None
+        try:
+            return shooter.shoot(driver, label, mandatory=mandatory)
+        except Exception as e:                       # noqa: BLE001
+            self._log(f"[WARN] Could not capture screenshot: {e}")
+            return None
+
     def _capture_screenshot(self, driver, label):
         """Save a PNG of the current screen; return its bare filename or ''.
 
         Used by the lesson-range path (the pytest suite path captures its own
-        via conftest). Never raises."""
+        via conftest). The frame is taken through the run's Shooter when there
+        is one — mandatory, so a spent budget can never drop a failure frame —
+        and then COPIED to the flat reports/screenshots/<name>.png the results
+        row, the HTML report and the Rally upload all expect. One capture, both
+        homes. Never raises."""
         try:
             shots = os.path.join(REPORTS_DIR, "screenshots")
             os.makedirs(shots, exist_ok=True)
             safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in label)[:60]
             name = f"lesson_{safe}_{time.strftime('%Y%m%d_%H%M%S')}.png"
-            driver.get_png_screenshot(os.path.join(shots, name))
+            flat = os.path.join(shots, name)
+            run_shot = self._shoot(f"failed-{label}", mandatory=True)
+            if run_shot is not None:
+                shutil.copyfile(str(run_shot), flat)
+            else:
+                driver.get_png_screenshot(flat)
             self._log(f"[INFO] Screenshot saved: {name}")
             return name
         except Exception as e:
@@ -877,6 +935,12 @@ class RunManager:
         is set, so every real run (done / stopped / error) is recorded. Dry
         runs never reach these threads and are not recorded.
         """
+        # Retention: drop the oldest run folders so screenshots cannot grow
+        # without bound even if nobody ever presses Delete.
+        try:
+            screenshots.prune_old_runs()
+        except Exception as e:                       # noqa: BLE001
+            logging.debug(f"[shots] prune skipped: {e}")
         try:
             with self._lock:
                 state = self.state

@@ -1,6 +1,7 @@
 import logging
 from alttester import By, AltKeyCode, AltDriver
 from alttester.exceptions import ComponentNotFoundException
+import re
 import requests
 import io
 import time
@@ -219,6 +220,30 @@ def _get_current_activity_with_retry(altdriver, prev_scene=None, max_attempts=10
         print(f"[ERROR] Last error: {last_err}")
     return None
 
+def capture_failure_screenshot(altdriver, label):
+    """Save a PNG of the screen a step GAVE UP on. Returns the bare filename.
+
+    Called only after something has already been retried and still cannot
+    proceed, because that screen is the evidence and it does not survive: by
+    the time the run ends the app has been navigated on, recovered, or logged
+    out. The bare filename is what the report, the panel and the Rally upload
+    all expect (they resolve it against REPORTS_DIR/screenshots).
+    """
+    import os as _os                              # local: os is imported late below
+    try:
+        reports = _os.getenv("REPORTS_DIR", _os.path.expanduser("~/Downloads/reports"))
+        shots = _os.path.join(reports, "screenshots")
+        _os.makedirs(shots, exist_ok=True)
+        safe = re.sub(r"[^A-Za-z0-9]+", "_", str(label or ""))[:60].strip("_") or "failure"
+        name = f"failed_{safe}_{time.strftime('%Y%m%d_%H%M%S')}.png"
+        altdriver.get_png_screenshot(_os.path.join(shots, name))
+        logging.info(f"[Shot] gave up — saved {name}")
+        return name
+    except Exception as e:                        # noqa: BLE001 - never fail a run
+        logging.warning(f"[Shot] could not capture '{label}': {e}")
+        return ""
+
+
 def run_activity(altdriver, activity):
     import time
     from datetime import datetime
@@ -340,7 +365,22 @@ def run_activity(altdriver, activity):
             print("[INFO] Waiting 15 seconds for CROSSWORD2 to load")
             time.sleep(15)
 
-        activity_map[scene](altdriver)
+        # THREE attempts before this counts as a failure — the same rule the
+        # guest walk and the exams follow. Solvers re-read the board, so a
+        # second run finishes what a lost drag left behind instead of failing
+        # the whole lesson (and burning the activity into FAILED_ACTIVITIES,
+        # which makes every later lesson skip it).
+        for attempt in range(1, 4):
+            try:
+                activity_map[scene](altdriver)
+                if attempt > 1:
+                    print(f"[INFO] {scene} solved on attempt {attempt}/3")
+                break
+            except Exception as solver_error:
+                print(f"[WARN] {scene} failed on attempt {attempt}/3: {solver_error}")
+                if attempt == 3:
+                    raise
+                time.sleep(2)
 
         end_time = datetime.now()
         activity_report.append({
@@ -356,12 +396,17 @@ def run_activity(altdriver, activity):
         print(f"[EXCEPTION] Activity {scene} failed: {e}")
         FAILED_ACTIVITIES.add(scene)
 
+        # Three attempts are spent: photograph the screen BEFORE the recovery
+        # below navigates away from it.
+        shot = capture_failure_screenshot(altdriver, f"activity_{scene}")
+
         end_time = datetime.now()
         activity_report.append({
             "activity": scene,
             "status": "FAILED",
             "error": error_msg,
             "duration": str(end_time - start_time),
+            "screenshot": shot,
             "platform": getattr(altdriver, "platform", "Unknown")
         })
 
@@ -920,6 +965,1285 @@ def return_to_start(altdriver, max_steps=10):
     return _current_scene(altdriver) == START_SCENE
 
 
+# ---------------------------------------------------------------------------
+# Guest flow ("Start FREE trial") — no account, no login
+# ---------------------------------------------------------------------------
+# Walked end to end against the live app on 2026-08-13 through the AltTester
+# CLI. Every control here is addressed BY OBJECT NAME or by the TEXT it prints —
+# never by screen coordinates, which stop landing on the control as soon as the
+# resolution or the layout changes.
+#
+# Three things make this flow unlike the rest of the app:
+#
+# 1. The entry only EXISTS while nobody is logged in. During a live session
+#    "Free Trial" and "PlayAsGuest" are disabled and off-screen, so a guest test
+#    has to log the current user out through the UI first
+#    (LogoutButton -> YesNoPopup(Clone) -> YesButton).
+# 2. The onboarding asks its questions in a DIFFERENT ORDER from the Rally case:
+#    child's name -> gender (Toggle/Toggle_1) -> native language -> English
+#    level. So the wizard is walked by matching each screen against the labels
+#    still outstanding rather than by assuming a fixed order.
+# 3. Gender is asked a SECOND time after the wizard, as GenderSelectPopup(Clone)
+#    on the hub, whose options are plain objects named "Male" and "Female".
+#
+# Nothing in this section calls login(), ensure_logged_in() or
+# AltTesterUtils.Logout: a guest has no credentials, so a session torn down
+# mid-test cannot be recreated.
+
+# Object names read off the live app (scene NewStartScene, 2026-08-13).
+GUEST_ENTRY = {
+    "trial":        "Free Trial",            # yellow "Start FREE trial"
+    "lets_start":   "Button",                # "Let's Start" on the Welcome panel
+    "first_name":   "InputField - RTLTMP",   # "What is your child's name?" (top)
+    "last_name":    "InputField - RTLTMP_1",
+    "next":         "Button_2",
+    "prev":         "Button_1",
+    "gender_popup": "GenderSelectPopup(Clone)",
+}
+# Objects that prove the logged-out welcome screen is up.
+GUEST_WELCOME_MARKERS = ("Free Trial", "SignUpButton")
+# The wizard's option rows are Toggle, Toggle_1, Toggle_2, ... in screen order.
+GUEST_TOGGLE_PREFIX = "Toggle"
+# Onboarding ends by dropping the guest into avatar customisation.
+AVATAR_SCENE = "AvatarBuilderScene"
+# Gender labels, so a case asking for "Male" is understood on both screens.
+GUEST_GENDERS = ("Male", "Female")
+
+
+def find_any(altdriver, name, enabled=True):
+    """``find_object`` that returns None instead of raising.
+
+    ``enabled=False`` also matches INACTIVE objects — the difference between
+    "this build has no such control" and "the control exists but is not active
+    yet", which are two different failures to report.
+    """
+    try:
+        return altdriver.find_object(By.NAME, name, enabled=enabled)
+    except Exception:
+        return None
+
+
+def wait_for_any(altdriver, names, timeout=20, poll=0.25):
+    """First of ``names`` to become active, or "" on timeout."""
+    if isinstance(names, str):
+        names = (names,)
+    end = time.time() + timeout
+    while True:
+        for n in names:
+            if n and find_any(altdriver, n) is not None:
+                return n
+        if time.time() >= end:
+            return ""
+        time.sleep(poll)
+
+
+def _text_variants(label):
+    """Casing/apostrophe spellings of a printed label. By.TEXT is exact."""
+    base = (label or "").strip()
+    out = [base, base.title(), base.upper(), base.lower(), base.capitalize()]
+    for a, b in (("'", "’"), ("’", "'")):
+        if a in base:
+            out.append(base.replace(a, b))
+    seen, uniq = set(), []
+    for t in out:
+        if t and t not in seen:
+            seen.add(t)
+            uniq.append(t)
+    return uniq
+
+
+def _find_by_text(altdriver, label):
+    """The object printing ``label``, or None. Clicking a label works because
+    Unity's raycast resolves it to the row/button that owns it."""
+    for variant in _text_variants(label):
+        try:
+            obj = altdriver.find_object(By.TEXT, variant)
+        except Exception:
+            obj = None
+        if obj is not None:
+            return obj
+    return None
+
+
+def _press_confirmed(altdriver, expect=(), gone=(), timeout=10):
+    """Did the press actually move the UI? No expectation given -> assume yes."""
+    if not expect and not gone:
+        return True
+    end = time.time() + timeout
+    while True:
+        if expect and wait_for_any(altdriver, expect, timeout=0.1):
+            return True
+        if gone and all(find_any(altdriver, g) is None for g in gone):
+            return True
+        if time.time() >= end:
+            return False
+        time.sleep(0.25)
+
+
+def _press(obj):
+    """Deliver a press to an object. Returns True when the call went through."""
+    for action in ("click", "tap"):
+        try:
+            getattr(obj, action)()
+            return True
+        except Exception:
+            continue
+    return False
+
+
+# How long to give the OUTER press before trying the child that owns the
+# raycast. Measured on the live app: for the buttons that need the child
+# ('Free Trial', "Let's Start") the outer press never lands, so a full
+# confirmation window here is dead time — it cost ~20s per button, twice per
+# guest run, waiting for a UI change that was never going to come.
+PRESS_PROBE_SECONDS = 4.0
+
+
+def press_object(altdriver, name, timeout=12, settle=1.0, expect=(), gone=(),
+                 confirm=10):
+    """Press the object called ``name`` and, when told what to expect, verify it.
+
+    Some VocaTooki buttons wrap their interactive component in a ``Fitter``
+    layout child, so a press on the outer object is delivered but ignored. When
+    ``expect``/``gone`` say the UI did not move, the Fitter child is tried too.
+
+    The outer press only gets a SHORT probe; the child then gets the full
+    window. Before pressing the child the confirmation is re-read once, so an
+    outer press that worked but was merely slow cannot be pressed a second time.
+    """
+    if not wait_for_any(altdriver, name, timeout=timeout):
+        inactive = find_any(altdriver, name, enabled=False)
+        logging.error(f"[Guest] '{name}' "
+                      + ("exists but is inactive" if inactive is not None else "not found"))
+        return False
+
+    obj = find_any(altdriver, name)
+    if obj is not None and _press(obj):
+        logging.info(f"[Guest] pressed '{name}'")
+        time.sleep(0.3 if (expect or gone) else settle)
+        if _press_confirmed(altdriver, expect, gone,
+                            timeout=min(confirm, PRESS_PROBE_SECONDS)):
+            return True
+
+    # The outer object swallowed it — try the layout child that owns the raycast.
+    obj = find_any(altdriver, name)
+    for path in ("//Fitter", "//Button", "//Btn"):
+        child = None
+        try:
+            child = obj.find_object_from_object(By.PATH, path) if obj else None
+        except Exception:
+            child = None
+        if child is None:
+            continue
+        # Late arrival? Then the press DID land and pressing again would fire
+        # the button twice.
+        if (expect or gone) and _press_confirmed(altdriver, expect, gone, timeout=0.1):
+            return True
+        if _press(child):
+            logging.info(f"[Guest] pressed '{name}' via its {path} child")
+            time.sleep(settle)
+            if _press_confirmed(altdriver, expect, gone, timeout=confirm):
+                return True
+
+    logging.error(f"[Guest] '{name}' did not move the UI "
+                  f"(expected {list(expect) or 'anything'})")
+    return False
+
+
+def press_label(altdriver, label, timeout=8, settle=1.0, expect=(), gone=()):
+    """Press the control that PRINTS ``label`` (e.g. "Arabic")."""
+    end = time.time() + timeout
+    while True:
+        obj = _find_by_text(altdriver, label)
+        if obj is not None:
+            if _press(obj):
+                logging.info(f"[Guest] pressed label '{label}'")
+                time.sleep(settle)
+                if _press_confirmed(altdriver, expect, gone):
+                    return True
+        if time.time() >= end:
+            return False
+        time.sleep(0.5)
+
+
+def wait_for_scene(altdriver, scene, timeout=40, poll=0.5):
+    """Poll until the app is in ``scene``. Returns bool, never raises."""
+    end = time.time() + timeout
+    while True:
+        if _current_scene(altdriver) == scene:
+            return True
+        if time.time() >= end:
+            logging.error(f"[Guest] scene '{scene}' not reached "
+                          f"(still '{_current_scene(altdriver)}')")
+            return False
+        time.sleep(poll)
+
+
+# Objects that only exist while the guest onboarding wizard is on screen.
+GUEST_WIZARD_MARKERS = ("Button_2", "Button_1", "InputField - RTLTMP")
+
+
+def onboarding_visible(altdriver):
+    """True while the trial/registration wizard is on screen."""
+    return any(find_any(altdriver, n) is not None for n in GUEST_WIZARD_MARKERS)
+
+
+def in_app(altdriver):
+    """True when we are inside the app rather than on login or in onboarding.
+
+    Findability is NOT visibility here: on NewStartScene the login panel, the
+    trial panels and the hub are all findable at once, so no positive "is this
+    object there" test can tell them apart — "GO-Map exists" does not mean we
+    are past login, and "Free Trial exists" does not mean we are not in the app.
+    Only three things are decisive: the map scene, the login fields, and the
+    wizard's own controls. So this is deliberately a negative test.
+    """
+    if _current_scene(altdriver) == MAP_SCENE:
+        return True
+    if _login_screen_visible(altdriver):
+        return False
+    return not onboarding_visible(altdriver)
+
+
+def app_state(altdriver):
+    """'login' | 'onboarding' | 'hub' | 'welcome' | 'elsewhere'.
+
+    Checked most-specific first, because the panels overlap: the login overlay
+    sits ON the start screen with the hub live behind it, and the trial panels
+    sit on top of the login one.
+    """
+    if _login_screen_visible(altdriver):
+        return "login"
+    if onboarding_visible(altdriver):
+        return "onboarding"
+    if in_app(altdriver):
+        return "hub"
+    if any(find_any(altdriver, n) is not None for n in GUEST_WELCOME_MARKERS):
+        return "welcome"
+    return "elsewhere"
+
+
+def guest_entry_available(altdriver):
+    """True when the logged-out welcome screen with the trial entry is showing."""
+    return find_any(altdriver, GUEST_ENTRY["trial"]) is not None
+
+
+def logout_via_ui(altdriver, timeout=45):
+    """Reach the logged-out welcome screen by pressing the UI.
+
+    Deliberately not ``AltTesterUtils.Logout``: this is what a tester does, and
+    it also works from a guest session, where that component may not exist.
+    """
+    global _LAST_LOGIN_USER
+    # Log out through the AltTesterPrefab, the way the rest of this module does
+    # (``AltTesterUtils.Logout``). "Free Trial is findable" is NOT proof we are
+    # already logged out — the welcome panel can be present while the login form
+    # is what's on screen, and the trial entry then does nothing at all
+    # (verified live: the press reported success and the UI never moved).
+    try:
+        call_method(altdriver, "AltTesterUtils", "Logout")
+        time.sleep(2)
+        logging.info("[Guest] logged out via AltTesterUtils")
+    except Exception as e:                       # noqa: BLE001
+        logging.info(f"[Guest] AltTesterUtils.Logout unavailable ({e}); using the UI")
+
+    if wait_for_any(altdriver, GUEST_ENTRY["trial"], timeout=15):
+        _LAST_LOGIN_USER = None
+        return True
+
+    # Fallback: press the UI logout (start screen -> confirm popup).
+    return_to_start(altdriver)
+    if find_any(altdriver, "LogoutButton") is not None:
+        press_object(altdriver, "LogoutButton", settle=2.0, expect=("YesButton",))
+        if wait_for_any(altdriver, "YesButton", timeout=12):
+            press_object(altdriver, "YesButton", settle=4.0,
+                         expect=GUEST_WELCOME_MARKERS)
+
+    ok = bool(wait_for_any(altdriver, GUEST_ENTRY["trial"], timeout=timeout))
+    if ok:
+        # A guest session belongs to nobody: clear the cache or the next
+        # ensure_logged_in() would decide it is "already logged in".
+        _LAST_LOGIN_USER = None
+    else:
+        logging.error(f"[Guest] no trial entry after logout (state "
+                      f"{app_state(altdriver)}, scene {_current_scene(altdriver)})")
+    return ok
+
+
+def _guest_toggles(altdriver, limit=12):
+    """The option toggles on the current wizard screen, in screen order."""
+    found = []
+    for i in range(limit):
+        name = GUEST_TOGGLE_PREFIX if i == 0 else f"{GUEST_TOGGLE_PREFIX}_{i}"
+        obj = find_any(altdriver, name)
+        if obj is not None:
+            found.append((name, obj))
+    return found
+
+
+def toggle_label(altdriver, toggle_obj):
+    """The text printed on a toggle ("Male", "Arabic"), or ""."""
+    for path in ("//Text - RTLTMP", "//Text", "//Label", "//Title - RTLTMP"):
+        try:
+            return (toggle_obj.find_object_from_object(By.PATH, path)
+                    .get_text() or "").strip()
+        except Exception:
+            continue
+    try:
+        return (toggle_obj.get_text() or "").strip()
+    except Exception:
+        return ""
+
+
+# --- the wizard's SCROLL PICKER (native language, English level) -----------
+# These screens are NOT lists of buttons. The option that sits between the two
+# guide lines IS the selection, and the only way to change it is to DRAG the
+# list: the mouse wheel does nothing, and a press does nothing either. Worse,
+# every option exists in the hierarchy even while it is off screen, so
+# find-by-text "succeeds" on a row that is nowhere near the viewport and a
+# press on it reports success. That is exactly how a Turkish case registered an
+# Arabic guest and still PASSED — Arabic is simply what the picker starts on.
+#
+# Everything below is measured from the LIVE app on every call — the band from
+# the line objects, the row position from the row itself, the travel limits
+# from the reported screen size. No pixel constant, no assumed resolution, and
+# no coordinate is ever typed in: the drag is computed from where the app says
+# its own objects are.
+GUEST_PICKER_LINE_TOP = "LineTop"
+GUEST_PICKER_LINE_BOTTOM = "LineBottom"
+
+
+def picker_band(altdriver):
+    """``(low_y, high_y)`` of the picker's selection band, or None.
+
+    None means this screen is not a picker (the gender screen, for instance),
+    which is the signal to fall back to pressing a toggle.
+    """
+    top = find_any(altdriver, GUEST_PICKER_LINE_TOP)
+    bottom = find_any(altdriver, GUEST_PICKER_LINE_BOTTOM)
+    if top is None or bottom is None:
+        return None
+    try:
+        low, high = sorted((float(bottom.y), float(top.y)))
+    except (TypeError, ValueError):
+        return None
+    return (low, high) if high > low else None
+
+
+def _drag_picker(altdriver, x, delta, duration=0.5):
+    """Drag the picker list by ``delta`` screen units. Returns what was asked.
+
+    The gesture stays inside the app's own reported screen, with a margin taken
+    as a FRACTION of the height, so it holds at any resolution. A drag that
+    cannot cover the whole distance in one go covers what it can — the caller
+    re-measures and goes again.
+    """
+    try:
+        _width, height = altdriver.get_application_screensize()
+        height = float(height)
+    except Exception as e:                          # noqa: BLE001
+        logging.error(f"[Guest] could not read the screen size: {e}")
+        return 0.0
+
+    margin = height * 0.12                          # keep clear of the edges
+    lo, hi = margin, height - margin
+    if hi <= lo:
+        return 0.0
+    start = min(max(height / 2.0 - delta / 2.0, lo), hi)
+    end = min(max(start + delta, lo), hi)
+    start = min(max(end - delta, lo), hi)           # keep the full span if it fits
+    if abs(end - start) < 1:
+        return 0.0
+    try:
+        altdriver.swipe({"x": x, "y": start}, {"x": x, "y": end}, duration=duration)
+    except Exception as e:                          # noqa: BLE001
+        logging.error(f"[Guest] could not drag the option list: {e}")
+        return 0.0
+    return end - start
+
+
+def _row_position(altdriver, label):
+    """``(x, y)`` of the row printing ``label`` once it has STOPPED moving.
+
+    The list glides and snaps after a drag. A position read mid-glide can still
+    be carried past the band, so "it is between the lines" is only meaningful
+    once two consecutive readings agree — otherwise the run would accept a row
+    that ends up settling one place further on.
+    """
+    prev = None
+    for _ in range(8):
+        row = _find_by_text(altdriver, label)
+        if row is None:
+            return None
+        try:
+            x, y = float(row.x), float(row.y)
+        except (TypeError, ValueError):
+            return None
+        if prev is not None and abs(y - prev) < 1.0:
+            return x, y
+        prev = y
+        time.sleep(0.25)
+    return (x, y) if prev is not None else None
+
+
+def scroll_option_into_band(altdriver, label, attempts=12):
+    """Drag the picker until ``label`` sits between the lines. Returns bool.
+
+    Landing in the band IS selecting: the picker snaps the nearest row to the
+    centre and the app reads whatever is there when Next is pressed. Every
+    position is taken from a list that has come to rest.
+    """
+    for attempt in range(attempts):
+        band = picker_band(altdriver)
+        if band is None:
+            return False
+        low, high = band
+        at = _row_position(altdriver, label)
+        if at is None:
+            return False
+        x, y = at
+        if low <= y <= high:
+            logging.info(f"[Guest] '{label}' is in the selection band "
+                         f"(y={y:.0f} in [{low:.0f},{high:.0f}])")
+            return True
+
+        if not _drag_picker(altdriver, x, (low + high) / 2.0 - y):
+            logging.error(f"[Guest] could not drag towards '{label}'")
+            return False
+
+        # A drag that changes nothing means the list is at its end, or the
+        # gesture is not reaching it — stop instead of spinning.
+        after = _row_position(altdriver, label)
+        if after is None:
+            return False
+        if abs(after[1] - y) < 1.0:
+            logging.error(f"[Guest] the list did not move towards '{label}' "
+                          f"(still y={y:.0f}) on attempt {attempt + 1}")
+            return False
+    logging.error(f"[Guest] '{label}' never reached the selection band")
+    return False
+
+
+def _select_visible_option(altdriver, label, settle=1.0):
+    """Choose ``label`` on the current wizard screen, and PROVE it took.
+
+    A picker screen is driven by dragging (the band decides); every other
+    screen is driven by pressing its toggle. Never reports success for a press
+    that cannot have selected anything.
+    """
+    if picker_band(altdriver) is not None:
+        return scroll_option_into_band(altdriver, label)
+
+    if press_label(altdriver, label, timeout=1.5, settle=settle):
+        return True
+    want = (label or "").strip().lower()
+    for name, obj in _guest_toggles(altdriver):
+        text = toggle_label(altdriver, obj).lower()
+        if text and want and (want in text or text in want):
+            logging.info(f"[Guest] option '{label}' -> {name} ('{text}')")
+            if _press(obj):
+                time.sleep(settle)
+                return True
+    return False
+
+
+def select_guest_option(altdriver, label, settle=1.0, retries=2):
+    """Pick the option matching ``label`` on the current wizard screen.
+
+    Both kinds of screen are handled by ``_select_visible_option``: a picker is
+    dragged until the row is between the guide lines, anything else has its
+    toggle pressed. The retry is for a screen still building itself, not for
+    hunting: the mouse wheel was measured against the live app and moves the
+    picker not at all, so scrolling with it only cost ~30s per screen and
+    jostled the UI.
+
+    Never falls back to "the first option" — on a language or level screen the
+    wrong pick silently changes what the rest of the test measures.
+    """
+    for attempt in range(max(1, retries)):
+        if _select_visible_option(altdriver, label, settle=settle):
+            return True
+        time.sleep(0.8)
+        logging.info(f"[Guest] '{label}' not selectable yet "
+                     f"(attempt {attempt + 1}/{max(1, retries)})")
+    logging.error(f"[Guest] '{label}' is not on this screen")
+    return False
+
+
+def dismiss_gender_popup(altdriver, gender="", timeout=20):
+    """The post-wizard "You are" popup, whose options are named Male/Female."""
+    if not wait_for_any(altdriver, GUEST_ENTRY["gender_popup"], timeout=timeout):
+        return False
+    wanted = (gender or "").strip().title()
+    for name in ([wanted] if wanted in GUEST_GENDERS else []) + list(GUEST_GENDERS):
+        if find_any(altdriver, name) is not None:
+            logging.info(f"[Guest] gender popup -> {name}")
+            return press_object(altdriver, name, settle=1.0,
+                                gone=(GUEST_ENTRY["gender_popup"],))
+    return False
+
+
+def reset_guest_data(altdriver, timeout=45):
+    """Leave the app ready for the NEXT guest run: log out, THEN clear data.
+
+    The order matters. Clearing Unity's PlayerPrefs while a guest session is
+    still live leaves that session in memory, so the next run RESUMES the old
+    guest (landing straight on the hub) instead of being offered the
+    registration wizard — "Start FREE trial" only registers when there is no
+    guest yet. Verified live 2026-08-13: logout -> welcome screen -> clear.
+    """
+    ok = logout_via_ui(altdriver, timeout=timeout)
+    try:
+        altdriver.delete_player_pref()          # Unity "clear data"
+        logging.info("[Guest] cleared Unity data (PlayerPrefs)")
+    except Exception as e:                      # noqa: BLE001
+        logging.error(f"[Guest] clear data failed: {e}")
+        return False
+    time.sleep(3)
+    logging.info("[Guest] data cleared — RESTART the app before the next guest "
+                 "registration: the old guest survives in memory until then")
+    return ok
+
+
+def enter_guest_mode(altdriver, first_name="", last_name="", options=(),
+                     max_screens=8, timeout=45):
+    """Register as a guest and land in the app. Never logs in.
+
+    ``options`` are the labels this case asks for on the wizard's option screens
+    ("Male", "Arabic", "Beginning Literacy") in any order: each screen is
+    matched against whatever is still outstanding, so the app's own ordering
+    (which differs from the Rally step order) does not matter.
+
+    Returns ``{"ok", "failed_at", "note", "picked", "trace"}`` and never raises,
+    so the calling test can assert with the whole route in the message.
+    """
+    trace, picked = [], []
+    wanted = [o for o in options if o]
+    gender = next((o for o in wanted if o.strip().title() in GUEST_GENDERS), "")
+
+    def result(ok, failed_at="", note=""):
+        return {"ok": ok, "failed_at": failed_at, "note": note,
+                "picked": picked, "trace": trace}
+
+    if not logout_via_ui(altdriver, timeout=timeout):
+        return result(False, "logout", "could not reach the logged-out welcome screen")
+    trace.append("welcome screen")
+
+    # A guest already registered on this device is RESUMED rather than
+    # registered, so the wizard never appears and the app lands on the hub. The
+    # cure is the documented reset — log out, then clear Unity's data — after
+    # which the trial entry offers registration again.
+    # Confirm with a POSITIVE marker: the trial panel opens ON TOP of the login
+    # panel, so "Free Trial" stays findable afterwards and its disappearance is
+    # not a signal (that mistake made a working press look like a failure).
+    if not press_object(altdriver, GUEST_ENTRY["trial"], settle=0.5,
+                        expect=(GUEST_ENTRY["lets_start"],), confirm=20):
+        return result(False, "trial",
+                      f"'{GUEST_ENTRY['trial']}' did not open the trial flow")
+    trace.append("trial entry")
+    # The welcome panel needs a moment before it accepts input: its button
+    # answers a find straight away but swallows a press that arrives too early.
+    time.sleep(5)
+
+
+    # "Let's Start" on the Welcome panel. Its object is a bare "Button", so the
+    # printed label is tried too in case the panel is rebuilt or renamed.
+    if not (press_object(altdriver, GUEST_ENTRY["lets_start"], settle=0.5,
+                         expect=(GUEST_ENTRY["first_name"],), confirm=20)
+            or press_label(altdriver, "Let's Start", settle=0.5,
+                           expect=(GUEST_ENTRY["first_name"],))):
+        # No name screen. Either a guest is already registered — in which case
+        # the trial entry RESUMES it (the app lands in the hub/map and the wizard
+        # never appears) and only a data clear plus an app RESTART brings
+        # registration back — or the panel genuinely did not take the press.
+        if _current_scene(altdriver) == MAP_SCENE or                 find_any(altdriver, GUEST_ENTRY["gender_popup"]) is not None:
+            return result(False, "existing_guest",
+                          "the trial entry resumed a guest that is already "
+                          "registered in this app session. Clear the app data, "
+                          "RESTART the app, then run this case again")
+        return result(False, "lets_start", "the Let's Start panel did not advance")
+    trace.append("Let's Start")
+
+    # "What is your child's name?" — set_text works by name on these fields.
+    if first_name or last_name:
+        if not wait_for_any(altdriver, GUEST_ENTRY["first_name"], timeout=20):
+            return result(False, "name_screen", "the name screen never appeared")
+        for key, value in (("first_name", first_name), ("last_name", last_name)):
+            if not value:
+                continue
+            field = find_any(altdriver, GUEST_ENTRY[key])
+            if field is None:
+                return result(False, key, f"'{GUEST_ENTRY[key]}' is not on the name screen")
+            field.set_text(value)
+            time.sleep(0.2)
+        trace.append(f"name '{first_name} {last_name}'".replace("  ", " "))
+        if not press_object(altdriver, GUEST_ENTRY["next"], settle=1.2):
+            return result(False, "next_after_name", "Next did not accept the name")
+
+    # Option screens, in whatever order this build presents them.
+    for _ in range(max_screens):
+        if find_any(altdriver, GUEST_ENTRY["gender_popup"]) is not None:
+            break                                   # wizard over, hub popup is up
+        if not find_any(altdriver, GUEST_ENTRY["next"]):
+            break                                   # no Next -> wizard finished
+        # First pass: try every outstanding label on THIS screen WITHOUT
+        # scrolling. Scrolling per label cost ~30s per screen and jostled the
+        # UI — on the gender screen it hunted for "Turkish" through the whole
+        # scroll range before ever trying "Female".
+        chosen = ""
+        for label in list(wanted):
+            if label.strip().title() in GUEST_GENDERS and \
+                    find_any(altdriver, GUEST_ENTRY["gender_popup"]) is not None:
+                continue                            # handled by the popup below
+            if _select_visible_option(altdriver, label, settle=1.0):
+                chosen = label
+                break
+
+        # Nothing on this screen matched: it may be the language list, which
+        # shows only the first few of many, so now it is worth scrolling.
+        if not chosen:
+            for label in list(wanted):
+                if select_guest_option(altdriver, label):
+                    chosen = label
+                    break
+
+        if chosen:
+            wanted.remove(chosen)
+            picked.append(chosen)
+            trace.append(f"picked '{chosen}'")
+
+        if not press_object(altdriver, GUEST_ENTRY["next"], settle=1.2):
+            break
+        trace.append("Next")
+
+        # The English level is the last answer: the app then builds the profile
+        # and hands over to the hub, which takes far longer than a screen change.
+        if chosen and chosen.strip().lower().endswith(("literacy", "proficiency")):
+            logging.info("[Guest] level submitted — waiting for the profile build")
+            time.sleep(20)
+
+    # The tail of the flow, as the app really plays it (walked live): the wizard
+    # hands over to the hub, a SECOND gender prompt appears there, and the app
+    # then drops into the avatar builder. Waiting on the popup specifically
+    # matters — in_app() goes true the moment the wizard controls vanish, and
+    # pressing on while a modal is still arriving means the next press hits it.
+    if wait_for_any(altdriver, GUEST_ENTRY["gender_popup"], timeout=40):
+        if dismiss_gender_popup(altdriver, gender):
+            trace.append(f"gender popup '{gender or 'default'}'")
+            if gender in wanted:
+                wanted.remove(gender)
+                picked.append(gender)
+        else:
+            return result(False, "gender_popup", "the You-are popup did not close")
+
+    # Avatar customisation opens by itself; the Rally case leaves it with Back.
+    if wait_for_scene(altdriver, AVATAR_SCENE, timeout=25):
+        if not press_object(altdriver, "BackButton", settle=1.0):
+            return result(False, "avatar", "the avatar screen has no usable Back")
+        trace.append("avatar screen (Back)")
+        wait_for_scene(altdriver, START_SCENE, timeout=30)
+
+    state = app_state(altdriver)
+    if not in_app(altdriver):
+        return result(False, "not_in_app", f"onboarding ended on the {state} screen")
+    if wanted:
+        return result(False, "options", f"never offered: {wanted}")
+    return result(True, note=f"guest '{first_name} {last_name}'".strip() + f" in the app ({state})")
+
+
+# --- Guest: play the accessible levels -------------------------------------
+# A guest gets levels 1-5 (the 5th being the first exam). These helpers open a
+# level, prove EVERY activity in it actually starts, and finish one — all by
+# object name, and without AltTesterUtils, which may not exist in a guest
+# session (its absence is what makes the account-flow helpers hang).
+
+ACTIVITY_SELECTION_SCENE = "ActivitySelectionScene"
+# The thumbs prove the activity list is back without waiting on a scene poll.
+ACTIVITY_SELECTION_SCENE_MARKER = "ActivityThumb"
+# Scenes that are navigation, not an activity: reaching one of these after a
+# thumb press means the activity did NOT open.
+_GUEST_NON_ACTIVITY_SCENES = (START_SCENE, MAP_SCENE, ACTIVITY_SELECTION_SCENE,
+                              "WordListScene", "VendingMachineScene", "Tests")
+# A visible one of these is a crash/blocked run as far as a test is concerned.
+GUEST_ERROR_POPUPS = ("ErrorPanel", "ErrorPopUp", "ConnectionIssuePopup",
+                      "DrainingQueuePanel", "BlockScreen")
+
+
+# Leaving an open activity: the activity LIST is ONE press away ('prev'), and
+# the list is exactly where the next thumb is. return_to_map must not be used
+# for this — its goal is the MAP, so after 'prev' has already landed on the
+# list it presses 'Back' as well, leaves the level entirely, and the walk then
+# has to re-open the level from the map. Measured live: ~13s of round trip per
+# activity, three activities per level, three levels — about two minutes a run.
+def tap_empty_area(altdriver, tries=6):
+    """Tap a point that holds NO object — how this app dismisses the parrot's
+    speech bubble (the instruction popup on every exam page, the "gray levels
+    are locked" tip on the map).
+
+    The candidate points are FRACTIONS of the live screen, and each one is
+    checked with ``find_object_at_coordinates`` before it is tapped: the tap
+    only happens where the app itself reports nothing, so no control is ever
+    pressed by accident and no point is assumed to be empty at a resolution it
+    was not measured at. Returns True when a tap was delivered.
+    """
+    try:
+        width, height = altdriver.get_application_screensize()
+        width, height = float(width), float(height)
+    except Exception as e:                           # noqa: BLE001
+        logging.warning(f"[Popup] could not read the screen size: {e}")
+        return False
+
+    # Edges and corners first: the middle of the screen is where the content is.
+    for fx, fy in ((0.5, 0.94), (0.06, 0.5), (0.94, 0.5), (0.5, 0.06),
+                   (0.06, 0.94), (0.94, 0.06)):
+        point = (width * fx, height * fy)
+        try:
+            occupant = altdriver.find_object_at_coordinates(point)
+        except Exception:                            # noqa: BLE001 - "nothing there"
+            occupant = None
+        if occupant is not None:
+            continue
+        try:
+            altdriver.tap(point)
+            logging.info(f"[Popup] tapped an empty point at "
+                         f"({fx:.0%}, {fy:.0%}) of the screen to dismiss a popup")
+            return True
+        except Exception as e:                       # noqa: BLE001
+            logging.debug(f"[Popup] tap at {point} failed: {e}")
+    logging.warning("[Popup] found no empty point to tap")
+    return False
+
+
+def dismiss_help_popup(altdriver, settle=0.4):
+    """Close the parrot's instruction bubble. Returns True when it acted.
+
+    Every exam page opens with one ("All you have to do is drag the ...") and it
+    TYPES ITSELF OUT, so waiting for it to finish costs seconds on every page —
+    the solver can start the moment it is gone. 'HelpButton' is the app's own
+    control for that bubble; tapping an empty point is the fallback.
+
+    Call this only where the popup is actually expected (entering a page): the
+    button toggles the bubble, so pressing it on a clean screen would OPEN one.
+    """
+    obj = find_any(altdriver, "HelpButton")
+    if obj is not None and _press(obj):
+        logging.info("[Exam] closed the instruction popup via 'HelpButton'")
+        time.sleep(settle)
+        return True
+    return tap_empty_area(altdriver)
+
+
+ACTIVITY_EXITS = ("prev", "BackButton", "X", "CloseButton", "Close")
+
+
+def back_to_activity_list(altdriver, timeout=10):
+    """Leave the open activity and land back on ITS activity list. Bool.
+
+    Used by BOTH flows — a logged-in user's activity walk pays the same round
+    trip as a guest's. Waits on the thumbs rather than a scene name or a flat
+    sleep: they are what the next thumb press needs, and they prove the list is
+    rebuilt and ready, usually well before a fixed wait would have expired.
+    """
+    if find_any(altdriver, ACTIVITY_SELECTION_SCENE_MARKER) is not None:
+        return True
+    for name in ACTIVITY_EXITS:
+        obj = find_any(altdriver, name)
+        if obj is None or not _press(obj):
+            continue
+        logging.info(f"[Guest] left the activity via '{name}'")
+        if wait_for_any(altdriver, ACTIVITY_SELECTION_SCENE_MARKER, timeout=timeout):
+            return True
+    return find_any(altdriver, ACTIVITY_SELECTION_SCENE_MARKER) is not None
+
+
+def app_health(altdriver):
+    """``('ok', '')`` | ``('error', popup)`` | ``('dead', why)``.
+
+    "No crash happened" in a guest run means two things: the driver still
+    answers, and the app is not sitting on an error/connection popup.
+    """
+    try:
+        altdriver.get_current_scene()
+    except Exception as e:                       # noqa: BLE001
+        return "dead", str(e)[:120]
+    for name in GUEST_ERROR_POPUPS:
+        if find_any(altdriver, name) is not None:
+            return "error", name
+    return "ok", ""
+
+
+def guest_open_level(altdriver, level, timeout=90):
+    """From wherever we are, open ``level`` and reach its activity list.
+
+    Returns ``(ok, note)``. Uses the icon's own name (icons carry their level
+    number) and the shared level-intro walk, so a first visit that goes through
+    the word list / vending machine is handled the same as a revisit.
+    """
+    if _current_scene(altdriver) != MAP_SCENE:
+        # The map scene takes its time to load; give it a real wait rather than
+        # polling a scene that has not started loading yet.
+        if not press_object(altdriver, "GO-Map", settle=10.0):
+            return_to_map(altdriver)
+        wait_for_scene(altdriver, MAP_SCENE, timeout=60)
+    if _current_scene(altdriver) != MAP_SCENE:
+        return False, f"could not reach the map to open level {level}"
+
+    icon, icon_name, kind = _level_icon_by_number(altdriver, level)
+    if icon is None:
+        return False, f"level {level} has no icon on the guest's map"
+
+    # PRESS AGAIN before failing. A press that arrives while the map is still
+    # settling is swallowed silently, and one press followed by a long wait
+    # spends the whole timeout on a click that never landed.
+    for attempt in range(1, 4):
+        logging.info(f"[Guest] opening level {level} ({kind}) via '{icon_name}'"
+                     + (f" (attempt {attempt})" if attempt > 1 else ""))
+        press_object(altdriver, icon_name, settle=2.0)
+        if open_level_to_activities(altdriver, timeout=timeout):
+            return True, ""
+        logging.warning(f"[Guest] level {level} did not reach its activity list "
+                        f"(on {_current_scene(altdriver)}) — pressing again")
+        if not _guest_back_to_map(altdriver):
+            break
+        icon, icon_name, kind = _level_icon_by_number(altdriver, level)
+        if icon is None:
+            break
+
+    return False, (f"level {level} did not reach the activity list after 3 attempts "
+                   f"(stuck on {_current_scene(altdriver)})")
+
+
+def _solve_open_activity(altdriver, scene, label="", settle_tries=10):
+    """Play the activity that is ALREADY open; True once the game shows its
+    finish feedback.
+
+    Playing it in place is what avoids ``LastAttempetPopUp``: backing out and
+    re-entering the same activity raises the "last attempt" notice over the
+    board, the solver then plays against a blocked screen, and the attempt
+    scores nothing. Some activities also open on an intro scene
+    ("WordsMatchingOpenningScene") before the playable one, so the scene is
+    given a chance to settle into something the solver map knows.
+    """
+    solvers = get_activity_solver_map()
+    solver = solvers.get(scene)
+    for _ in range(settle_tries):
+        if solver is not None:
+            break
+        time.sleep(2.5)
+        now = _current_scene(altdriver)
+        if now and now != scene and now in solvers:
+            logging.info(f"[Guest] '{scene}' settled into '{now}'")
+            scene, solver = now, solvers[now]
+    if solver is None:
+        logging.warning(f"[Guest] no solver mapped for scene '{scene}' ({label})")
+        return False
+
+    dismiss_replay_popup(altdriver)
+    try:
+        solver(altdriver)
+    except Exception as e:                       # noqa: BLE001
+        logging.error(f"[Guest] the {scene} solver raised: {str(e)[:140]}")
+        return False
+    return wait_for_finish_feedback(altdriver, timeout=40)
+
+
+def guest_walk_levels(altdriver, levels=(1, 2, 3), complete_one=True, timeout=90):
+    """Open each level in ``levels``, prove every activity starts, finish one.
+
+    For each level: open it, then press every activity thumb in turn and wait
+    for a real activity scene to load, checking after each that the app is
+    healthy. One activity overall is played to completion with the proven
+    solver. Returns a report and never raises, so the calling test can assert
+    on the whole picture:
+
+        {"ok": bool, "levels": {1: {...}}, "opened": [...],
+         "completed": str, "problems": [...]}
+    """
+    report = {"ok": False, "levels": {}, "opened": [], "completed": "",
+              "problems": []}
+
+    for level in levels:
+        entry = {"activities": [], "opened": [], "problems": []}
+        report["levels"][level] = entry
+
+        ok, note = guest_open_level(altdriver, level, timeout=timeout)
+        if not ok:
+            entry["problems"].append(note)
+            report["problems"].append(f"level {level}: {note}")
+            continue
+
+        listed = list_level_activities(altdriver)
+        entry["activities"] = [a["title"] or "(unlabelled)" for a in listed]
+        logging.info(f"[Guest] level {level} offers {entry['activities']}")
+
+        for idx in range(len(listed)):
+            # Re-read the thumbs: coming back from an activity rebuilds the scene,
+            # so the AltObjects captured earlier are stale. The THUMBS decide
+            # whether the level has to be re-opened — an activity can hand back
+            # to a list that does not report ACTIVITY_SELECTION_SCENE, and
+            # re-entering the level in that case is pure round trip.
+            if find_any(altdriver, ACTIVITY_SELECTION_SCENE_MARKER) is None:
+                ok, note = guest_open_level(altdriver, level, timeout=timeout)
+                if not ok:
+                    entry["problems"].append(f"could not re-open level {level}: {note}")
+                    break
+            now = list_level_activities(altdriver)
+            if idx >= len(now):
+                break
+            thumb = now[idx]["thumb"]
+            title = now[idx]["title"] or f"thumb {idx + 1}"
+
+            # THREE presses before an activity counts as "did not open". A press
+            # that lands while the list is still rebuilding is swallowed, and
+            # that is not the same as an activity that cannot start.
+            scene = ""
+            for attempt in range(1, 4):
+                if attempt > 1:
+                    if find_any(altdriver, ACTIVITY_SELECTION_SCENE_MARKER) is None:
+                        ok, _note = guest_open_level(altdriver, level, timeout=timeout)
+                        if not ok:
+                            break
+                    again = list_level_activities(altdriver)
+                    if idx >= len(again):
+                        break
+                    thumb = again[idx]["thumb"]
+                    logging.info(f"[Guest] '{title}' did not open — pressing again "
+                                 f"(attempt {attempt}/3)")
+                try:
+                    thumb.click()
+                except Exception as e:           # noqa: BLE001
+                    if attempt == 3:
+                        entry["problems"].append(f"{title}: thumb press failed ({e})")
+                    continue
+
+                deadline = time.time() + 40
+                while time.time() < deadline:
+                    current = _current_scene(altdriver)
+                    if current and current not in _GUEST_NON_ACTIVITY_SCENES:
+                        scene = current
+                        break
+                    time.sleep(0.5)
+                if scene:
+                    break
+
+            state, detail = app_health(altdriver)
+            if state != "ok":
+                problem = f"{title}: the app went {state} ({detail})"
+                entry["problems"].append(problem)
+                report["problems"].append(f"level {level} {problem}")
+                return report                    # a crash ends the run, honestly
+
+            if not scene:
+                # Three presses spent and it never opened — photograph it.
+                shot = capture_failure_screenshot(altdriver, f"L{level}_{title}_no_open")
+                entry["problems"].append(
+                    f"{title}: did not open after 3 attempts (still on "
+                    f"{_current_scene(altdriver)})"
+                    + (f" [screenshot: {shot}]" if shot else ""))
+                report["problems"].append(f"level {level} {title}: did not open")
+                continue
+
+            entry["opened"].append(f"{title} -> {scene}")
+            report["opened"].append(f"L{level} {title} -> {scene}")
+            logging.info(f"[Guest] level {level}: '{title}' opened as {scene}")
+
+            # Back to the activity list for the next thumb — the list, NOT the
+            # map: walking out to the map costs a level re-entry per activity.
+            if not back_to_activity_list(altdriver):
+                return_to_map(altdriver)         # last resort, re-opens the level
+
+        # Finish exactly one activity for the run, from this level's activity
+        # list. solve_activity_in_level opens the right thumb by its printed
+        # title and verifies the game registered the completion — this is the
+        # path proven green live, so it is used rather than driving the solver
+        # directly on an already-open activity.
+        if complete_one and not report["completed"] and entry["opened"]:
+            # Pick an activity this framework can actually finish: an activity
+            # whose scene has no solver mapped can never be completed, and some
+            # open on an intro scene ("WordsMatchingOpenningScene") that is not
+            # in the map at all.
+            solvers = get_activity_solver_map()
+            candidates = []
+            for line in entry["opened"]:
+                a_title, _, a_scene = line.partition(" -> ")
+                if a_scene in solvers:
+                    candidates.append((a_title, a_scene))
+            if not candidates:
+                entry["problems"].append(
+                    "no activity in this level has a solver mapped "
+                    f"({[l for l in entry['opened']]})")
+            for title, scene in candidates:
+                if _current_scene(altdriver) != ACTIVITY_SELECTION_SCENE:
+                    guest_open_level(altdriver, level, timeout=timeout)
+                logging.info(f"[Guest] completing '{title}' ({scene}) in level {level}")
+                try:
+                    hint = title if not title.startswith(("(unlabelled)", "thumb ")) else None
+                    # solve_activity_in_level already retries 3x internally, for
+                    # every flow — don't wrap it in another loop or a run would
+                    # spend nine attempts on one activity.
+                    outcome = solve_activity_in_level(altdriver, scene, title_hint=hint)
+                except Exception as e:           # noqa: BLE001
+                    entry["problems"].append(f"{title}: solver raised ({str(e)[:100]})")
+                    continue
+                if activity_completed(outcome):
+                    report["completed"] = (f"level {level}: {title} ({scene}) "
+                                           f"{outcome.get('done')}/{outcome.get('total')}")
+                    logging.info(f"[Guest] completed {report['completed']}")
+                    break
+                entry["problems"].append(
+                    f"{title}: not completed after 3 attempts — "
+                    f"found={outcome.get('found')} "
+                    f"progress={outcome.get('done')}/{outcome.get('total')} "
+                    f"feedback={outcome.get('feedback')}")
+
+    every_level_opened = all(
+        report["levels"].get(lv, {}).get("opened")
+        and not report["levels"].get(lv, {}).get("problems")
+        for lv in levels)
+    report["ok"] = bool(every_level_opened and (report["completed"] or not complete_one))
+    return report
+
+
+# --- Guest: the first exam, and the levels a guest may not enter -----------
+# A guest's accessible band is levels 1-5, the 5th being the first exam, and
+# every higher level still has an icon on the map — the restriction is a STATE,
+# not a missing icon, so it has to be proven behaviourally.
+
+# What the app puts up when a guest presses something they have not paid for.
+GUEST_LOCK_MARKERS = ("BuyButton", "ChoosePackage", "ChoosePlan", "LoginPopUp",
+                      "Blocker", "BlockScreen", "BlockScreenWithoutClick")
+
+# Text-ish objects, for reading a popup whose object names are not known.
+_TEXT_SCAN_PATHS = ("//*[contains(@name,'Text')]", "//*[contains(@name,'TMP')]",
+                    "//*[contains(@name,'Label')]", "//*[contains(@name,'Message')]")
+
+
+def visible_texts(altdriver, limit=40):
+    """Every non-empty string on screen right now, in hierarchy order.
+
+    Reads a popup's WORDING without needing its object name: the app's popups
+    are not all named consistently, and asserting on a name we guessed would
+    prove nothing about what the user was actually shown.
+    """
+    seen, out = set(), []
+    for path in _TEXT_SCAN_PATHS:
+        try:
+            objects = altdriver.find_objects(By.PATH, path)
+        except Exception:                            # noqa: BLE001
+            continue
+        for obj in (objects or [])[:limit]:
+            try:
+                text = (obj.get_text() or "").strip()
+            except Exception:                        # noqa: BLE001 - not a text object
+                continue
+            if text and text not in seen:
+                seen.add(text)
+                out.append(text)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def popup_text(altdriver, settle=1.5, limit=40):
+    """The wording a popup is showing, as one string. Never raises.
+
+    Waits a moment first: these panels fade/scale in, and a text read during
+    the animation can come back empty or half-typed.
+    """
+    time.sleep(settle)
+    return " ".join(visible_texts(altdriver, limit=limit))
+
+
+def _map_ready(altdriver, timeout=30):
+    """Is the map loaded AND usable — i.e. are its level ICONS there?
+
+    The scene name flips to MapScene before the icons spawn, so "the scene is
+    the map" is not enough: a level lookup made in that window finds nothing
+    and reports the level as missing from the map. Waiting on the icons is what
+    the callers actually need, since every one of them is about to press one.
+    """
+    end = time.time() + timeout
+    while True:
+        if _current_scene(altdriver) == MAP_SCENE and _find_level_icons(altdriver):
+            return True
+        if time.time() >= end:
+            return False
+        time.sleep(0.5)
+
+
+def _guest_back_to_map(altdriver, timeout=60):
+    """Get to the map from wherever the guest is. No login, no logout.
+
+    The route depends on WHERE the guest is. From the activity list the map is
+    one 'Back' press away and there is no 'GO-Map' there at all — asking for it
+    first cost ~70s per call (12s hunting the button, then 60s waiting for a
+    scene change that was never coming) before the fallback pressed 'Back'
+    anyway. 'GO-Map' is the hub's control, so it is used from the hub.
+    """
+    scene = _current_scene(altdriver)
+    if scene == MAP_SCENE and _map_ready(altdriver, timeout=15):
+        return True
+
+    if scene == ACTIVITY_SELECTION_SCENE:
+        for name in ("Back", "BackButton", "prev"):
+            if press_object(altdriver, name, timeout=4, settle=1.0):
+                if _map_ready(altdriver, timeout=timeout):
+                    return True
+                break
+    elif press_object(altdriver, "GO-Map", timeout=6, settle=10.0):
+        if _map_ready(altdriver, timeout=timeout):
+            return True
+
+    return_to_map(altdriver)
+    return _map_ready(altdriver, timeout=20)
+
+
+def guest_first_exam_level(altdriver):
+    """The lowest-numbered exam node on the map — the guest's FIRST exam.
+
+    Which level carries the first exam is not fixed (it moves with the language
+    and level the guest picked), so it is read off the map rather than assumed.
+    Icons are named for the level they open, so the number comes from the name.
+    Returns 0 when no exam node is on the map.
+    """
+    best = 0
+    for obj in _find_level_icons(altdriver) or []:
+        m = re.match(r"TestLevelIcon(?:\s*Variant)?\(Clone\)\s*(\d+)",
+                     getattr(obj, "name", "") or "")
+        if m:
+            number = int(m.group(1))
+            if best == 0 or number < best:
+                best = number
+    if best:
+        logging.info(f"[Guest] the first exam on this map is level {best}")
+    else:
+        logging.error("[Guest] no exam node found on the guest's map")
+    return best
+
+
+def guest_take_exam(altdriver, level=None, timeout=90):
+    """Open the guest's exam at ``level`` and solve every page.
+
+    An exam sits on the map like any other level but leads to the 'Tests' scene
+    instead of an activity list, so it needs its own opener; from there
+    ``open_exam`` and ``solve_exam_pages`` are shared with the account exam flow
+    (both are login-free, so a guest can use them unchanged).
+
+    Returns the solve_exam_pages report plus ``ok``/``note``; never raises.
+    """
+    if not _guest_back_to_map(altdriver):
+        return {"ok": False, "note": "could not reach the map for the exam"}
+
+    if not level:
+        level = guest_first_exam_level(altdriver)
+        if not level:
+            return {"ok": False, "note": "no exam node on the guest's map"}
+
+    icon, icon_name, kind = _level_icon_by_number(altdriver, level)
+    if icon is None:
+        return {"ok": False, "note": f"level {level} is not on the guest's map"}
+    if kind and kind != "exam":
+        return {"ok": False,
+                "note": f"level {level} is a '{kind}' node, not an exam — the "
+                        f"guest's first exam is the one to point this at"}
+    # PRESS AGAIN before failing: the exam icon can swallow a press that lands
+    # while the map is still settling, and giving up on one press means a human
+    # has to click it — which is exactly what happened on 2026-08-13.
+    opened = False
+    for attempt in range(1, 4):
+        logging.info(f"[Guest] opening the exam at level {level} ('{icon_name}')"
+                     + (f" (attempt {attempt})" if attempt > 1 else ""))
+        press_object(altdriver, icon_name, settle=2.0)
+        if open_exam(altdriver):
+            opened = True
+            break
+        logging.warning(f"[Guest] the exam did not open from '{icon_name}' "
+                        f"(on {_current_scene(altdriver)}) — pressing again")
+        if not _guest_back_to_map(altdriver):
+            break
+        icon, icon_name, _kind = _level_icon_by_number(altdriver, level)
+        if icon is None:
+            break
+
+    if not opened:
+        return {"ok": False,
+                "note": f"the exam did not open after 3 attempts "
+                        f"(scene {_current_scene(altdriver)})"}
+
+    report = solve_exam_pages(altdriver, label=f"guest exam L{level}",
+                              dismiss_help=True)
+    report["ok"] = bool(report.get("total")
+                        and report.get("parts") == report.get("total")
+                        and report.get("submitted")
+                        and not report.get("problems"))
+    report.setdefault("note", "")
+    if not report["ok"]:
+        report["note"] = (f"answered {report.get('parts')}/{report.get('total')} pages, "
+                          f"submitted={report.get('submitted')}, "
+                          f"problems={report.get('problems')}")
+    return report
+
+
+def guest_level_locked(altdriver, level=None, timeout=25):
+    """Press ``level`` and prove a guest cannot get in.
+
+    Locked levels keep their icon (a guest sees the whole map), so "the icon is
+    missing" is not the check. What is: after pressing it the app must NOT leave
+    the map into that level's content. A paywall/sign-up prompt appearing is
+    positive evidence and is reported as such.
+
+    Returns ``{"locked": bool, "evidence": str, "note": str}``; never raises.
+    """
+    if not _guest_back_to_map(altdriver):
+        return {"locked": False, "evidence": "",
+                "note": "could not reach the map to test the lock"}
+
+    if not level:
+        # The band ends at the first exam, so the level after it is the first
+        # one a guest must not be able to enter.
+        first_exam = guest_first_exam_level(altdriver)
+        if not first_exam:
+            return {"locked": False, "evidence": "",
+                    "note": "no exam node on the map to measure the band from"}
+        level = first_exam + 1
+
+    icon, icon_name, _kind = _level_icon_by_number(altdriver, level)
+    if icon is None:
+        return {"locked": False, "evidence": "",
+                "note": f"level {level} has no icon on the map to press"}
+
+    logging.info(f"[Guest] checking level {level} is locked ('{icon_name}')")
+    press_object(altdriver, icon_name, settle=2.0)
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        scene = _current_scene(altdriver)
+        if scene and scene != MAP_SCENE:
+            return {"locked": False, "evidence": scene,
+                    "note": f"level {level} opened into '{scene}' — a guest got in"}
+        for marker in GUEST_LOCK_MARKERS:
+            if find_any(altdriver, marker) is not None:
+                shown = popup_text(altdriver)
+                logging.info(f"[Guest] level {level} is gated by '{marker}'")
+                logging.info(f"[Guest] the gate says: {shown!r}")
+                return {"locked": True, "evidence": marker, "text": shown,
+                        "note": f"level {level} put up '{marker}' instead of opening"}
+        if find_any(altdriver, ACTIVITY_SELECTION_SCENE_MARKER) is not None:
+            return {"locked": False, "evidence": ACTIVITY_SELECTION_SCENE_MARKER,
+                    "text": "",
+                    "note": f"level {level} reached its activity list — a guest got in"}
+        time.sleep(1)
+
+    # No known marker, but the app never left the map. The subscribe prompt is
+    # itself the proof, so read whatever is on screen and report it: the wording
+    # is what the test asserts, and it is logged even when nothing matched so a
+    # renamed popup can be seen instead of guessed at.
+    shown = popup_text(altdriver)
+    logging.info(f"[Guest] level {level} stayed on the map; screen says: {shown!r}")
+    return {"locked": True, "evidence": "stayed on the map", "text": shown,
+            "note": f"level {level} did not open within {timeout}s"}
+
+
 def ensure_on_map(altdriver, username=None, password=None, max_rounds=4):
     """Get to the level map from WHEREVER the app currently is.
 
@@ -1338,8 +2662,56 @@ def _play_activity(altdriver, target_scene, solvers, result):
     return result
 
 
-def solve_activity_in_level(altdriver, target_scene, title_hint=None):
-    """Open ``target_scene``'s activity in the current level, solve AND VERIFY it.
+def activity_completed(result):
+    """Did this activity really finish? (the one definition, used everywhere)
+
+    A result dict is always truthy, so completion is judged on its fields: the
+    activity was reached, its progress ran to the end, and the game showed the
+    feedback screen that registers it.
+    """
+    result = result or {}
+    total = result.get("total")
+    return bool(result.get("found") and total
+                and result.get("done") == total and result.get("feedback"))
+
+
+def solve_activity_in_level(altdriver, target_scene, title_hint=None, attempts=3):
+    """Solve an activity, RETRYING before it counts as a failure.
+
+    Every flow in the project reaches an activity through here — the guest
+    walk, the lesson-range modes and the generated Rally tests — so the retry
+    rule lives here rather than in any one caller: a lost drag, or a press that
+    landed while a screen was still animating, is not the same thing as an
+    activity that cannot be completed. Between attempts it goes back to the
+    activity list, so the activity is played from the top instead of resuming a
+    half-finished board.
+    """
+    result = {"found": False, "done": 0, "total": 0, "feedback": False}
+    for attempt in range(1, max(1, attempts) + 1):
+        if attempt > 1:
+            logging.warning(
+                f"[Activity] '{target_scene}' not completed "
+                f"(found={result.get('found')} "
+                f"{result.get('done')}/{result.get('total')} "
+                f"feedback={result.get('feedback')}) — attempt {attempt}/{attempts}")
+            back_to_activity_list(altdriver)
+        result = _solve_activity_once(altdriver, target_scene, title_hint=title_hint)
+        if activity_completed(result):
+            if attempt > 1:
+                logging.info(f"[Activity] '{target_scene}' completed on attempt {attempt}")
+            return result
+    # Out of attempts: photograph the screen it could not get past. Nothing is
+    # navigated afterwards, so this is the state a human would need to see.
+    result["screenshot"] = capture_failure_screenshot(
+        altdriver, f"activity_{target_scene}")
+    logging.error(f"[Activity] '{target_scene}' not completed after {attempts} attempts "
+                  f"(progress {result.get('done')}/{result.get('total')})")
+    return result
+
+
+def _solve_activity_once(altdriver, target_scene, title_hint=None):
+    """One attempt: open ``target_scene``'s activity in the current level,
+    solve AND VERIFY it.
 
     Picks the right activity by the title printed on its thumb (see
     ``find_activity_thumb``). Only when no title matches does it fall back to
@@ -1381,7 +2753,8 @@ def solve_activity_in_level(altdriver, target_scene, title_hint=None):
             call_method(altdriver, "AltTesterUtils", "LoadPreviousScene")
         except Exception:
             when_finish_activity(altdriver)
-        time.sleep(5)
+        if not wait_for_any(altdriver, ACTIVITY_SELECTION_SCENE_MARKER, timeout=8):
+            back_to_activity_list(altdriver)
 
     thumbs = altdriver.find_objects(By.NAME, "ActivityThumb")
     total = len(thumbs)
@@ -1401,14 +2774,19 @@ def solve_activity_in_level(altdriver, target_scene, title_hint=None):
         if scene == target_scene:
             logging.info(f"[Activity] Found {target_scene} at thumb {i}; solving")
             return _play_activity(altdriver, target_scene, solvers, result)
-        # Not the one — back out to the activity selection and try the next.
+        # Not the one — back out to the activity SELECTION and try the next.
+        # Never out to the map: that would cost a level re-entry per thumb.
         logging.info(f"[Activity] thumb {i} opened '{scene}', not {target_scene}; going back")
         try:
             call_method(altdriver, "AltTesterUtils", "LoadPreviousScene")
         except Exception as e:
             logging.warning(f"[Activity] LoadPreviousScene failed: {e}")
             when_finish_activity(altdriver)
-        time.sleep(5)
+        # Wait for the thumbs instead of a flat sleep — the list is usually
+        # back well inside a second, and when it is not, pressing the exit
+        # ourselves beats sleeping and hoping.
+        if not wait_for_any(altdriver, ACTIVITY_SELECTION_SCENE_MARKER, timeout=8):
+            back_to_activity_list(altdriver)
 
     logging.error(f"[Activity] {target_scene} not found among {total} thumbs")
     return result
@@ -1641,12 +3019,17 @@ def open_exam(altdriver, timeout=60):
     return False
 
 
-def solve_exam_pages(altdriver, label=""):
+def solve_exam_pages(altdriver, label="", dismiss_help=False):
     """Solve the 3 pages of an exam that is ALREADY open, and submit it.
 
     Split out of ``solve_exam`` so a test can navigate to the exam its own way
     (e.g. a Rally case that names a map level) and still reuse the proven
     per-page detection and solvers.
+
+    ``dismiss_help`` closes the parrot's instruction bubble once per page. It is
+    OFF by default and switched on only by the guest flow: a logged-in user does
+    not get that popup, and pressing 'HelpButton' where no bubble is showing
+    would OPEN one right over the controls the solver needs.
 
     Returns ``{"parts": int, "problems": [str], "submitted": bool}`` and never
     raises: a caller that fails on ``problems`` leaves the app on the screen
@@ -1657,6 +3040,39 @@ def solve_exam_pages(altdriver, label=""):
     def next_test():
         click_by_name(altdriver, "Next_Test")
         time.sleep(1)
+
+    def page_number():
+        """The page the exam is showing ('2/3' -> 2), or None."""
+        try:
+            return int((get_text_by_name(altdriver, "TestNumText") or "").split("/", 1)[0])
+        except Exception:
+            return None
+
+    def advance_from(current, solver, attempts=3):
+        """Leave page ``current``, making sure it is FULLY answered first.
+
+        The app will not advance a page with anything left unanswered, so a
+        page that does not change is not a missed button press — it is a solver
+        that thought it was done and was not (one tile left in the bank is
+        enough). Running the solver again picks up what it missed; only when
+        that stops helping is it a real failure.
+        """
+        for attempt in range(1, attempts + 1):
+            next_test()
+            time.sleep(1.5)
+            if page_number() != current:
+                return True
+            logging.warning(f"[Exam] page {current} did not advance "
+                            f"(attempt {attempt}/{attempts}) — it is not fully "
+                            f"answered; running the solver again")
+            if not solver:
+                break
+            try:
+                solver(altdriver)
+            except Exception as e:                   # noqa: BLE001
+                logging.error(f"[Exam] re-solve of page {current} failed: {e}")
+                break
+        return page_number() != current
 
     exam_solvers = {
         "spelling": A.exam_spelling,
@@ -1713,6 +3129,13 @@ def solve_exam_pages(altdriver, label=""):
         parts_seen += 1
 
         logging.info(f"[Exam] Solving page {label}")
+        # GUEST runs only: a guest's exam page opens behind the parrot's
+        # instruction bubble. Close it FIRST — it types itself out, so waiting
+        # for it wastes seconds a page, and it sits over the controls the solver
+        # is about to use. Exactly ONE press per page: 'HelpButton' toggles the
+        # bubble, so a second press would bring it back.
+        if dismiss_help:
+            dismiss_help_popup(altdriver)
         exam_type = detect_exam_type(altdriver)
         solver = exam_solvers.get(exam_type)
 
@@ -1728,8 +3151,13 @@ def solve_exam_pages(altdriver, label=""):
             problems.append(f"page {label}: unknown exam type '{exam_type}'")
 
         if current < total_pages:
-            next_test()
-            time.sleep(2)
+            if not advance_from(current, solver):
+                logging.error(f"[Exam] page {label} stayed unanswered; stopping")
+                shot = capture_failure_screenshot(altdriver, f"exam_page_{current}")
+                problems.append(f"page {label}: could not be completed "
+                                f"(the app would not advance past it)"
+                                + (f" [screenshot: {shot}]" if shot else ""))
+                break
         else:
             click_by_name(altdriver, "SubmitButton")
             click_by_name(altdriver, "YesButton")

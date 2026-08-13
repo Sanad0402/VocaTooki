@@ -109,6 +109,19 @@ async function init() {
     if (FOLLOW) { const log = $("log"); log.scrollTop = log.scrollHeight; }
   });
 
+  // Screenshot dialog (asked once per run, right after Run is clicked).
+  // Bound defensively: a stale cached page without this markup must not throw
+  // here and take the whole panel's init down with it.
+  const on = (id, evt, fn) => { const el = $(id); if (el) el.addEventListener(evt, fn); };
+  on("sm-close", "click", () => resolveShots(null));
+  on("sm-cancel", "click", () => resolveShots(null));
+  on("sm-start", "click", () => resolveShots(readShotsDialog()));
+  on("shots-modal", "click", (e) => { if (e.target.id === "shots-modal") resolveShots(null); });
+  on("sm-all", "click", () => setAllShots(true));
+  on("sm-none", "click", () => setAllShots(false));
+  on("sm-list", "change", updateShotsCount);
+  on("btn-shots-clear", "click", () => deleteShots(null));
+
   // Post-to-Rally modal + bulk
   $("rm-close").addEventListener("click", closeRallyPost);
   $("rm-cancel").addEventListener("click", closeRallyPost);
@@ -116,14 +129,17 @@ async function init() {
   $("rally-modal").addEventListener("click", (e) => { if (e.target.id === "rally-modal") closeRallyPost(); });
   const postAllBtn = $("btn-post-all");
   if (postAllBtn) postAllBtn.addEventListener("click", postAllToRally);
-  // Delegated: "→ Rally" buttons survive single-row re-renders
+  // Delegated: "→ Rally" and "delete shots" survive single-row re-renders
   $("results").addEventListener("click", (e) => {
+    const del = e.target.closest(".shots-del");
+    if (del) { deleteShots(del.dataset.run); return; }
     const b = e.target.closest(".post-rally");
     if (!b) return;
     const c = (LAST_CASES || []).find((x) => x.tc_id === b.dataset.tc);
     if (c) openRallyPost(c);
   });
 
+  loadShots();
   pollAltTester();
   setInterval(pollAltTester, 20000);
 
@@ -715,6 +731,14 @@ async function startRun(dryRun) {
   const err = clientValidate(cfg);
   if (err) { showError(err); return; }
 
+  // Ask which cases should be photographed. A dry run executes nothing, so
+  // there is nothing to photograph and nothing to ask.
+  if (!dryRun) {
+    const shots = await askShots(cfg);
+    if (!shots) return;                       // dialog cancelled -> no run
+    Object.assign(cfg, shots);
+  }
+
   if (evtSource) { evtSource.close(); evtSource = null; }
   $("log").innerHTML = "";
   $("results").innerHTML = "";
@@ -735,6 +759,145 @@ async function startRun(dryRun) {
 
 async function stopRun() { await fetch("/api/stop", { method: "POST" }); }
 
+// ------------------------------------------------- screenshots for this run
+// Asked once, right after Run is clicked: one camera checkbox per case that
+// will actually execute (resolved server-side, so a folder selection shows the
+// cases it expands to). Cancel = no run at all.
+let SHOTS_RESOLVE = null;
+
+function askShots(cfg) {
+  const modal = $("shots-modal");
+  if (!modal) return Promise.resolve({});     // no dialog markup -> run as before
+  return new Promise((resolve) => {
+    SHOTS_RESOLVE = resolve;
+    renderShotsDialog(cfg);
+    modal.classList.remove("hidden");
+  });
+}
+
+function resolveShots(value) {
+  $("shots-modal").classList.add("hidden");
+  const done = SHOTS_RESOLVE;
+  SHOTS_RESOLVE = null;
+  if (done) done(value);
+}
+
+async function renderShotsDialog(cfg) {
+  const list = $("sm-list");
+  if (cfg.run_type === "lesson_range") {
+    // A lesson run has no test cases — one switch for the whole run (5 frames).
+    list.innerHTML = `<label class="shot-row">
+      <input type="checkbox" class="shot-box" data-lesson="1" checked>
+      <span class="shot-name">Lesson run · mode “${escapeHtml(cfg.mode || "")}”</span>
+      <span class="hint" style="margin:0">up to 5 frames</span></label>`;
+    updateShotsCount();
+    return;
+  }
+  list.innerHTML = '<span class="muted">Resolving cases…</span>';
+  let cases = [];
+  try {
+    const res = await fetch("/api/run/preview", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cfg),
+    });
+    // Say WHY it failed. A 404 here means one thing in practice: the panel
+    // process predates this route and has to be restarted.
+    if (!res.ok) {
+      throw new Error(res.status === 404
+        ? "this panel process is older than the screenshot feature — restart run_panel.py"
+        : `the panel answered HTTP ${res.status}`);
+    }
+    cases = (await res.json()).cases || [];
+  } catch (e) {
+    list.innerHTML = `<span class="muted">Could not resolve the selection:
+      ${escapeHtml(String((e && e.message) || e))}.<br>Screenshots will be taken for every case.</span>`;
+    updateShotsCount();
+    return;
+  }
+  if (!cases.length) {
+    list.innerHTML = '<span class="muted">No cases resolved for this selection.</span>';
+    updateShotsCount();
+    return;
+  }
+  list.innerHTML = cases.map((c) => `<label class="shot-row">
+    <input type="checkbox" class="shot-box" data-tc="${escapeAttr(c.tc_id)}" checked>
+    <span class="shot-tc">${escapeHtml(c.tc_id || "")}</span>
+    <span class="shot-name">${escapeHtml(c.tc_name || "")}</span>
+    ${c.linked ? "" : '<span class="hint" style="margin:0">not generated</span>'}</label>`).join("");
+  updateShotsCount();
+}
+
+function setAllShots(on) {
+  document.querySelectorAll("#sm-list .shot-box").forEach((b) => { b.checked = on; });
+  updateShotsCount();
+}
+
+function updateShotsCount() {
+  const boxes = [...document.querySelectorAll("#sm-list .shot-box")];
+  const on = boxes.filter((b) => b.checked).length;
+  const el = $("sm-count");
+  if (!el) return;
+  el.textContent = boxes.length
+    ? (on ? `${on} of ${boxes.length} selected` : "none selected — only failure screenshots")
+    : "";
+}
+
+function readShotsDialog() {
+  const boxes = [...document.querySelectorAll("#sm-list .shot-box")];
+  if (boxes.some((b) => b.dataset.lesson)) return { shots_enabled: boxes[0].checked };
+  // No boxes at all (resolve failed) -> send nothing and keep the default.
+  if (!boxes.length) return {};
+  return { shot_cases: boxes.filter((b) => b.checked).map((b) => b.dataset.tc) };
+}
+
+// ------------------------------------------------------- screenshot gallery
+let SHOTS_BY_CASE = {};      // tc_id (lowercased) -> newest run folder
+
+async function loadShots() {
+  let runs = [];
+  try { runs = (await (await fetch("/api/shots")).json()).runs || []; } catch (e) { return; }
+  const byCase = {};
+  for (const r of runs) {                    // newest first: first wins
+    const key = String(r.label || "").toLowerCase();
+    if (key && !byCase[key]) byCase[key] = r;
+  }
+  SHOTS_BY_CASE = byCase;
+}
+
+function shotsFor(tcId) {
+  return SHOTS_BY_CASE[String(tcId || "").toLowerCase()] || null;
+}
+
+function shotsHtml(tcId) {
+  const run = shotsFor(tcId);
+  if (!run || !run.files.length) return "";
+  const thumbs = run.files.map((f) => {
+    const url = `/api/shots/${encodeURIComponent(run.run_id)}/${encodeURIComponent(f)}`;
+    const name = f.replace(/^\d+-/, "").replace(/\.png$/i, "");
+    return `<a href="${url}" target="_blank" title="${escapeAttr(name)}">
+      <img class="shot-thumb" src="${url}" alt="${escapeAttr(name)}" loading="lazy"></a>`;
+  }).join("");
+  return `<details class="shots-cell"><summary>📷 ${run.files.length} screenshot(s)</summary>
+    <div class="shot-strip">${thumbs}</div>
+    <button type="button" class="link shots-del" data-run="${escapeAttr(run.run_id)}">🗑 delete these</button>
+    </details>`;
+}
+
+async function deleteShots(runId) {
+  const what = runId ? `the screenshots of ${runId}` : "ALL run screenshots on disk";
+  if (!confirm(`Delete ${what}?`)) return;
+  const msg = $("shots-msg");
+  try {
+    const url = "/api/shots" + (runId ? `?run_id=${encodeURIComponent(runId)}` : "");
+    const data = await (await fetch(url, { method: "DELETE" })).json();
+    if (msg) msg.textContent = data.message || "Deleted.";
+  } catch (e) {
+    if (msg) msg.textContent = "Could not delete the screenshots: " + e;
+    return;
+  }
+  await loadShots();
+  if (LAST_CASES && LAST_CASES.length) renderCases(LAST_CASES);
+}
+
 // ---------------------------------------------------------------- stream
 function openStream() {
   if (evtSource) evtSource.close();
@@ -754,7 +917,7 @@ function handleEvent(evt) {
     case "end":
       applyState(evt.state);
       if (evtSource) { evtSource.close(); evtSource = null; }
-      stopStatusPolling(); refreshStatusOnce(); loadRuns(); break;
+      stopStatusPolling(); refreshStatusOnce(); loadRuns(); loadShots(); break;
   }
 }
 
@@ -815,6 +978,9 @@ function startStatusPolling() { stopStatusPolling(); statusTimer = setInterval(r
 function stopStatusPolling() { if (statusTimer) { clearInterval(statusTimer); statusTimer = null; } }
 async function refreshStatusOnce() {
   try {
+    // Frames land while the run is going — pick them up before re-rendering so
+    // a case shows its screenshots as soon as they exist.
+    await loadShots();
     const snap = await (await fetch("/api/status")).json();
     renderFromSnapshot(snap);
     if (snap.report_html || snap.report_txt) showReports();
@@ -857,6 +1023,7 @@ function caseRow(c) {
     err += `<details><summary>📷 screenshot (where it got stuck)</summary>
       <a href="${url}" target="_blank"><img src="${url}" style="max-width:420px"></a></details>`;
   }
+  err += shotsHtml(c.tc_id);
   const ran = ["PASSED", "FAILED", "SKIPPED"].includes(c.status);
   const rally = ran
     ? `<button type="button" class="link post-rally" data-tc="${escapeAttr(c.tc_id)}"

@@ -149,6 +149,9 @@
             <button id="btn-post-all" type="button" class="small"
                     title="Post every result in this run back to Rally as a TestCaseResult">↥ Post all to Rally</button>
             <span id="post-all-msg" class="hint" style="margin:0"></span>
+            <button id="btn-shots-clear" type="button" class="small"
+                    title="Delete every run screenshot stored on disk">🗑 Delete screenshots</button>
+            <span id="shots-msg" class="hint" style="margin:0"></span>
           </div>
           <div id="results" class="results"></div>
         </div>
@@ -223,7 +226,32 @@
     </div>
   </div>
 
-  <script src="{{ url_for('static', filename='status.js') }}?v=27"></script>
-  <script src="{{ url_for('static', filename='app.js') }}?v=27"></script>
+  <div id="shots-modal" class="modal-backdrop hidden">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="sm-title">
+      <div class="modal-head">
+        <h3 id="sm-title">📷 Screenshots for this run</h3>
+        <button id="sm-close" type="button" class="link" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="hint" style="margin-top:0">
+          Up to <b>3 frames</b> per test case (start · end) and <b>5</b> for a lesson run.
+          A <b>failure screenshot is always taken</b>, even for cases you untick here.
+        </p>
+        <div class="shots-actions">
+          <button id="sm-all" type="button" class="link">Select all</button>
+          <button id="sm-none" type="button" class="link">Select none</button>
+          <span id="sm-count" class="hint" style="margin:0"></span>
+        </div>
+        <div id="sm-list" class="shots-list"></div>
+      </div>
+      <div class="modal-foot">
+        <button id="sm-cancel" type="button">Cancel</button>
+        <button id="sm-start" type="button" class="primary">▶ Start run</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='status.js') }}?v=28"></script>
+  <script src="{{ url_for('static', filename='app.js') }}?v=28"></script>
 </body>
 </html>

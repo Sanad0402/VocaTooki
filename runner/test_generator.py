@@ -125,7 +125,8 @@ class RallyTestGenerator:
 
         description = test_case.get("description", "")
         steps = test_case.get("steps", [])
-        test_type = self._infer_test_type(tc_name, description, nodeid)
+        test_type = self._infer_test_type(tc_name, description, nodeid,
+                                          test_case.get("validation"))
         test_code = self._generate_test_code(
             tc_id, tc_name, test_type, user_data, func_name, description, steps,
             validation=test_case.get("validation"), nodeid=nodeid,
@@ -175,7 +176,8 @@ class RallyTestGenerator:
                 pass
 
         description = test_case.get("description", "")
-        test_type = self._infer_test_type(tc_name, description, nodeid)
+        test_type = self._infer_test_type(tc_name, description, nodeid,
+                                          test_case.get("validation"))
         scope_note = self.out_of_scope(tc_name, description, nodeid)
         if scope_note:
             # Not a Unity-client case (CRM/web/API). Discovering elements would
@@ -183,6 +185,16 @@ class RallyTestGenerator:
             # plainly that AltTester cannot test it.
             code = self._gen_stub(tc_id, tc_name, func_name, description,
                                   test_case.get("steps", []), reason=scope_note)
+        elif test_type == "guest":
+            # Before exam/activity/page/daily: those templates all start with
+            # ensure_logged_in, and a guest case describes itself in their words
+            # ("...solve the first exam..."). Discovery is passed through so the
+            # parsed route can be confirmed against the objects really on screen.
+            code = self._gen_guest(
+                tc_id, tc_name, func_name, description,
+                test_case.get("steps", []), test_case.get("validation"),
+                elements=elements or {},
+            )
         elif test_type == "exam":
             # Like activities: the whole flow comes from proven utils, so live
             # discovery adds nothing — this is always a REAL test.
@@ -414,14 +426,49 @@ class RallyTestGenerator:
         """Every keyword that maps to ``scene`` — what the thumb might say."""
         return [kw for kw, s in self.ACTIVITY_SCENES.items() if s == scene]
 
+    # A guest case is one where the app is used WITHOUT an account. It is
+    # recognised first, before every other type, because guest cases describe
+    # themselves in the words of the flows they exercise: "Guest opens the
+    # Events page" is a page case by keyword, "Guest solves Tetris" an activity
+    # case, "Guest mode - no login" a login case. All of those templates start
+    # by typing credentials the case does not have, so losing the guest signal
+    # produces a test that exercises the wrong thing.
+    GUEST_PHRASES = (
+        "guest", "free trial", "without logging in", "without login",
+        "without an account", "without account", "no account", "not logged in",
+        "no login", "skip login", "anonymous", "visitor", "trial mode",
+    )
+
+    @classmethod
+    def _is_guest_case(cls, tc_name: str, description: str = "", nodeid: str = "",
+                       validation: Optional[Dict[str, str]] = None) -> bool:
+        """True when the case is about using the app without logging in.
+
+        Searches the title, the Rally Test Folder (carried in the nodeid path),
+        the description AND the validation text, because the route into guest
+        mode is prose and may only be spelled out in Validation Input.
+        """
+        hay = cls._haystack(tc_name, description, nodeid)
+        v = validation or {}
+        hay += " " + cls._clean_html(
+            f"{v.get('input', '')} {v.get('expected', '')}").lower()
+        # Whole phrases only, and never as the head of a hyphenated compound:
+        # a login case reading "no account-specific login errors occur" is not a
+        # guest case, and "guest" must not be found inside "guestAr".
+        return any(re.search(rf"(?<![a-z0-9]){re.escape(p)}(?![a-z0-9-])", hay)
+                   for p in cls.GUEST_PHRASES)
+
     def _infer_test_type(self, tc_name: str, description: str = "",
-                         nodeid: str = "") -> str:
+                         nodeid: str = "", validation: Optional[Dict[str, str]] = None) -> str:
         """Infer test type from the test case name (and its folder/description)."""
         lower = tc_name.lower()
         negative_words = ("invalid", "incorrect", "wrong", "empty", "locked",
                           "disabled", "negative", "failure")
         is_login = any(k in lower for k in ("login", "log in", "sign in", "credential"))
         is_negative = any(w in lower for w in negative_words)
+        # FIRST: a guest case never logs in, whatever else it mentions.
+        if self._is_guest_case(tc_name, description, nodeid, validation):
+            return "guest"
         if is_login and is_negative:
             return "login_negative"
         if is_login:
@@ -490,10 +537,16 @@ class RallyTestGenerator:
 
     @classmethod
     def out_of_scope(cls, tc_name: str, description: str = "", nodeid: str = ""):
-        """Why this case cannot be automated against the game, or None."""
+        """Why this case cannot be automated against the game, or None.
+
+        Matched on whole words: as bare substrings these keywords fire on
+        ordinary client prose ("no account is needed, unlike the dashboard" is
+        not a CRM case), and because this check runs BEFORE type dispatch a
+        false hit refuses a perfectly automatable case with a wrong reason.
+        """
         hay = cls._haystack(tc_name, description, nodeid)
         for keyword, reason in cls.OUT_OF_SCOPE:
-            if keyword in hay:
+            if re.search(rf"(?<![a-z0-9]){re.escape(keyword)}(?![a-z0-9])", hay):
                 return reason
         return None
 
@@ -556,6 +609,12 @@ class RallyTestGenerator:
         if scope_note:
             return self._gen_stub(tc_id, tc_name, func_name, description, steps,
                                   reason=scope_note)
+        if test_type == "guest":
+            # Guest first, and with no user_data at all: the credential scraper
+            # picks up things like "Username: N/A" from a description, and any
+            # template that sees a username emits a login.
+            return self._gen_guest(tc_id, tc_name, func_name, description, steps,
+                                   validation=validation)
         if test_type == "login_positive":
             return self._gen_login_positive(tc_id, tc_name, user_data, func_name, description, steps)
         elif test_type == "login_negative":
@@ -594,6 +653,31 @@ class RallyTestGenerator:
             t = t.replace(a, b)
         return re.sub(r"\s+", " ", t).strip()
 
+    @staticmethod
+    def _py_str(text: str, limit: int = 300) -> str:
+        """Rally text made safe to embed in a double-quoted Python literal.
+
+        Rally prose routinely contains quotes ('the exam level ("Level: N")'),
+        backslashes and braces. Dropped straight into a template they produce a
+        file that will not even parse — the generated test then fails at
+        COLLECTION, which looks like "generate is broken" rather than like a
+        test that needs work. So: one line, no double quotes, no backslashes,
+        no braces (the templates interpolate into f-strings), and bounded length.
+        """
+        t = re.sub(r"\s+", " ", str(text or "")).strip()
+        t = t.replace("\\", "/").replace('"', "'")
+        t = t.replace("{", "(").replace("}", ")")
+        if len(t) > limit:
+            t = t[:limit].rstrip() + "..."
+        return t
+
+    @staticmethod
+    def _doc_safe(text: str) -> str:
+        """Text that cannot break out of the triple-quoted docstring it lands in."""
+        t = str(text or "").replace('"""', "'''")
+        # A docstring may not end on a backslash — it would escape the closing quotes.
+        return t.rstrip("\\")
+
     @classmethod
     def _doc_block(cls, tc_id: str, tc_name: str, description: str,
                    steps: List[Dict[str, Any]]) -> str:
@@ -616,7 +700,7 @@ class RallyTestGenerator:
             lines += ["", "Steps (from Rally):"] + step_lines
         else:
             lines += ["", "(No test steps recorded in Rally — add them to the case, then re-sync.)"]
-        return "\n".join(lines)
+        return cls._doc_safe("\n".join(lines))
 
     @classmethod
     def _body_scaffold(cls, steps: List[Dict[str, Any]]) -> str:
@@ -822,9 +906,10 @@ def {test_func_name}(altdriver):
         if missing:
             reason = (f"{tc_id}: description is missing " + " and ".join(missing)
                       + ". Add it to the Rally case, then re-sync.")
-            guard = f'@pytest.mark.stub\n@pytest.mark.skip(reason="{reason}")\n'
+            guard = ('@pytest.mark.stub\n'
+                     f'@pytest.mark.skip(reason="{self._py_str(reason)}")\n')
 
-        expected_note = v_exp or f"{scene} activity completed successfully"
+        expected_note = self._py_str(v_exp or f"{scene} activity completed successfully")
 
         # The thumb label. Confirmed on the live app when generation could read
         # it (MCP); otherwise left empty on purpose, so utilsdemo falls back to
@@ -938,9 +1023,10 @@ PASSWORD = "{password}"
         if missing:
             reason = (f"{tc_id}: description is missing " + " and ".join(missing)
                       + ". Add it to the Rally case, then re-sync.")
-            guard = f'@pytest.mark.stub\n@pytest.mark.skip(reason="{reason}")\n'
+            guard = ('@pytest.mark.stub\n'
+                     f'@pytest.mark.skip(reason="{self._py_str(reason)}")\n')
 
-        expected_note = v_exp or "all 3 exam pages solved and submitted"
+        expected_note = self._py_str(v_exp or "all 3 exam pages solved and submitted")
 
         return f'''"""
 {doc}
@@ -1022,7 +1108,8 @@ PASSWORD = "{password}"
             reason = (f"{tc_id}: no credentials on the Rally case — add "
                       f"Username/Password so the test can reach the start screen, "
                       f"then re-sync.")
-            guard = f'@pytest.mark.stub\n@pytest.mark.skip(reason="{reason}")\n'
+            guard = ('@pytest.mark.stub\n'
+                     f'@pytest.mark.skip(reason="{self._py_str(reason)}")\n')
 
         markers = spec.get("markers") or []
         marker_note = ", ".join(markers) if markers else "its scene"
@@ -1085,7 +1172,8 @@ PASSWORD = "{password}"
         if not username:
             reason = (f"{tc_id}: no credentials on the Rally case. Add "
                       f"Username/Password, then re-sync.")
-            guard = f'@pytest.mark.stub\n@pytest.mark.skip(reason="{reason}")\n'
+            guard = ('@pytest.mark.stub\n'
+                     f'@pytest.mark.skip(reason="{self._py_str(reason)}")\n')
 
         return f'''"""
 {doc}
@@ -1125,6 +1213,469 @@ PASSWORD = "{password}"
         f"{{TC_ID}}: {game} did not report a win — {{result['note']}}"
 '''
 
+    # ------------------------------------------------------------------
+    # Guest flow (no login)
+    # ------------------------------------------------------------------
+    # The route into guest mode is written in prose on the Rally case (the user
+    # owns it, not this code), so it is PARSED rather than assumed: each step
+    # becomes an ordered action, and each action's label becomes a list of
+    # candidate Unity object names. The generated test carries that route as
+    # data and walks it through utilsdemo, so a wording change in Rally is a
+    # data change here — not a new template.
+
+    _GUEST_TYPE_VERBS = ("enter", "type", "input", "fill in", "fill", "write")
+    _GUEST_CLICK_VERBS = ("tap", "click", "press", "select", "choose", "hit")
+    _GUEST_WAIT_VERBS = ("wait for", "wait until", "wait")
+    _GUEST_CHECK_VERBS = ("verify", "confirm", "validate", "check", "ensure", "assert")
+
+    # Object names for the guest entry, read off the live app's own snapshots.
+    # The build ships BOTH spellings ("Free Trial" and the misspelled
+    # "FreeTrail") plus a "PlayAsGuest" object, so a parsed label is tried
+    # against every one of them instead of trusting the Rally wording.
+    GUEST_ALIASES = {
+        "free trial": ("Free Trial", "FreeTrial", "FreeTrail", "StartFreeTrial",
+                       "PlayAsGuest"),
+        "guest": ("PlayAsGuest", "GuestButton", "Free Trial", "FreeTrail"),
+        "start": ("StartButton", "Start"),
+        "next": ("NextButton", "nextButton", "Next"),
+        "back": ("BackButton", "backButton", "Back"),
+        "map": ("GO-Map",),
+    }
+
+    # Labels that name no control at all ("tap anywhere to dismiss").
+    _GUEST_VAGUE = ("anywhere", "any where", "screen", "somewhere", "the screen",
+                    "anything", "it", "them")
+
+    @classmethod
+    def _numbered_steps(cls, text: str) -> List[str]:
+        """Split a Rally procedure into ordered step sentences.
+
+        Rally hands this over as one blob whose numbering is the only reliable
+        structure — ``_clean_html`` collapses the newlines — so the case's own
+        "1." / "2)" numbering is used first, and plain lines are the fallback.
+        """
+        t = str(text or "").replace("\r", "")
+        if not t.strip():
+            return []
+        parts = [p.strip() for p in re.split(r"(?:^|\s)\d{1,2}[.)]\s+", t) if p.strip()]
+        if len(parts) > 1:
+            return parts
+        return [ln.strip("-•* \t") for ln in t.splitlines() if ln.strip()]
+
+    @classmethod
+    def _name_candidates(cls, label: str) -> List[str]:
+        """Unity object names a human-written label might refer to.
+
+        "Start Free Trial" -> StartFreeTrial, Start Free Trial, ...,
+        FreeTrial, Free Trial (dropping the leading verb), plus the aliases
+        actually seen on the app. Order is preference order: the walker clicks
+        the first one that is really on screen.
+        """
+        # "Let's Start" -> also LetsStart, not just the Let/s split.
+        tight = re.sub(r"['’]", "", str(label or ""))
+        words = re.findall(r"[A-Za-z0-9]+", tight)
+        if not words:
+            return []
+        camel = "".join(w[:1].upper() + w[1:].lower() for w in words)
+        spaced = " ".join(words)
+        out = [camel, spaced, f"{camel}Button", f"{spaced} Button",
+               "_".join(words), camel[:1].lower() + camel[1:]]
+        raw_words = re.findall(r"[A-Za-z0-9]+", str(label or ""))
+        if raw_words != words:
+            out.append("".join(w[:1].upper() + w[1:].lower() for w in raw_words))
+        if len(words) > 1:                     # drop a leading verb: "Start Free Trial"
+            tail = words[1:]
+            out += ["".join(w[:1].upper() + w[1:].lower() for w in tail),
+                    " ".join(tail)]
+        low = spaced.lower()
+        for key, extra in cls.GUEST_ALIASES.items():
+            if key in low:
+                out += list(extra)
+        seen, uniq = set(), []
+        for n in out:
+            if n and n not in seen:
+                seen.add(n)
+                uniq.append(n)
+        return uniq
+
+    @classmethod
+    def _clean_label(cls, raw: str) -> str:
+        """Trim a parsed label down to what is likely the control's text."""
+        t = re.split(r"[.,;:!?]|\bthen\b|\band\b|\bto\b|\bso\b", str(raw or ""),
+                     maxsplit=1)[0]
+        t = t.strip().strip("\"'“”‘’()[]")
+        # Drop trailing UI nouns — the object is named for the label, not the noun.
+        t = re.sub(r"\s+(button|icon|option|tab|toggle|field|input|box|textbox|"
+                   r"screen|page|checkbox)$", "", t, flags=re.IGNORECASE).strip()
+        return re.sub(r"^(?:the|a|an|on|in)\s+", "", t, flags=re.IGNORECASE).strip()
+
+    @classmethod
+    def _guest_action(cls, step: str) -> Dict[str, Any]:
+        """One Rally step -> one action for the guest route walker.
+
+        Only the FIRST actionable verb in a step is turned into an action; a
+        step that packs several ("wait for X, then select Male") keeps its full
+        text so the reader can see what was not automated.
+        """
+        s = " ".join(str(step or "").split())
+        low = s.lower()
+        base = {"text": s, "label": "", "value": "", "candidates": []}
+
+        # "Enter guestAr in the Last Name field" -> type into a named field.
+        m = re.search(
+            r"\b(?:%s)\b\s+[\"'“]?(.+?)[\"'”]?\s+(?:in|into|to)\s+(?:the\s+)?"
+            r"[\"'“]?(.+?)[\"'”]?\s*(?:field|input|box|textbox)\b"
+            % "|".join(cls._GUEST_TYPE_VERBS), low)
+        if m:
+            value = s[m.start(1):m.end(1)].strip().strip("\"'“”")
+            field = cls._clean_label(s[m.start(2):m.end(2)])
+            return {**base, "do": "type", "label": field, "value": value,
+                    "candidates": cls._name_candidates(field)}
+
+        # A step that asks for a verification is an ASSERTION, not a press, even
+        # when it also contains a press verb ("tap any level greater than 5 —
+        # verify it is locked"): the check is the point and it cannot be derived
+        # from prose, so it must not become a click on an invented object name.
+        if any(v in low for v in cls._GUEST_CHECK_VERBS) or s.startswith(("✅", "✓")):
+            return {**base, "do": "check", "label": cls._clean_label(s)}
+
+        # "tap Start Free Trial button" / "select Arabic" -> press a named control.
+        # The LAST press verb wins: a step often names a screen with a verb of its
+        # own first ("In the 'Choose Your Native Language' screen, select Arabic").
+        # Match the VERBS only: a pattern that also captured the tail would
+        # consume the rest of the sentence and hide every later verb.
+        matches = list(re.finditer(r"\b(?:%s)\b" % "|".join(cls._GUEST_CLICK_VERBS), low))
+        if matches:
+            tail = re.sub(r"^\s*(?:on\s+|the\s+)*", "", s[matches[-1].end():])
+            label = cls._clean_label(tail)
+            first_word = label.split()[0].lower() if label.split() else ""
+            if label and first_word not in cls._GUEST_VAGUE:
+                return {**base, "do": "click", "label": label,
+                        "candidates": cls._name_candidates(label)}
+            # "tap anywhere on screen to dismiss the parrot" — a real action, but
+            # it names no control, so it cannot be automated by name.
+            return {**base, "do": "tap_anywhere", "label": label or "anywhere"}
+
+        # "Wait for the 'You Are' screen to appear" -> wait for a marker.
+        m = re.search(r"\b(?:%s)\b\s+(?:for\s+|until\s+)?(.+)$" % "|".join(cls._GUEST_WAIT_VERBS), low)
+        if m:
+            label = cls._clean_label(s[m.start(1):])
+            return {**base, "do": "wait", "label": label,
+                    "candidates": cls._name_candidates(label)}
+
+        if any(v in low for v in cls._GUEST_CHECK_VERBS) or s.startswith(("✅", "✓")):
+            return {**base, "do": "check", "label": cls._clean_label(s)}
+
+        return {**base, "do": "manual"}
+
+    @classmethod
+    def _parse_guest_route(cls, description: str = "",
+                           validation: Optional[Dict[str, str]] = None,
+                           steps: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+        """Everything the guest template needs, parsed out of the Rally case.
+
+        Reads structured steps AND ``validation.input`` AND the description,
+        because in this project the procedure lives in Validation Input (the
+        synced cases carry no structured steps at all).
+
+        Returns ``{"route": [actions], "entry": int, "todo": [actions],
+        "source": str}`` where ``entry`` counts the leading actions that are
+        real, resolvable UI interactions — the guest ENTRY. A route with fewer
+        than two of those is not a route, and the caller degrades honestly.
+        """
+        v = validation or {}
+        step_texts = []
+        source = ""
+        for s in steps or []:
+            txt = " ".join(x for x in (s.get("input", ""), s.get("expected", "")) if x)
+            if txt.strip():
+                step_texts.append(txt.strip())
+        if step_texts:
+            source = "Rally steps"
+        if not step_texts and v.get("input"):
+            step_texts = cls._numbered_steps(v["input"])
+            source = "Rally Validation Input"
+        if not step_texts:
+            step_texts = cls._numbered_steps(cls._clean_html(description))
+            source = "Rally description"
+
+        route = [cls._guest_action(t) for t in step_texts]
+        # The entry is the leading run of actions we can actually drive.
+        entry = 0
+        for a in route:
+            if a["do"] in ("click", "type", "wait", "tap_anywhere"):
+                entry += 1
+            else:
+                break
+        todo = [a for a in route if a["do"] in ("check", "manual")]
+        return {"route": route, "entry": entry, "todo": todo, "source": source}
+
+    # Labels that only navigate the wizard — never a value the case is choosing.
+    _GUEST_NAV_LABELS = (
+        "free trial", "start free trial", "let's start", "lets start", "start",
+        "next", "prev", "previous", "back", "continue", "ok", "yes", "no",
+        "done", "finish", "submit", "close", "map", "the map", "skip",
+    )
+
+    @classmethod
+    def _guest_values(cls, route: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """The case's own DATA, pulled out of the parsed route.
+
+        The shape of the onboarding is app knowledge and lives in
+        ``utilsdemo.GUEST_ENTRY``; what varies per case is the child's name and
+        which option each screen should get. Only those are baked into the test.
+        """
+        first = last = ""
+        options: List[str] = []
+        for a in route:
+            if a["do"] == "type":
+                label = (a["label"] or "").lower()
+                if "first" in label:
+                    first = a["value"]
+                elif "last" in label:
+                    last = a["value"]
+                elif not first:
+                    first = a["value"]
+            elif a["do"] == "click":
+                label = (a["label"] or "").strip()
+                if not label or label.lower() in cls._GUEST_NAV_LABELS:
+                    continue
+                if label not in options:
+                    options.append(label)
+        return {"first": first, "last": last, "options": options}
+
+    # Option labels that are not the language: the app asks gender as a label
+    # too, and the English level always ends in "Literacy"/"Proficiency".
+    _GUEST_GENDER_LABELS = ("male", "female")
+    _GUEST_DIFFICULTY_SUFFIXES = ("literacy", "proficiency")
+
+    @classmethod
+    def _guest_last_name(cls, options: List[str]) -> str:
+        """The guest's last name, carrying the two choices that define the run.
+
+        ``guest`` + the language's first two letters + the difficulty's initials
+        — "Arabic" + "Beginning Literacy" -> ``guestArBL``. A guest has no email
+        or id, so this name is the only way to tell one registration from
+        another afterwards; deriving it means a case cannot silently register
+        under a name that does not match what it selected.
+        """
+        language = difficulty = ""
+        for option in options:
+            low = (option or "").strip().lower()
+            if not low or low in cls._GUEST_GENDER_LABELS:
+                continue
+            if low.endswith(cls._GUEST_DIFFICULTY_SUFFIXES):
+                difficulty = difficulty or option
+            elif not language:
+                language = option
+        if not (language or difficulty):
+            return ""
+        short = re.sub(r"[^A-Za-z]", "", language)[:2].capitalize()
+        initials = "".join(w[0].upper() for w in re.findall(r"[A-Za-z]+", difficulty))
+        return f"guest{short}{initials}"
+
+    def _gen_guest(self, tc_id, tc_name, test_func_name, description="",
+                   steps=None, validation=None, elements=None) -> str:
+        """Guest-flow test: register through "Start FREE trial", never log in.
+
+        The onboarding route was walked on the live app, so the object names live
+        in ``utilsdemo.GUEST_ENTRY`` and the flow in ``utilsdemo.enter_guest_mode``
+        — this template only supplies what the Rally case decides: the child's
+        name and the option labels (language, English level, gender). No
+        USERNAME/PASSWORD is emitted at all; their absence is the reviewable
+        proof the test cannot fall back to a login.
+
+        Steps that prose cannot describe (solve an activity in every accessible
+        level, take the exam, verify a locked level, clear data) are emitted as
+        explicit TODOs rather than guessed at.
+        """
+        parsed = self._parse_guest_route(description, validation, steps)
+        vals = self._guest_values(parsed["route"])
+        first = vals["first"]
+        options = vals["options"]
+        # The last name is DERIVED from the selections (guest + language +
+        # difficulty initials), so it always describes the run it registered.
+        last = self._guest_last_name(options) or vals["last"]
+        todo = parsed["todo"]
+
+        doc = self._doc_block(tc_id, tc_name, description, steps or [])
+        v = validation or {}
+        v_in = self._clean_html(v.get("input", ""))
+        v_exp = self._clean_html(v.get("expected", ""))
+        if v_in or v_exp:
+            doc += "\n\nValidation (from Rally):"
+            if v_in:
+                doc += f"\n    Input:    {v_in}"
+            if v_exp:
+                doc += f"\n    Expected: {v_exp}"
+
+        options_literal = "[" + ", ".join(f'"{self._py_str(o, 60)}"' for o in options) + "]"
+        # The guest band is levels 1-5 on the live map (5 is the first exam), so
+        # the lesson levels a guest case plays through are 1-3.
+        levels_literal = "(1, 2, 3)"
+
+        # The three PROFICIENCY cases also sit the first exam on the map
+        # (Rally: "Navigate to the first exam on the map and complete it").
+        # A Beginning Literacy case is the one that proves the activities, so it
+        # is left to walk the levels only.
+        level_label = next((o for o in options
+                            if o.strip().lower().endswith(("literacy", "proficiency"))), "")
+        solves_exam = level_label.strip().lower().endswith("proficiency")
+        # Do not list a step as an unimplemented TODO once the body does it.
+        if solves_exam:
+            todo = [a for a in todo
+                    if "exam" not in (a.get("text", "") or "").lower()]
+
+        n_exam = 6
+        n_lock = 7 if solves_exam else 6
+        n_todo, n_reset = n_lock + 1, n_lock + 2
+        exam_block = "" if not solves_exam else f'''
+    # {n_exam}. The first exam on the map (Rally: "Navigate to the first exam on
+    #    the map and complete it"). This case is a '{self._py_str(level_label, 40)}'
+    #    one, so the exam is the point of it — the Beginning Literacy case is
+    #    what proves the activities. WHICH level carries the exam was read off
+    #    the live map above (it moves with the language and level the guest
+    #    picked), and its icon is pressed BY NAME, never by coordinates.
+    exam = utilsdemo.guest_take_exam(driver, level=first_exam)
+    assert exam["ok"], (
+        f"{{TC_ID}}: the first exam (level {{first_exam}}) was not completed — "
+        f"{{exam.get('note')}}. Answered {{exam.get('parts')}}/{{exam.get('total')}} "
+        f"page(s), submitted={{exam.get('submitted')}}, "
+        f"problems={{exam.get('problems')}}")
+'''
+
+        todo_block = "\n".join(
+            f"    #   {i}. {self._py_str(a['text'], 150)}"
+            for i, a in enumerate(todo, 1)
+        ) or "    #   (none — every Rally step is covered above)"
+
+        # Honest degradation: without a name or an option there is nothing
+        # case-specific to drive, so say what is missing instead of running a
+        # generic walk and calling it a pass.
+        guard = ""
+        if not (first or options):
+            reason = (f"{tc_id}: could not read the guest details from the Rally case. "
+                      f"Spell them out in the Description or Validation Input "
+                      f"(e.g. 'enter X in the First Name field', 'select Arabic'), "
+                      f"then re-sync.")
+            guard = ('@pytest.mark.stub\n'
+                     f'@pytest.mark.skip(reason="{self._py_str(reason)}")\n')
+
+        expected_note = self._py_str(
+            v_exp or "the guest registers and reaches the map", 200)
+
+        return f'''"""
+{doc}
+
+Guest flow — this test NEVER logs in.
+
+Route walked on the live app (2026-08-13) and encoded in utilsdemo.GUEST_ENTRY:
+    log out (LogoutButton -> YesButton)  ->  "Free Trial"  ->  "Let's Start"
+    ->  child's name  ->  gender toggles  ->  native language  ->  English level
+    ->  GenderSelectPopup(Clone) on the hub  ->  GO-Map
+The app asks these in a different ORDER from the Rally steps, so the option
+labels below are matched per screen rather than in sequence.
+
+Parsed from {parsed["source"] or "(nothing)"}. Steps this generator could not
+derive from prose are listed as TODO in the body.
+"""
+
+import time
+import pytest
+from Utilities import utilsdemo
+
+# Rally test case ID (for sync and maintenance)
+TC_ID = "{tc_id}"
+# Regenerated from the Rally case on every sync so the guest details stay current
+# with the description. Hand-editing? Set MANUAL_EDIT = True to lock.
+MANUAL_EDIT = False
+
+# The child this case registers. No USERNAME/PASSWORD: a guest has no account.
+# LAST_NAME is derived from the two choices below — "guest" + the language's
+# first two letters + the difficulty's initials — so the registered guest can be
+# identified afterwards by what it selected (Rally said "{self._py_str(vals["last"], 40)}").
+FIRST_NAME = "{self._py_str(first, 60)}"
+LAST_NAME = "{self._py_str(last, 60)}"
+# What this case picks on the onboarding option screens, in any order.
+OPTIONS = {options_literal}
+# Rally: "tap on any level greater than 5 — verify it is locked". A guest's
+# accessible band is levels 1-4 on the live map; 5 is the exam (locked too, so
+# this case does not attempt it) and everything above it is locked.
+GUEST_LOCKED_LEVEL = 6
+
+
+{guard}def {test_func_name}(altdriver):
+    driver, _platform = altdriver
+
+    # 1. Register as a guest. Logs the current user out first — the trial entry
+    #    only EXISTS while nobody is logged in — and never types credentials.
+    result = utilsdemo.enter_guest_mode(driver, FIRST_NAME, LAST_NAME,
+                                        options=OPTIONS)
+    assert result["ok"], (
+        f"{{TC_ID}}: guest onboarding failed at '{{result['failed_at']}}' — "
+        f"{{result['note']}}. Got as far as: {{result['trace']}}. "
+        f"Expected: {expected_note}")
+
+    # 2. Prove we are really inside the app. The login overlay sits ON the start
+    #    screen with the hub live behind it, so a findable GO-Map is not evidence.
+    state = utilsdemo.app_state(driver)
+    assert utilsdemo.in_app(driver), \\
+        f"{{TC_ID}}: onboarding ended on the {{state}} screen, not in the app"
+
+    # 3. Enter the map (Rally: "Enter the map").
+    assert utilsdemo.press_object(driver, "GO-Map", settle=12.0), \\
+        f"{{TC_ID}}: GO-Map did not respond on the hub"
+    assert utilsdemo.wait_for_scene(driver, utilsdemo.MAP_SCENE, timeout=60), \\
+        f"{{TC_ID}}: the map did not load for the guest"
+
+    # 4. The guest's map: icons are there and an exam node exists. WHICH level
+    #    carries the first exam moves with the language and level the guest
+    #    picked (Turkish/Advanced does not have it at 5), so it is read off the
+    #    live map instead of hardcoded.
+    icons = utilsdemo._find_level_icons(driver)
+    assert icons, f"{{TC_ID}}: no level icons on the guest's map"
+    first_exam = utilsdemo.guest_first_exam_level(driver)
+    assert first_exam, f"{{TC_ID}}: no exam node on the guest's map"
+
+    # 5. Levels {levels_literal}: open each one, open EVERY activity in it and
+    #    prove it really starts, check the app never goes to an error state, and
+    #    play one activity through to completion.
+    walk = utilsdemo.guest_walk_levels(driver, levels={levels_literal},
+                                       complete_one=True)
+    # Report the WALK's own problems first. A crash or an offline popup ends the
+    # walk where it stands, so the levels after it were never attempted — and a
+    # per-level assertion would then blame the level that never ran ("no
+    # activity opened in level 2") instead of naming what actually stopped it.
+    assert not walk["problems"], \\
+        f"{{TC_ID}}: the guest level walk hit problems: {{walk['problems']}}"
+    for level in {levels_literal}:
+        detail = walk["levels"].get(level, {{}})
+        assert detail.get("opened"), (
+            f"{{TC_ID}}: no activity opened in level {{level}} — it offered "
+            f"{{detail.get('activities')}}, problems: {{detail.get('problems')}}")
+    assert walk["completed"], \\
+        f"{{TC_ID}}: no activity was completed as a guest (opened: {{walk['opened']}})"
+
+{exam_block}
+    # {n_lock}. The guest restriction: a level past the accessible band must not
+    #    open. Locked levels keep their icon, so the check is behavioural: press
+    #    it and require the app stays on the map (a paywall/sign-up prompt counts
+    #    as positive evidence and is reported).
+    lock = utilsdemo.guest_level_locked(driver, level=GUEST_LOCKED_LEVEL)
+    assert lock["locked"],         f"{{TC_ID}}: a level past the guest band was not locked — {{lock['note']}}"
+
+    # {n_todo}. Rally steps that cannot be derived from the description — implement
+    #    against the live app, then set MANUAL_EDIT = True to keep the code:
+{todo_block}
+
+    # {n_reset}. Reset for the next run (Rally: "Perform Clear Data"). Order matters:
+    #    log out FIRST, then clear Unity's data — clearing while the guest
+    #    session is live leaves it in memory and the next run resumes that guest
+    #    instead of registering a new one.
+    assert utilsdemo.reset_guest_data(driver), \
+        f"{{TC_ID}}: could not reset the app (logout + clear data) after the run"
+'''
+
     def _gen_stub(self, tc_id, tc_name, test_func_name,
                   description="", steps=None, reason="") -> str:
         """Generate an HONEST stub: carries the real Rally description + steps,
@@ -1156,7 +1707,7 @@ TC_ID = "{tc_id}"
 
 
 @pytest.mark.stub
-@pytest.mark.skip(reason="{skip_reason}")
+@pytest.mark.skip(reason="{self._py_str(skip_reason)}")
 def {test_func_name}(altdriver):
     driver, _platform = altdriver
 

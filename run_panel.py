@@ -560,6 +560,31 @@ def api_run():
     return jsonify(payload)
 
 
+@app.route("/api/run/preview", methods=["POST"])
+def api_run_preview():
+    """The cases a run WOULD execute, for the screenshot dialog.
+
+    Resolved server-side with the very same suite.resolve() the run uses, so
+    the dialog can never offer a case the run will not touch (or miss one a
+    folder selection pulls in).
+    """
+    cfg = request.get_json(force=True, silent=True) or {}
+    rt = cfg.get("run_type")
+    if rt not in ("test_folder", "test_case"):
+        return jsonify({"run_type": rt, "cases": []})
+    selection = cfg.get("test_folders") if rt == "test_folder" else cfg.get("test_cases")
+    cases, warnings = suite.resolve(rt, selection or [])
+    return jsonify({
+        "run_type": rt,
+        "warnings": warnings,
+        # suite.resolve() yields the raw case dicts (id/name); the tc_id/tc_name
+        # shape only appears later, in RunManager._case_row.
+        "cases": [{"tc_id": c.get("id", ""), "tc_name": c.get("name", ""),
+                   "linked": bool((c.get("action") or {}).get("nodeid"))}
+                  for c in cases],
+    })
+
+
 @app.route("/api/stop", methods=["POST"])
 def api_stop():
     return jsonify({"stopped": manager.stop()})
@@ -707,6 +732,39 @@ def api_preflight():
     except ValueError:
         return jsonify({"ok": False})
     return jsonify({"ok": manager._preflight(host, port, timeout=1.5)})
+
+
+# ---- run screenshots (per-run folders, capped) ----------------------------
+# Distinct from /api/screenshots/<name>, which serves the FLAT failure frames.
+# These are the milestone frames a run captures into reports/screenshots/<run>/.
+
+@app.route("/api/shots")
+def api_shots():
+    from runner import screenshots
+    return jsonify({"runs": screenshots.list_runs()})
+
+
+@app.route("/api/shots/<run_id>/<name>")
+def api_shot_file(run_id, name):
+    from runner import screenshots
+    path = screenshots.resolve_file(run_id, name)
+    if path is None:
+        abort(404)
+    # Read the bytes instead of send_file(): on Windows a file handle that
+    # outlives the response keeps a LOCK on the frame, and deleting the run
+    # then silently leaves the viewed thumbnail behind. These frames are small.
+    return Response(path.read_bytes(), mimetype="image/png")
+
+
+@app.route("/api/shots", methods=["DELETE"])
+def api_shots_delete():
+    """Delete one run's frames (?run_id=...) or every run's."""
+    from runner import screenshots
+    run_id = (request.args.get("run_id") or "").strip()
+    removed = screenshots.delete_screenshots(run_id or None)
+    return jsonify({"ok": True, "removed": removed,
+                    "message": f"Deleted {removed} screenshot(s)"
+                               + (f" from {run_id}." if run_id else " from all runs.")})
 
 
 @app.route("/api/screenshots/<name>")

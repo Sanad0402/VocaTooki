@@ -24,10 +24,10 @@ TC_ID = "TC1159"
 MANUAL_EDIT = False
 
 ACTIVITY_SCENE = "TETRIS"
-# Label printed on the activity's thumb in the level (read from the live app at generation time). The test
+# Label printed on the activity's thumb in the level (not confirmed live — utilsdemo matches its known aliases). The test
 # clicks that thumb directly instead of opening activities until it finds the
 # right one.
-ACTIVITY_TITLE = "Tetris"
+ACTIVITY_TITLE = ""
 MAP_LEVEL = 32          # from the Rally description
 USERNAME = "vt233624"
 PASSWORD = "3690"

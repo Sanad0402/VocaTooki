@@ -365,6 +365,33 @@ button.post-rally { color: var(--accent); }
 .modal-foot { border-top: 1px solid var(--line); justify-content: flex-end; }
 #rm-msg:not(:empty) { margin-top: 8px; }
 
+/* ---------------- run screenshots ----------------
+   The dialog asked on Run (one camera box per case) and the thumbnails the
+   results rows show afterwards. */
+#shots-modal .modal { width: min(620px, 94vw); }
+.shots-actions { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.shots-actions .hint { margin-left: auto; }
+.shots-list { max-height: 46vh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+.shots-list .muted { display: block; padding: 12px; }
+.shot-row {
+  display: flex; align-items: center; gap: 10px; padding: 7px 10px;
+  border-bottom: 1px solid var(--line); cursor: pointer;
+}
+.shot-row:last-child { border-bottom: 0; }
+.shot-row:hover { background: var(--surface-2, rgba(127, 127, 127, .06)); }
+.shot-tc { font-weight: 600; min-width: 74px; }
+.shot-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.shots-cell summary { cursor: pointer; }
+.shot-strip { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.shot-thumb {
+  height: 84px; width: auto; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--surface); object-fit: cover;
+}
+.shot-thumb:hover { border-color: var(--accent); }
+button.shots-del { color: var(--accent); }
+#shots-msg:not(:empty) { margin-left: 4px; }
+
 /* ---------------- release status ----------------
    Status palette, validated with the dataviz validator against both surfaces.
    Light: passed/failed/blocked separate at ΔE 9.4 (deutan) and 26.0 (normal).

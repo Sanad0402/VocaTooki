@@ -299,27 +299,79 @@ def megaphone(altdriver):
 
     print("[INFO] Megaphone activity complete")
 
-def exams_word_to_meaning(altdriver):
-    """Matches words to their correct meaning shapes by swiping."""
+def exams_word_to_meaning(altdriver, attempts=3):
+    """Matches words to their correct meaning shapes by swiping.
+
+    Every placement is VERIFIED and the ones that did not take are swiped
+    again. A single unplaced word is not cosmetic: the app refuses to advance a
+    page that is not fully answered, so the exam then stalls on this page while
+    the log claims the solver completed. Positions are re-read on each pass —
+    a screen position captured before a swipe describes where the word WAS.
+    """
+    def board():
+        words = altdriver.find_objects(By.NAME, 'WordMeaningObject(Clone)')
+        if not words:
+            words = altdriver.find_objects(By.NAME, 'KL_WordMeaningObject(Clone)')
+        shapes = altdriver.find_objects(By.NAME, 'WordMeaningShape(Clone)')
+        word_data, shape_data = [], []
+        for w in words:
+            try:
+                word_data.append((w.get_text(), w, w.get_screen_position()))
+            except Exception:
+                continue
+        for s in shapes:
+            try:
+                pos = s.get_screen_position()
+                shape_data.append((
+                    s.get_component_property('com.kideo.learn.english.WordMeaningShape',
+                                             'word', 'Assembly-CSharp'),
+                    s, (pos[0], pos[1] - 100)))
+            except Exception:
+                continue
+        return word_data, shape_data
+
+    def placed(word_pos, shape_pos):
+        """Has the word landed on its shape?"""
+        return abs(word_pos[0] - shape_pos[0]) < 60 and abs(word_pos[1] - shape_pos[1]) < 80
+
     time.sleep(1)
-    words = altdriver.find_objects(By.NAME, 'WordMeaningObject(Clone)')
-    if not words:
-        words= altdriver.find_objects(By.NAME, 'KL_WordMeaningObject(Clone)')
-
-    shapes = altdriver.find_objects(By.NAME, 'WordMeaningShape(Clone)')
-
-    word_data = [(w.get_text(), w, w.get_screen_position()) for w in words]
-    shape_data = [(s.get_component_property('com.kideo.learn.english.WordMeaningShape', 'word', 'Assembly-CSharp'),
-                   s, (s.get_screen_position()[0], s.get_screen_position()[1] - 100)) for s in shapes]
-
-    for word_text, word_obj, word_pos in word_data:
-        for shape_text, shape_obj, shape_pos in shape_data:
-            if word_text == shape_text:
-                altdriver.swipe(word_pos, shape_pos, 2.3)
+    left = []
+    for attempt in range(1, attempts + 1):
+        word_data, shape_data = board()
+        if not word_data:
+            raise Exception("Not a word-to-meaning exam")
+        left = []
+        for word_text, word_obj, word_pos in word_data:
+            target = next((sp for st, _so, sp in shape_data if st == word_text), None)
+            if target is None:
+                continue                       # no shape wants this word
+            if placed(word_pos, target):
+                continue                       # already sitting on its shape
+            altdriver.swipe(word_pos, target, 2.3)
+            try:
                 word_obj.click()
-                break
+            except Exception:
+                pass
+            left.append(word_text)
+        if not left:
+            break
+        time.sleep(0.8)
+        # Re-read and see which of those actually landed.
+        word_data, shape_data = board()
+        still = []
+        for word_text, _w, word_pos in word_data:
+            target = next((sp for st, _so, sp in shape_data if st == word_text), None)
+            if target is not None and not placed(word_pos, target):
+                still.append(word_text)
+        left = still
+        if not left:
+            break
+        print(f"[WARN] word-to-meaning: {left} not placed (attempt {attempt})")
 
-    print("[INFO] exams_word_to_meaning completed")
+    if left:
+        print(f"[WARN] exams_word_to_meaning finished with {left} unplaced")
+    else:
+        print("[INFO] exams_word_to_meaning completed")
 
 def exams_word_to_image(altdriver):
     """Matches words to images by swiping and clicking."""
@@ -4156,6 +4208,67 @@ def exam_shuffled_context(altdriver, question_attempts=3):
                 out.append((s, word_of(s, "SpaceToFillWithWord")))
         return out
 
+    # --- reaching a tile that is not on screen -----------------------------
+    # A long sentence pushes the bottom of the word bank past the viewport. The
+    # tile still EXISTS in the hierarchy, so the drag was issued happily — at
+    # coordinates outside the visible area, where it does nothing. The blank
+    # then stayed empty, every retry repeated it, and the page stalled. So the
+    # rule is the same one the language picker needed: prove it is reachable
+    # before acting on it.
+    try:
+        screen_w, screen_h = (float(v) for v in altdriver.get_application_screensize())
+    except Exception as e:                       # noqa: BLE001
+        print(f"[WARN] could not read the screen size: {e}")
+        screen_w = screen_h = 0.0
+
+    def visible(obj, margin=0.05):
+        """Is this object inside the viewport, so a gesture can reach it?"""
+        if not screen_h:
+            return True                          # unknown screen: don't block
+        mx, my = screen_w * margin, screen_h * margin
+        return (mx <= obj.x <= screen_w - mx) and (my <= obj.y <= screen_h - my)
+
+    def scroll_position(delta=None):
+        """Read (or nudge by ``delta``) the list's scroll. Returns it, or None."""
+        try:
+            view = altdriver.find_object(By.NAME, "Scroll View")
+            pos = float(view.get_component_property(
+                "UnityEngine.UI.ScrollRect", "verticalNormalizedPosition", "UnityEngine.UI"))
+            if delta is None:
+                return pos
+            pos = max(0.0, min(1.0, pos + delta))
+            view.set_component_property("UnityEngine.UI.ScrollRect",
+                                        "verticalNormalizedPosition",
+                                        "UnityEngine.UI", pos)
+            time.sleep(0.3)
+            return pos
+        except Exception:
+            return None
+
+    def in_view(i, slot_idx, tile_idx, steps=10):
+        """(slot, tile) once BOTH are on screen, re-found after each nudge.
+
+        Re-finding matters: an AltObject's x/y is a snapshot from when it was
+        found, so positions read before a scroll describe where things WERE.
+        """
+        for _ in range(steps):
+            sl, tl = slots(i), tiles(i)
+            if slot_idx >= len(sl) or tile_idx >= len(tl):
+                return None, None
+            slot, tile = sl[slot_idx], tl[tile_idx]
+            if visible(slot) and visible(tile):
+                return slot, tile
+            off = tile if not visible(tile) else slot
+            # Unity screen space puts y=0 at the BOTTOM, so a small y means the
+            # object sits below the viewport and the list must scroll down
+            # (verticalNormalizedPosition: 1 = top, 0 = bottom).
+            if scroll_position(-0.08 if off.y < screen_h / 2 else 0.08) is None:
+                break
+        sl, tl = slots(i), tiles(i)
+        if slot_idx < len(sl) and tile_idx < len(tl):
+            return sl[slot_idx], tl[tile_idx]
+        return None, None
+
     total = questions()
     print(f"[INFO] shuffled-context exam: {total} question(s)")
 
@@ -4171,23 +4284,32 @@ def exam_shuffled_context(altdriver, question_attempts=3):
                 done = True
                 break
 
-            used = []
-            for slot, wanted in gaps:
-                # a free tile carrying this word (not already sitting in a blank)
-                current_slots = slots(i)
-                pick = None
-                for t in tiles(i):
-                    if id(t) in used or word_of(t, "WordInShuffledContext") != wanted:
-                        continue
-                    if any(on_slot(t, s) for s in current_slots):
-                        continue
-                    pick = t
-                    break
-                if pick is None:
+            # Read every word ONCE per attempt. The old loop re-queried the
+            # slots and tiles for each gap and asked each tile for its word
+            # again, so a question with a dozen blanks and a dozen tiles cost
+            # hundreds of round trips — and paid them again on every retry.
+            sl, tl = slots(i), tiles(i)
+            slot_words = [word_of(s, "SpaceToFillWithWord") for s in sl]
+            tile_words = [word_of(t, "WordInShuffledContext") for t in tl]
+            # Tiles already sitting in a blank are not available to move.
+            used = {ti for ti, t in enumerate(tl) if any(on_slot(t, s) for s in sl)}
+
+            for si, slot in enumerate(sl):
+                if any(on_slot(t, slot) for t in tl):
+                    continue                     # this blank is already filled
+                wanted = slot_words[si]
+                ti = next((k for k, w in enumerate(tile_words)
+                           if k not in used and w == wanted), None)
+                if ti is None:
                     print(f"[WARN] q{i + 1}: no free tile for '{wanted}'")
                     continue
-                used.append(id(pick))
-                drag(pick, slot)
+                used.add(ti)
+                # Both ends must be ON SCREEN or the gesture goes nowhere.
+                target, pick = in_view(i, si, ti)
+                if target is None or pick is None or not (visible(target) and visible(pick)):
+                    print(f"[WARN] q{i + 1}: could not bring '{wanted}' into view")
+                    continue
+                drag(pick, target)
 
             gaps_after = missing(i)
             if not gaps_after:
