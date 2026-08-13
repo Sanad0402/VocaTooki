@@ -1779,13 +1779,11 @@ def guest_open_level(altdriver, level, timeout=90):
     number) and the shared level-intro walk, so a first visit that goes through
     the word list / vending machine is handled the same as a revisit.
     """
-    if _current_scene(altdriver) != MAP_SCENE:
-        # The map scene takes its time to load; give it a real wait rather than
-        # polling a scene that has not started loading yet.
-        if not press_object(altdriver, "GO-Map", settle=10.0):
-            return_to_map(altdriver)
-        wait_for_scene(altdriver, MAP_SCENE, timeout=60)
-    if _current_scene(altdriver) != MAP_SCENE:
+    # Reach the map the same way everything else does: _guest_back_to_map picks
+    # the route for where we actually are ('Back' from the activity list,
+    # 'GO-Map' from the hub) and does not report success until the level icons
+    # are there AND the map has settled enough to accept a press.
+    if not _map_ready(altdriver, timeout=5) and not _guest_back_to_map(altdriver):
         return False, f"could not reach the map to open level {level}"
 
     icon, icon_name, kind = _level_icon_by_number(altdriver, level)
@@ -2013,6 +2011,14 @@ def guest_walk_levels(altdriver, levels=(1, 2, 3), complete_one=True, timeout=90
 GUEST_LOCK_MARKERS = ("BuyButton", "ChoosePackage", "ChoosePlan", "LoginPopUp",
                       "Blocker", "BlockScreen", "BlockScreenWithoutClick")
 
+# How long the map is given to settle before an exam icon is pressed.
+GUEST_EXAM_SETTLE_SECONDS = 6.0
+# How long to stand still after ARRIVING on the map, before pressing anything on
+# it. The icons appear before the map has finished arranging itself, and a press
+# that lands in that window is swallowed silently — which is why an icon press
+# could look like it did nothing at all.
+MAP_SETTLE_SECONDS = 5.0
+
 # Text-ish objects, for reading a popup whose object names are not known.
 _TEXT_SCAN_PATHS = ("//*[contains(@name,'Text')]", "//*[contains(@name,'TMP')]",
                     "//*[contains(@name,'Label')]", "//*[contains(@name,'Message')]")
@@ -2044,13 +2050,35 @@ def visible_texts(altdriver, limit=40):
     return out
 
 
+# The app's own label for a popup's message ("You've completed all free levels.
+# Please subscribe to open more levels.").
+POPUP_MESSAGE_OBJECT = "MessageText"
+
+
 def popup_text(altdriver, settle=1.5, limit=40):
     """The wording a popup is showing, as one string. Never raises.
 
-    Waits a moment first: these panels fade/scale in, and a text read during
-    the animation can come back empty or half-typed.
+    Reads ``MessageText`` — the label the app puts its message in — and waits
+    for it to STOP GROWING before believing it: these panels animate in and the
+    text types itself out, so a read taken too early returns a fragment (which
+    is exactly what a screenshot of the same moment shows). Falls back to
+    scanning the visible text objects when that label is not on screen.
     """
     time.sleep(settle)
+    obj = find_any(altdriver, POPUP_MESSAGE_OBJECT)
+    if obj is not None:
+        previous = ""
+        for _ in range(10):
+            try:
+                current = (obj.get_text() or "").strip()
+            except Exception:                        # noqa: BLE001
+                break
+            if current and current == previous:
+                return current
+            previous = current
+            time.sleep(0.3)
+        if previous:
+            return previous
     return " ".join(visible_texts(altdriver, limit=limit))
 
 
@@ -2065,6 +2093,10 @@ def _map_ready(altdriver, timeout=30):
     end = time.time() + timeout
     while True:
         if _current_scene(altdriver) == MAP_SCENE and _find_level_icons(altdriver):
+            # The icons exist, but the map is still arranging itself for a
+            # moment longer. Every caller here is about to press one, so the
+            # settle belongs in this one place rather than at each press.
+            time.sleep(MAP_SETTLE_SECONDS)
             return True
         if time.time() >= end:
             return False
@@ -2153,6 +2185,10 @@ def guest_take_exam(altdriver, level=None, timeout=90):
     for attempt in range(1, 4):
         logging.info(f"[Guest] opening the exam at level {level} ('{icon_name}')"
                      + (f" (attempt {attempt})" if attempt > 1 else ""))
+        # Let the map finish settling before pressing. The icon answers a find
+        # straight away but swallows a press that arrives while the map is
+        # still arranging itself — the same trap as the trial entry.
+        time.sleep(GUEST_EXAM_SETTLE_SECONDS)
         press_object(altdriver, icon_name, settle=2.0)
         if open_exam(altdriver):
             opened = True

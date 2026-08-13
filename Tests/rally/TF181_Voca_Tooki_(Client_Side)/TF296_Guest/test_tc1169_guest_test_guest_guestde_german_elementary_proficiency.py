@@ -47,6 +47,11 @@ OPTIONS = ["German", "Elementary Proficiency", "Female"]
 # accessible band is levels 1-4 on the live map; 5 is the exam (locked too, so
 # this case does not attempt it) and everything above it is locked.
 GUEST_LOCKED_LEVEL = 6
+# What the app must say when that level is pressed:
+#   "You've completed all free levels. Please subscribe to open more levels."
+# Kept as fragments so a typographic apostrophe or a re-wrap does not fail the
+# case, while a missing or different gate does.
+LOCKED_MESSAGE_FRAGMENTS = ["completed all free levels", "subscribe"]
 
 
 def test_tc1169_guest_test_guest_guestde_german_elementary_proficiency(altdriver):
@@ -121,6 +126,17 @@ def test_tc1169_guest_test_guest_guestde_german_elementary_proficiency(altdriver
     #    as positive evidence and is reported).
     lock = utilsdemo.guest_level_locked(driver, level=GUEST_LOCKED_LEVEL)
     assert lock["locked"],         f"{TC_ID}: a level past the guest band was not locked — {lock['note']}"
+
+    # ...and it must SAY so. Read from the app's own message label
+    # (MessageText) once it stops typing itself out, and matched as FRAGMENTS:
+    # the apostrophe is typographic in some builds and the sentence wraps, but
+    # a gate that goes quiet — or offers something else — is a real regression.
+    # This is the proof that finishing the exam did not unlock anything.
+    shown = lock.get("text") or ""
+    missing = [f for f in LOCKED_MESSAGE_FRAGMENTS if f.lower() not in shown.lower()]
+    assert not missing, (
+        f"{TC_ID}: the locked level did not show the subscribe message "
+        f"(missing {missing}) — MessageText said {shown!r}")
 
     # 8. Rally steps that cannot be derived from the description — implement
     #    against the live app, then set MANUAL_EDIT = True to keep the code:
