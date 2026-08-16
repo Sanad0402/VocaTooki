@@ -153,6 +153,94 @@ class RallyAPIClient:
             logger.error(f"Failed to fetch test folders: {e}")
             return []
 
+    def find_test_folder(self, project_id: str, formatted_id: str) -> Optional[Dict[str, Any]]:
+        """A TestFolder by its FormattedID ("TF249"), or None."""
+        wanted = (formatted_id or "").strip().upper()
+        for folder in self.get_test_folders(project_id):
+            if (folder.get("FormattedID") or "").strip().upper() == wanted:
+                return folder
+        return None
+
+    def create_test_case(self, project_id: str, name: str, description: str = "",
+                         validation_input: str = "", validation_expected: str = "",
+                         folder_formatted_id: str = "", method: str = "Automated",
+                         type_: str = "Functional", priority: str = "",
+                         objective: str = "") -> Optional[Dict[str, Any]]:
+        """Create a TestCase in Rally. Returns the created object, or None.
+
+        ``method`` defaults to "Automated" because ``get_test_cases`` filters on
+        exactly that — a case created as Manual is invisible to the sync, and
+        would look like the creation silently failed.
+        """
+        payload: Dict[str, Any] = {
+            "TestCase": {
+                "Name": name,
+                "Description": description,
+                "Method": method,
+                "Type": type_,
+                "Project": self._project_ref(project_id),
+            }
+        }
+        case = payload["TestCase"]
+        if validation_input:
+            case["ValidationInput"] = validation_input
+        if validation_expected:
+            case["ValidationExpectedResult"] = validation_expected
+        if objective:
+            case["Objective"] = objective
+        if priority:
+            case["Priority"] = priority
+        if folder_formatted_id:
+            folder = self.find_test_folder(project_id, folder_formatted_id)
+            if not folder:
+                logger.error(f"Test folder {folder_formatted_id} not found — "
+                             f"refusing to create the case outside it")
+                return None
+            case["TestFolder"] = folder.get("_ref")
+
+        try:
+            response = self.session.post(f"{self.wsapi}/testcase/create",
+                                         json=payload, timeout=30)
+            response.raise_for_status()
+            body = (response.json() or {}).get("CreateResult") or {}
+            errors = body.get("Errors") or []
+            if errors:
+                logger.error(f"Rally rejected the test case: {errors}")
+                return None
+            obj = body.get("Object") or {}
+            logger.info(f"Created {obj.get('FormattedID')} — {obj.get('Name')}")
+            for warning in body.get("Warnings") or []:
+                logger.warning(f"Rally: {warning}")
+            return obj
+        except Exception as e:                       # noqa: BLE001
+            logger.error(f"create_test_case failed: {e}")
+            return None
+
+    def update_test_case(self, tc_ref: str, **fields: Any) -> Optional[Dict[str, Any]]:
+        """Update fields on an existing TestCase. Returns the object, or None.
+
+        Field names are Rally's own ("Description", "ValidationInput",
+        "ValidationExpectedResult", "Name", "Method", ...).
+        """
+        if not tc_ref or not fields:
+            return None
+        try:
+            response = self.session.post(tc_ref, json={"TestCase": dict(fields)},
+                                         timeout=30)
+            response.raise_for_status()
+            body = (response.json() or {}).get("OperationResult") or {}
+            errors = body.get("Errors") or []
+            if errors:
+                logger.error(f"Rally rejected the update: {errors}")
+                return None
+            obj = body.get("Object") or {}
+            logger.info(f"Updated {obj.get('FormattedID') or tc_ref}: "
+                        f"{', '.join(sorted(fields))}")
+            return obj
+        except Exception as e:                       # noqa: BLE001
+            logger.error(f"update_test_case failed: {e}")
+            return None
+
     # ---- posting results back to Rally -----------------------------------
 
     def find_test_case(self, formatted_id: str) -> Optional[Dict[str, Any]]:

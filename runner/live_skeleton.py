@@ -13,6 +13,8 @@ CLI:
 """
 
 import logging
+import re
+from pathlib import Path
 
 from runner import suite as suite_mod
 from runner.test_generator import RallyTestGenerator
@@ -185,6 +187,23 @@ def generate_skeletons_live(tc_ids, host="127.0.0.1", port=13000, platform="Wind
                                       app_id=app_id, device_instance_id=device_instance_id,
                                       activity_aliases=aliases)
 
+    def _stub_reason(path):
+        """``{"stub": bool, "reason": str}`` for a just-generated file.
+
+        A generated test that carries a skip marker is the generator saying
+        "the case does not tell me X" — that sentence is the most useful thing
+        the panel can show, so it is read back off the file rather than lost.
+        """
+        try:
+            text = Path(path).read_text(encoding="utf-8")
+        except OSError:
+            return {}
+        match = re.search(r'@pytest\.mark\.skip\(\s*reason\s*=\s*["\'](.+?)["\']\s*\)',
+                          text, re.S)
+        if not match:
+            return {}
+        return {"stub": True, "reason": re.sub(r"\s+", " ", match.group(1)).strip()}
+
     results = []
     for tc_id in tc_ids:
         tc = by_id.get(tc_id)
@@ -193,7 +212,14 @@ def generate_skeletons_live(tc_ids, host="127.0.0.1", port=13000, platform="Wind
             continue
         try:
             path = gen.generate_skeleton(tc, elements)
-            results.append({"id": tc_id, "ok": True, "path": str(path)})
+            entry = {"id": tc_id, "ok": True, "path": str(path)}
+            # Writing a file is not the same as producing a usable test. When
+            # the case is missing something the generator needs, the template
+            # emits an honest SKIP that says what — surface that reason, or the
+            # panel reports "generated 1/1" for a test that cannot run and the
+            # generation looks broken instead of under-specified.
+            entry.update(_stub_reason(path))
+            results.append(entry)
         except Exception as e:  # noqa: BLE001 - report per-case, keep going
             logger.exception("skeleton generation failed for %s", tc_id)
             results.append({"id": tc_id, "ok": False, "error": str(e)})

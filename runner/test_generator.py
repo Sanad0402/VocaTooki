@@ -74,6 +74,11 @@ class RallyTestGenerator:
         """
         suite = self.load_rally_suite()
         refreshed = []
+        # Which cases' CODE actually changed, as opposed to being rewritten
+        # identically. That is the honest answer to "what did this sync do to
+        # my tests?" — credentials edited in Rally show up here, and nothing
+        # else does.
+        self.changed_case_ids = []
         for tc in suite.get("test_cases", []):
             try:
                 nodeid = (tc.get("action") or {}).get("nodeid") or ""
@@ -81,7 +86,17 @@ class RallyTestGenerator:
                 path = self.project_root / file_part if file_part else None
                 if path is None or not path.exists():
                     continue                      # new case -> wait for explicit generate
-                refreshed.append(str(self.generate_test(tc)))
+                try:
+                    before = path.read_text(encoding="utf-8")
+                except OSError:
+                    before = ""
+                written = self.generate_test(tc)
+                refreshed.append(str(written))
+                try:
+                    if Path(written).read_text(encoding="utf-8") != before:
+                        self.changed_case_ids.append(tc.get("id"))
+                except OSError:
+                    pass
             except Exception as e:
                 logger.error(f"Failed to refresh test {tc.get('id')}: {e}")
         if prune:
@@ -194,6 +209,13 @@ class RallyTestGenerator:
                 tc_id, tc_name, func_name, description,
                 test_case.get("steps", []), test_case.get("validation"),
                 elements=elements or {},
+            )
+        elif test_type == "event":
+            # The event flow is proven utils end to end, so live discovery adds
+            # nothing here either.
+            code = self._gen_event(
+                tc_id, tc_name, test_case.get("user", {}), func_name,
+                description, test_case.get("steps", []), test_case.get("validation"),
             )
         elif test_type == "exam":
             # Like activities: the whole flow comes from proven utils, so live
@@ -479,6 +501,13 @@ class RallyTestGenerator:
             return "login_negative"
         if any(k in lower for k in ("logout", "log out", "sign out")):
             return "logout"
+        # An EVENT case is about PLAYING an event — its levels, its score, its
+        # leaderboard — as opposed to merely opening the Events page. Checked
+        # BEFORE the exam and activity rules for a reason: an event case has to
+        # say what does NOT award score ("exams award coins only"), and that one
+        # word made TC1188 generate an exam test.
+        if not is_negative and self._is_event_case(tc_name, description, nodeid, validation):
+            return "event"
         # Positive "finish the <game> activity" cases -> full playthrough test.
         if self._infer_activity_scene(tc_name, description, nodeid) and not is_negative:
             return "activity"
@@ -494,6 +523,24 @@ class RallyTestGenerator:
         if not is_negative and self._infer_feature(tc_name, description, nodeid):
             return "page"
         return "generic"
+
+    # Playing an event, as opposed to merely opening the Events page: the case
+    # talks about the event AND about doing something inside it.
+    _EVENT_PLAY_WORDS = ("leaderboard", "score", "solve", "play", "complete",
+                         "winner", "level")
+
+    @classmethod
+    def _is_event_case(cls, tc_name: str, description: str = "", nodeid: str = "",
+                       validation: Optional[Dict[str, str]] = None) -> bool:
+        """Is this case about playing an EVENT?"""
+        hay = cls._haystack(tc_name, description, nodeid)
+        if validation:
+            hay += " " + cls._clean_html(
+                f"{validation.get('input', '')} {validation.get('expected', '')}").lower()
+        # "event" as a whole word — not "EventSystem", not "prevent".
+        if not re.search(r"(?<![a-z])events?(?![a-z])", hay):
+            return False
+        return any(word in hay for word in cls._EVENT_PLAY_WORDS)
 
     # Playing a daily game, as opposed to merely opening the Daily Games page.
     _SOLVE_VERBS = ("solve", "play", "complete", "finish", "win", "guess")
@@ -625,6 +672,9 @@ class RallyTestGenerator:
             return self._gen_activity(tc_id, tc_name, user_data, func_name,
                                       description, steps, validation,
                                       nodeid=nodeid, title_hint=title_hint)
+        elif test_type == "event":
+            return self._gen_event(tc_id, tc_name, user_data, func_name,
+                                   description, steps, validation)
         elif test_type == "exam":
             return self._gen_exam(tc_id, tc_name, user_data, func_name,
                                   description, steps, validation)
@@ -1150,6 +1200,145 @@ PASSWORD = "{password}"
     utilsdemo.return_to_start(driver)
 '''
 
+    # The leaderboard lists players by NAME, so a case has to say which name
+    # belongs to its account — the username never appears there.
+    @classmethod
+    def _player_name(cls, description: str = "", validation=None) -> str:
+        """The player name a case expects on the leaderboard, or ""."""
+        hay = cls._clean_html(description)
+        if validation:
+            hay += " " + cls._clean_html(
+                f"{validation.get('input', '')} {validation.get('expected', '')}")
+        m = re.search(r"player\s*name\s*[:\-]\s*([^:]+?)(?=\s{2,}|\s*(?:<|$)|"
+                      r"\s+(?:Test Type|Priority|Severity|Username|password|Objective)\b)",
+                      hay, re.I)
+        return re.sub(r"\s+", " ", m.group(1)).strip() if m else ""
+
+    def _gen_event(self, tc_id, tc_name, user_data, test_func_name,
+                   description="", steps=None, validation=None) -> str:
+        """Play an event's levels and check its leaderboard.
+
+        The whole flow lives in ``utilsdemo.event_score_check``: log out and
+        back in (a leaderboard row is matched by NAME, so a leftover session
+        would measure the wrong player), open the running event, solve one
+        activity per level, then compare the sum of what those activities
+        scored with the row on the leaderboard.
+
+        Scores are read from the ACTIVITY LIST ("80/240" per activity), not
+        from the finish screen — the list can be read at any time and shows
+        every activity in the level, while the finish screen is gone as soon as
+        the run moves on.
+        """
+        username = user_data.get("username") or ""
+        password = user_data.get("password") or ""
+        player = self._player_name(description, validation)
+        doc = self._doc_block(tc_id, tc_name, description, steps or [])
+        v = validation or {}
+        v_in = self._clean_html(v.get("input", ""))
+        v_exp = self._clean_html(v.get("expected", ""))
+        if v_in or v_exp:
+            doc += "\n\nValidation (from Rally):"
+            if v_in:
+                doc += f"\n    Input:    {v_in}"
+            if v_exp:
+                doc += f"\n    Expected: {v_exp}"
+
+        # How many event levels the case plays. "3 event levels" in the prose
+        # decides it; the default matches the case this template was written for.
+        hay = (self._clean_html(description) + " " + v_in).lower()
+        # "solve EVERY activity" vs "solve one activity" — the case decides.
+        solve_all = ("every activit" in hay or "all activit" in hay or "all the activit" in hay)
+        # A case that says "the opened levels" plays whatever the event has
+        # unlocked; otherwise the number it names ("3 event levels").
+        if re.search(r"open(?:ed)?\s+levels?", hay):
+            levels = ()                              # discovered at runtime
+        else:
+            m = re.search(r"(\d+)\s+event\s+levels?", hay)
+            count = max(1, min(int(m.group(1)), 24)) if m else 3
+            levels = tuple(range(1, count + 1))
+
+        guard = ""
+        missing = []
+        if not username:
+            missing.append("Username/password")
+        if not player:
+            missing.append("the player's leaderboard name (\"Player name: ...\")")
+        if missing:
+            reason = (f"{tc_id}: the Rally case is missing " + " and ".join(missing) +
+                      ". Add it to the description, then re-sync.")
+            guard = ('@pytest.mark.stub\n'
+                     f'@pytest.mark.skip(reason="{self._py_str(reason)}")\n')
+
+        return f'''"""
+{doc}
+
+Event flow, surveyed on the live app (2026-08-16):
+    GO-Events -> EventSelectionScene -> StartButton -> EventScene (the map)
+    level icon "LessonLevelIcon Variant(Clone) N" -> the level's activity list
+    each activity shows its score there as "earned/max" (e.g. "80/240")
+    LeaderboardButton opens the leaderboard AS AN OVERLAY on the event map
+    a leaderboard row is a PlayerName next to a Score
+Only ACTIVITY levels award event score; exams award coins and must not change it.
+"""
+
+import pytest
+from Utilities import utilsdemo
+
+# Rally test case ID (for sync and maintenance)
+TC_ID = "{tc_id}"
+# Regenerated from the Rally case on every sync. Hand-editing? Set MANUAL_EDIT = True.
+MANUAL_EDIT = False
+
+USERNAME = "{username}"
+PASSWORD = "{password}"
+# The leaderboard lists players by NAME, never by username.
+PLAYER_NAME = "{self._py_str(player, 80)}"
+# () = whatever the event has OPENED when the test runs.
+EVENT_LEVELS = {levels}
+# Solve every activity in a level, or just one?
+SOLVE_ALL_ACTIVITIES = {solve_all}
+
+
+{guard}def {test_func_name}(altdriver):
+    driver, _platform = altdriver
+
+    # Log out and back in first, open the running event, solve one activity in
+    # each level, then read the leaderboard. Never raises: the whole picture
+    # comes back in the report so a failure says which level scored what.
+    result = utilsdemo.event_score_check(
+        driver, levels=EVENT_LEVELS, player_name=PLAYER_NAME,
+        username=USERNAME, password=PASSWORD, solve_all=SOLVE_ALL_ACTIVITIES,
+        tc_id=TC_ID)
+
+    # With no levels named the test plays what the event opened, so the report
+    # says which ones those were.
+    played_levels = result.get("levels_played") or list(EVENT_LEVELS)
+    assert played_levels, f"{{TC_ID}}: the event had no open levels to play — {{result['note']}}"
+
+    # Every level had to open and be played, or the sum below means nothing.
+    for level in played_levels:
+        detail = result["levels"].get(level, {{}})
+        assert detail.get("opened"), (
+            f"{{TC_ID}}: event level {{level}} did not open — {{detail.get('note') or result['note']}}")
+        assert detail.get("played"), (
+            f"{{TC_ID}}: nothing was completed in event level {{level}} — {{result['note']}}")
+        assert detail.get("score"), (
+            f"{{TC_ID}}: event level {{level}} awarded no score for "
+            f"'{{detail.get('played')}}' — an activity level must award score")
+
+    # The player has to BE on the leaderboard before its score can be compared.
+    assert result["leaderboard"] is not None, (
+        f"{{TC_ID}}: {{PLAYER_NAME!r}} is not on the event leaderboard — {{result['note']}}")
+
+    # The point of the case: what the activities scored is what the leaderboard
+    # shows. Exams award coins only, so nothing else may move this number.
+    assert result["ok"], (
+        f"{{TC_ID}}: the leaderboard shows {{result['leaderboard']}} for {{PLAYER_NAME!r}} "
+        f"but the activities scored {{result['earned']}} "
+        f"({{ {{lvl: d.get('score') for lvl, d in result['levels'].items()}} }}). "
+        f"{{result['note']}}")
+'''
+
     def _gen_daily(self, tc_id, tc_name, user_data, test_func_name,
                    description="", steps=None, nodeid="") -> str:
         """Play a Daily Game (Wordle / Word Connect) to a win.
@@ -1584,7 +1773,8 @@ PASSWORD = "{password}"
 Guest flow — this test NEVER logs in.
 
 Route walked on the live app (2026-08-13) and encoded in utilsdemo.GUEST_ENTRY:
-    log out (LogoutButton -> YesButton)  ->  "Free Trial"  ->  "Let's Start"
+    log out (AltTesterUtils.Logout; UI only as fallback)  ->  "Free Trial"
+    ->  "Let's Start"
     ->  child's name  ->  gender toggles  ->  native language  ->  English level
     ->  GenderSelectPopup(Clone) on the hub  ->  GO-Map
 The app asks these in a different ORDER from the Rally steps, so the option

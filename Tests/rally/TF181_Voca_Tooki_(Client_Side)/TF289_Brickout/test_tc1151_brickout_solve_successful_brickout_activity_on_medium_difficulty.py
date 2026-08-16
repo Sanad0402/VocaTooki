@@ -64,7 +64,7 @@ def test_tc1151_brickout_solve_successful_brickout_activity_on_medium_difficulty
         f"{TC_ID}: BRICKOUT activity was not found in level {MAP_LEVEL}"
     assert result["total"] > 0 and result["done"] >= result["total"], (
         f"{TC_ID}: BRICKOUT did not complete — progress "
-        f"{result['done']}/{result['total']}. Expected: - Brickout activity loads correctly on Medium difficulty - Ball and paddle controls respond properly - Bricks are destroyed on contact with the ball - Activity completes successfully when all bricks are broken - Score/stars are awarded correctly upon completion - Success screen is displayed with correct feedback - Progress is saved and the activity is marked as completed")
+        f"{result['done']}/{result['total']}. Expected: - Brickout activity loads correctly on Medium difficulty - Ball and paddle controls respond properly - Bricks are destroyed on contact with the ball - Activity completes successfully when all bricks are broken - Score/stars are awarded correctly upon completion - Success screen is displayed with cor...")
     assert result["feedback"], \
         f"{TC_ID}: BRICKOUT reached {result['done']}/{result['total']} but the final feedback screen never appeared"
 

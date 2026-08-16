@@ -1239,10 +1239,15 @@ def guest_entry_available(altdriver):
 
 
 def logout_via_ui(altdriver, timeout=45):
-    """Reach the logged-out welcome screen by pressing the UI.
+    """Reach the logged-out welcome screen.
 
-    Deliberately not ``AltTesterUtils.Logout``: this is what a tester does, and
-    it also works from a guest session, where that component may not exist.
+    ``AltTesterUtils.Logout`` FIRST — it is the fastest and safest way out of a
+    session, and it is what every other logout in this module uses. The UI route
+    (LogoutButton -> YesButton) is only a fallback, for the one case that call
+    cannot serve: a guest session, where the component may not exist at all.
+
+    (The name is historical: this did press the UI first, and the order was
+    turned around once the component proved both quicker and more reliable.)
     """
     global _LAST_LOGIN_USER
     # Log out through the AltTesterPrefab, the way the rest of this module does
@@ -1884,6 +1889,372 @@ def back_to_activity_list(altdriver, timeout=10):
         if wait_for_any(altdriver, ACTIVITY_SELECTION_SCENE_MARKER, timeout=timeout):
             return True
     return find_any(altdriver, ACTIVITY_SELECTION_SCENE_MARKER) is not None
+
+
+# --- Events: play an event's levels and check its leaderboard --------------
+# Surveyed on the live app (2026-08-16). The leaderboard is an OVERLAY on the
+# event map — get_current_scene() stays "EventScene" while it is open — so
+# nothing here may wait on a scene change to know it opened.
+EVENT_SELECTION_SCENE = "EventSelectionScene"
+EVENT_SCENE = "EventScene"
+EVENT_START_BUTTON = "StartButton"          # on the active event card
+EVENT_LEADERBOARD_BUTTON = "LeaderboardButton"
+EVENT_LEVEL_ICON = "LessonLevelIcon Variant(Clone) {level}"
+EVENT_SCORE_OBJECT = "Score"                # "80/240" on a thumb, "80" on a row
+EVENT_PLAYER_NAME_OBJECT = "PlayerName"     # a leaderboard row's player
+
+
+def _score_int(text):
+    """The number in a score label, or None.
+
+    Scores are PRINTED for humans: past a thousand the app writes "1,592".
+    Reading the first run of digits gives 1 — which is why a leaderboard that
+    agreed with the activities exactly (1592) still failed the comparison. So
+    the separators come out before the number is read.
+    """
+    if not text:
+        return None
+    cleaned = re.sub(r"[,  '\s]", "", str(text))
+    match = re.search(r"\d+", cleaned)
+    return int(match.group()) if match else None
+
+
+def _text_of(obj):
+    """The text an object shows, however it stores it."""
+    try:
+        text = (obj.get_text() or "").strip()
+        if text:
+            return text
+    except Exception:                                # noqa: BLE001
+        pass
+    return component_property(obj, "originalText")
+
+
+def fresh_login(altdriver, username, password):
+    """Log OUT and back in, so a run starts from a known account. Returns bool.
+
+    Never trusts "we are already logged in": a leaderboard row is matched by
+    the player's NAME, so a leftover session quietly measures somebody else —
+    which is exactly what a stale session did on 2026-08-16, scoring an event
+    under 'spy 6' while the case was written for another account.
+
+    Logging out goes through ``AltTesterUtils.Logout``: it is the fastest and
+    safest way out of a session, and it is what every other logout here uses.
+    """
+    global _LAST_LOGIN_USER
+    try:
+        call_method(altdriver, "AltTesterUtils", "Logout")
+        time.sleep(2)
+        logging.info(f"[Login] logged out before signing in as {username}")
+    except Exception as e:                           # noqa: BLE001
+        logging.info(f"[Login] AltTesterUtils.Logout unavailable ({e})")
+    _LAST_LOGIN_USER = None                          # force a real login
+    try:
+        login(altdriver, username, password)
+    except Exception as e:                           # noqa: BLE001
+        logging.error(f"[Login] could not sign in as {username}: {e}")
+        return False
+    _LAST_LOGIN_USER = username
+    return True
+
+
+def open_event(altdriver, username=None, password=None, timeout=60):
+    """Open the active event and land on its map. Returns bool.
+
+    The event card carrying ``StartButton`` is the one that is running; the
+    finished ones carry ``WinnersButton`` instead, so pressing Start can only
+    ever open the live event.
+    """
+    if _current_scene(altdriver) == EVENT_SCENE:
+        return True
+    if _current_scene(altdriver) != EVENT_SELECTION_SCENE:
+        if not open_feature(altdriver, "events", username, password, timeout=timeout):
+            logging.error("[Event] could not open the events screen")
+            return False
+    if not press_object(altdriver, EVENT_START_BUTTON, settle=3.0):
+        logging.error(f"[Event] '{EVENT_START_BUTTON}' did not respond — "
+                      f"is any event actually running?")
+        return False
+    ok = wait_for_scene(altdriver, EVENT_SCENE, timeout=timeout)
+    if ok:
+        time.sleep(MAP_SETTLE_SECONDS)
+    return ok
+
+
+def event_back_to_map(altdriver, username=None, password=None, timeout=60):
+    """Return to the event MAP from wherever the event left us. Returns bool.
+
+    Back from the leaderboard lands on the event CARDS view, not the map, so
+    every exit is verified and re-entered through Start when it overshoots.
+    """
+    for name in ("prev", "Back", "BackButton"):
+        if _current_scene(altdriver) == EVENT_SCENE:
+            break
+        if find_any(altdriver, name) is None:
+            continue
+        press_object(altdriver, name, settle=2.0)
+        time.sleep(2)
+    if _current_scene(altdriver) == EVENT_SCENE:
+        return True
+    return open_event(altdriver, username, password, timeout=timeout)
+
+
+def open_event_level(altdriver, level, timeout=90):
+    """Open one event level and reach its activity list. ``(ok, note)``."""
+    icon = EVENT_LEVEL_ICON.format(level=level)
+    if find_any(altdriver, icon) is None:
+        return False, f"event level {level} has no icon ('{icon}') on the map"
+    for attempt in range(1, 4):
+        logging.info(f"[Event] opening event level {level} via '{icon}'"
+                     + (f" (attempt {attempt})" if attempt > 1 else ""))
+        press_object(altdriver, icon, settle=2.0)
+        if open_level_to_activities(altdriver, timeout=timeout):
+            return True, ""
+        logging.warning(f"[Event] level {level} did not reach its activity list "
+                        f"(on {_current_scene(altdriver)}) — pressing again")
+        if not event_back_to_map(altdriver):
+            break
+    return False, (f"event level {level} did not reach its activity list "
+                   f"(stuck on {_current_scene(altdriver)})")
+
+
+# A locked event level carries this countdown ("opens in ...") at its icon.
+EVENT_LOCKED_MARKER = "NewLevelLockedTimer(Clone)"
+
+
+def event_open_levels(altdriver, max_levels=24, tolerance=60):
+    """The event levels that are OPEN right now, in order.
+
+    A locked level keeps its icon like every other, so "the icon is there" says
+    nothing — what marks it is a ``NewLevelLockedTimer(Clone)`` sitting at that
+    icon. Levels open in sequence, so anything at or past the first locked one
+    is locked too, which is also the honest fallback when no timer is found.
+    """
+    icons = {}
+    for level in range(1, max_levels + 1):
+        obj = find_any(altdriver, EVENT_LEVEL_ICON.format(level=level))
+        if obj is None:
+            continue
+        try:
+            icons[level] = (float(obj.x), float(obj.y))
+        except (TypeError, ValueError):
+            continue
+    if not icons:
+        return []
+
+    locks = []
+    try:
+        for obj in altdriver.find_objects(By.NAME, EVENT_LOCKED_MARKER) or []:
+            locks.append((float(obj.x), float(obj.y)))
+    except Exception as e:                           # noqa: BLE001
+        logging.debug(f"[Event] could not read the lock markers: {e}")
+
+    open_levels = []
+    for level in sorted(icons):
+        x, y = icons[level]
+        locked = any(abs(x - lx) < tolerance and abs(y - ly) < tolerance
+                     for lx, ly in locks)
+        if locked:
+            break                                    # the rest are locked too
+        open_levels.append(level)
+    logging.info(f"[Event] open levels: {open_levels} "
+                 f"(of {len(icons)} on the map, {len(locks)} locked marker(s))")
+    return open_levels
+
+
+def event_activity_scores(altdriver):
+    """``[(earned, out_of)]`` from every Score tile on the activity screen.
+
+    The activity list is the honest place to read a score: it shows EVERY
+    activity in the level with what it scored, and it can be read at any time —
+    unlike the finish screen, which is gone as soon as the run moves on.
+    """
+    found = []
+    try:
+        objects = altdriver.find_objects(By.NAME, EVENT_SCORE_OBJECT) or []
+    except Exception as e:                           # noqa: BLE001
+        logging.error(f"[Event] could not read the score tiles: {e}")
+        return found
+    for obj in objects:
+        text = re.sub(r"[,  '\s]", "", _text_of(obj) or "")
+        match = re.match(r"(\d+)/(\d+)", text)
+        if match:
+            found.append((int(match.group(1)), int(match.group(2))))
+    return found
+
+
+def event_leaderboard(altdriver, timeout=20, tc_id=""):
+    """Open the leaderboard and read it: ``[(player_name, score)]``.
+
+    It opens as an OVERLAY, so this waits for the rows themselves rather than
+    for a scene change that never comes.
+    """
+    rows = []
+    if not press_object(altdriver, EVENT_LEADERBOARD_BUTTON, settle=2.0):
+        logging.error(f"[Event] '{EVENT_LEADERBOARD_BUTTON}' did not respond")
+        return rows
+    if not wait_for_any(altdriver, EVENT_PLAYER_NAME_OBJECT, timeout=timeout):
+        logging.warning("[Event] the leaderboard shows no players "
+                        "(it reads 'No Results' until somebody scores)")
+        return rows
+
+    names, scores = [], []
+    try:
+        for obj in altdriver.find_objects(By.NAME, EVENT_PLAYER_NAME_OBJECT) or []:
+            text = _text_of(obj)
+            if text:
+                names.append((float(obj.y), text))
+        for obj in altdriver.find_objects(By.NAME, EVENT_SCORE_OBJECT) or []:
+            value = _score_int(_text_of(obj))
+            if value is not None:
+                scores.append((float(obj.y), value))
+    except Exception as e:                           # noqa: BLE001
+        logging.error(f"[Event] could not read the leaderboard: {e}")
+        return rows
+
+    # A row is a name and a score on the SAME line — pair them by y, not by
+    # order, so a re-sorted board cannot pair a name with someone else's score.
+    for y, name in sorted(names):
+        nearest = min(scores, key=lambda s: abs(s[0] - y), default=None)
+        if nearest is not None and abs(nearest[0] - y) < 25:
+            rows.append((name, nearest[1]))
+    for name, score in rows:
+        logging.info(f"[Event] leaderboard: {name!r} = {score}")
+    # Keep the board itself: it is the other half of the comparison, and it is
+    # gone as soon as the run closes it.
+    capture_evidence(altdriver, "event-leaderboard", tc_id=tc_id)
+    return rows
+
+
+def event_score_check(altdriver, levels=(1, 2, 3), player_name="",
+                      username=None, password=None, timeout=90, solve_all=True,
+                      tc_id=""):
+    """Solve one activity in each event level, then check the leaderboard.
+
+    Returns ``{"ok", "levels", "earned", "leaderboard", "player", "note"}`` and
+    never raises. ``earned`` is the sum of the scores the solved activities show
+    on their own level screens; the leaderboard row for ``player_name`` must
+    match it exactly — only activities award event score, exams award coins.
+    """
+    report = {"ok": False, "levels": {}, "earned": 0, "leaderboard": None,
+              "player": player_name, "rows": [], "note": ""}
+
+    # Start from a known account: log out, then log in. The leaderboard is
+    # matched by player NAME, so running on somebody else's leftover session
+    # would measure the wrong player and still look like a pass.
+    if username and not fresh_login(altdriver, username, password):
+        report["note"] = f"could not log in as {username}"
+        return report
+
+    if not open_event(altdriver, username, password, timeout=timeout):
+        report["note"] = "could not open the event"
+        return report
+
+    # No levels named? Then play the ones the event has actually OPENED — the
+    # locked ones cannot be entered, and counting their (zero) score against the
+    # leaderboard would fail a run for doing exactly what it was told.
+    if not levels:
+        levels = event_open_levels(altdriver)
+        report["levels_played"] = list(levels)
+        if not levels:
+            report["note"] = "no open levels on the event map"
+            return report
+
+    solvers = get_activity_solver_map()
+    for level in levels:
+        if not event_back_to_map(altdriver, username, password):
+            report["note"] = f"could not get back to the event map for level {level}"
+            return report
+        ok, note = open_event_level(altdriver, level, timeout=timeout)
+        if not ok:
+            report["levels"][level] = {"opened": False, "note": note, "score": 0}
+            report["note"] = note
+            return report
+
+        before = sum(e for e, _t in event_activity_scores(altdriver))
+        listed = list_level_activities(altdriver)
+        offered = [e.get("title") or "" for e in listed]
+        played, skipped, failed = [], [], []
+        for title in offered:
+            scene = _infer_scene_from_title(title)
+            if not scene or scene not in solvers:
+                # Say which ones this framework cannot drive, rather than
+                # quietly leaving their score out of the sum.
+                skipped.append(title or "(unlabelled)")
+                continue
+            # Back to the list between activities: the previous one leaves the
+            # app inside its own scene, and the next thumb lives on the list.
+            if find_any(altdriver, ACTIVITY_SELECTION_SCENE_MARKER) is None:
+                back_to_activity_list(altdriver)
+            outcome = solve_activity_in_level(altdriver, scene, title_hint=title)
+            if activity_completed(outcome):
+                played.append(f"{title} ({scene})")
+                if not solve_all:
+                    break                            # one per level is enough
+            else:
+                failed.append(f"{title}: {outcome.get('done')}/{outcome.get('total')}")
+        if find_any(altdriver, ACTIVITY_SELECTION_SCENE_MARKER) is None:
+            back_to_activity_list(altdriver)
+        after = sum(e for e, _t in event_activity_scores(altdriver))
+        # The activity list with its scores UPDATED — one frame per level, kept
+        # whatever the per-run budget has spent, because this is the evidence
+        # the leaderboard total is checked against.
+        shot = capture_evidence(altdriver, f"event-level-{level}-scores", tc_id=tc_id)
+        if shot:
+            report.setdefault("shots", []).append(shot)
+        gained = after - before
+        # Count the level's TOTAL, not what this run added. The leaderboard is
+        # cumulative, so a level that was already solved still contributes its
+        # score — comparing "earned today" against it would fail every re-run,
+        # and would fail hardest on the very state the case is meant to check.
+        report["levels"][level] = {"opened": True, "played": played,
+                                   "offered": offered, "skipped": skipped,
+                                   "failed": failed, "score": after,
+                                   "gained": gained, "note": ""}
+        report["earned"] += after
+        logging.info(f"[Event] level {level}: solved {len(played)}/{len(offered)} "
+                     f"{played} -> level total {after} ({gained:+d} this run)"
+                     + (f"; no solver for {skipped}" if skipped else "")
+                     + (f"; incomplete {failed}" if failed else ""))
+        if not played:
+            report["note"] = (f"level {level} offered {offered}, none of which "
+                              f"this framework can complete")
+            return report
+
+    if not event_back_to_map(altdriver, username, password):
+        report["note"] = "could not get back to the event map for the leaderboard"
+        return report
+
+    rows = event_leaderboard(altdriver, tc_id=tc_id)
+    report.setdefault("shots", []).append(f"evidence-event-leaderboard.png")
+    report["rows"] = rows
+    wanted = (player_name or "").strip().lower()
+    for name, score in rows:
+        if wanted and " ".join(name.split()).lower() == " ".join(wanted.split()):
+            report["leaderboard"] = score
+            break
+    if report["leaderboard"] is None:
+        report["note"] = (f"'{player_name}' is not on the leaderboard — it lists "
+                          f"{[n for n, _s in rows] or 'nobody'}")
+        return report
+
+    report["ok"] = report["leaderboard"] == report["earned"]
+    if not report["ok"]:
+        report["note"] = (f"the leaderboard says {report['leaderboard']} but the "
+                          f"activities scored {report['earned']} "
+                          f"({ {k: v.get('score') for k, v in report['levels'].items()} })")
+    return report
+
+
+def _infer_scene_from_title(title):
+    """The activity scene a printed thumb title stands for, or ""."""
+    from runner.test_generator import RallyTestGenerator      # local: avoids a cycle
+    hay = (title or "").strip().lower()
+    best = ""
+    for keyword, scene in RallyTestGenerator.ACTIVITY_SCENES.items():
+        if keyword in hay and len(keyword) > len(best or ""):
+            best, best_scene = keyword, scene
+    return best_scene if best else ""
 
 
 def app_health(altdriver):

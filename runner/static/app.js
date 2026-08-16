@@ -84,6 +84,8 @@ async function init() {
   $("btn-run").addEventListener("click", () => startRun(false));
   $("btn-dry").addEventListener("click", () => startRun(true));
   $("btn-stop").addEventListener("click", stopRun);
+  const clearSelBtn = $("btn-clear-sel");
+  if (clearSelBtn) clearSelBtn.addEventListener("click", clearSelection);
   const clearRunsBtn = $("btn-clear-runs");
   if (clearRunsBtn) clearRunsBtn.addEventListener("click", clearRuns);
 
@@ -411,9 +413,10 @@ function renderSuiteTree() {
       <span class="idchip">${escapeHtml(c.id)}</span>
       <span class="nm" title="${escapeAttr(c.name)}">${escapeHtml(c.name)}</span>
       ${implBadge(c.impl)}
+      ${c.updated ? `<span class="upd-badge" title="A Rally sync changed this case's generated code${c.updated_at ? " on " + escapeAttr(c.updated_at) : ""} — re-generate to put the new data (e.g. changed credentials) into the test">updated</span>` : ""}
       <span class="row-actions">
-        ${c.impl === "real" ? "" :
-          `<button type="button" class="link c-gen" title="Read the running app (AltTester) and write this case's test code into the project">generate</button>`}
+        ${c.impl === "real" && !c.updated ? "" :
+          `<button type="button" class="link c-gen" title="${c.updated ? "Re-generate this test so the code matches the updated Rally case" : "Read the running app (AltTester) and write this case's test code into the project"}">${c.updated ? "re-generate" : "generate"}</button>`}
         ${c.impl === "unlinked" ? "" :
           `<button type="button" class="link c-impl">${c.impl === "stub" ? "make real" : "make stub"}</button>`}
         <button type="button" class="link c-edit">edit</button>
@@ -485,6 +488,20 @@ function updateSelCount() {
   } else if (runBtn) {
     runBtn.textContent = "▶ Run";
   }
+  // Only offer "clear" when there IS a selection to clear.
+  const clearBtn = $("btn-clear-sel");
+  if (clearBtn) clearBtn.classList.toggle("hidden", !n);
+}
+
+function clearSelection() {
+  // Both sets, whichever run type is showing: a folder ticked earlier stays
+  // ticked behind a run-type switch and would silently join the next run.
+  SEL_FOLDERS.clear();
+  SEL_CASES.clear();
+  document.querySelectorAll("#suite input[type=checkbox]").forEach((b) => { b.checked = false; });
+  renderSuiteTree();
+  updateSelCount();
+  saveCfg();
 }
 
 function folderOptions(selected) {
@@ -664,10 +681,23 @@ async function generateFromLiveApp() {
       const data = await res.json();
       if (!res.ok) { setSkeletonMsg(data.error || "Generation failed.", "err"); return; }
       if (data.suite) { SUITE = data.suite; renderSuiteTree(); }
-      const failed = (data.results || []).filter((r) => !r.ok);
+      const results = data.results || [];
+      const failed = results.filter((r) => !r.ok);
+      // A file that was written is NOT necessarily a usable test: when the
+      // Rally case is missing something the generator needs, the template
+      // emits a skip that says exactly what. Show that sentence — otherwise
+      // the panel reports "generated 1/1" for a test that cannot run, and the
+      // generator looks broken when the case is simply under-specified.
+      const stubs = results.filter((r) => r.ok && r.stub);
       let msg = data.message || "Done.";
-      if (failed.length) msg += " · Failed: " + failed.map((r) => `${r.id} (${r.error})`).join(", ");
-      setSkeletonMsg(msg, failed.length ? "warn" : "ok");
+      if (failed.length) {
+        msg += " · Failed: " + failed.map((r) => `${r.id} (${r.error})`).join(", ");
+      }
+      if (stubs.length) {
+        msg += " · Generated but SKIPPED — " +
+          stubs.map((r) => `${r.id}: ${r.reason || "no reason given"}`).join(" · ");
+      }
+      setSkeletonMsg(msg, (failed.length || stubs.length) ? "warn" : "ok");
     } catch (e) {
       setSkeletonMsg("Request failed: " + e.message, "err");
     }

@@ -409,6 +409,12 @@ def api_rally_sync():
         # prune=False: _prune_generated_tests does the sweep, so the deletions
         # are reported to the UI instead of happening silently.
         refreshed = generator.refresh_generated_tests(prune=False)
+        # Mark the cases whose generated CODE this sync actually changed (a
+        # username edited in Rally, say). The mark is stored on the case, so it
+        # is still there when the user comes back to the panel later.
+        changed_ids = list(getattr(generator, "changed_case_ids", []) or [])
+        if changed_ids:
+            suite.mark_updated(changed_ids)
         pruned = _prune_generated_tests()
 
         # Reload suite tree
@@ -693,6 +699,9 @@ def api_case_generate(tc_id):
             return jsonify({"error": f"Generation failed: {e}"}), 500
 
     rel = os.path.relpath(str(path), _ROOT)
+    # The code now matches the synced case, so the "updated" mark has served
+    # its purpose — clear it before the tree is rebuilt below.
+    suite.clear_updated(tc_id)
     impl = suite.impl_status((tc.get("action") or {}).get("nodeid") or "")
 
     if source in ("mcp", "altdriver"):

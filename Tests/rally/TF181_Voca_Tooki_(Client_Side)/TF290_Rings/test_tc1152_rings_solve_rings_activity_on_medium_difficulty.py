@@ -64,7 +64,7 @@ def test_tc1152_rings_solve_rings_activity_on_medium_difficulty(altdriver):
         f"{TC_ID}: RINGS activity was not found in level {MAP_LEVEL}"
     assert result["total"] > 0 and result["done"] >= result["total"], (
         f"{TC_ID}: RINGS did not complete — progress "
-        f"{result['done']}/{result['total']}. Expected: - Rings activity loads correctly on Medium difficulty - Rings controls respond properly to user input - Activity completes successfully when all rings are correctly placed/matched - Score/stars are awarded correctly upon completion - Success screen is displayed with correct feedback - Progress is saved and the activity is marked as completed")
+        f"{result['done']}/{result['total']}. Expected: - Rings activity loads correctly on Medium difficulty - Rings controls respond properly to user input - Activity completes successfully when all rings are correctly placed/matched - Score/stars are awarded correctly upon completion - Success screen is displayed with correct feedback - Progress is sa...")
     assert result["feedback"], \
         f"{TC_ID}: RINGS reached {result['done']}/{result['total']} but the final feedback screen never appeared"
 

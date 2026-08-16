@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Voca Tooki - Test Runner</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=27">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=30">
 </head>
 <body>
   <header class="topbar">
@@ -23,6 +23,7 @@
     <label class="email-opt" title="Email the report to the configured address when the run finishes">
       <input type="checkbox" id="email_report"> Email report
     </label>
+    <button id="btn-clear-sel" class="hidden" title="Untick every selected folder / test case">✕ Clear selection</button>
     <button id="btn-dry">Dry-run</button>
     <button id="btn-run" class="primary">▶ Run</button>
     <button id="btn-stop" class="danger" disabled>■ Stop</button>
@@ -251,7 +252,7 @@
     </div>
   </div>
 
-  <script src="{{ url_for('static', filename='status.js') }}?v=28"></script>
-  <script src="{{ url_for('static', filename='app.js') }}?v=28"></script>
+  <script src="{{ url_for('static', filename='status.js') }}?v=30"></script>
+  <script src="{{ url_for('static', filename='app.js') }}?v=30"></script>
 </body>
 </html>

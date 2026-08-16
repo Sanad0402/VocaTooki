@@ -13,6 +13,7 @@ Action kinds (reuse existing solvers in runner.core):
 """
 
 import os
+import datetime as _dt
 import json
 import threading
 
@@ -120,6 +121,11 @@ def _public_case(c):
         "ref": (c.get("action") or {}).get("ref"),
         "nodeid": nodeid,
         "impl": impl_status(nodeid),
+        # Set by a Rally sync that CHANGED this case's generated code (a new
+        # username, say). It stays until the case is generated again, so the
+        # panel can show which tests moved and which are still on old data.
+        "updated": bool(c.get("updated")),
+        "updated_at": c.get("updated_at", ""),
     }
 
 
@@ -316,3 +322,40 @@ def delete_case(tc_id):
         data["test_cases"] = [c for c in data["test_cases"] if c["id"] != tc_id]
         _save(data)
     return tree()
+
+
+def mark_updated(case_ids, when=""):
+    """Flag cases whose generated code a sync just changed. Returns the count.
+
+    Stored on the case itself so the mark survives a reload — the user may sync
+    now and look at the panel later, which is exactly the situation this is for
+    (a username rotation done in Rally weeks after the tests were written).
+    """
+    ids = {str(i) for i in (case_ids or []) if i}
+    if not ids:
+        return 0
+    data = load()
+    stamp = when or _dt.datetime.now().strftime("%Y-%m-%d %H:%M")
+    hit = 0
+    for c in data.get("test_cases", []):
+        if c.get("id") in ids:
+            c["updated"] = True
+            c["updated_at"] = stamp
+            hit += 1
+    if hit:
+        _save(data)
+    return hit
+
+
+def clear_updated(case_id):
+    """Drop the mark once the case has been generated again."""
+    data = load()
+    changed = False
+    for c in data.get("test_cases", []):
+        if c.get("id") == case_id and c.get("updated"):
+            c["updated"] = False
+            c["updated_at"] = ""
+            changed = True
+    if changed:
+        _save(data)
+    return changed

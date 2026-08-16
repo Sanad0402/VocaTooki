@@ -15,7 +15,8 @@ Validation (from Rally):
 Guest flow — this test NEVER logs in.
 
 Route walked on the live app (2026-08-13) and encoded in utilsdemo.GUEST_ENTRY:
-    log out (LogoutButton -> YesButton)  ->  "Free Trial"  ->  "Let's Start"
+    log out (AltTesterUtils.Logout; UI only as fallback)  ->  "Free Trial"
+    ->  "Let's Start"
     ->  child's name  ->  gender toggles  ->  native language  ->  English level
     ->  GenderSelectPopup(Clone) on the hub  ->  GO-Map
 The app asks these in a different ORDER from the Rally steps, so the option
