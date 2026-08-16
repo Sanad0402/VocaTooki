@@ -1098,18 +1098,42 @@ def _press(obj):
 # guest run, waiting for a UI change that was never going to come.
 PRESS_PROBE_SECONDS = 4.0
 
+# Objects whose OUTER press is NEVER delivered: the interactive component lives
+# in a layout child. Measured live — both of these needed the //Fitter child on
+# every single run, so the outer press was pure cost (~5s each while its probe
+# window ran down). For these the child is pressed FIRST and the outer object is
+# only a fallback. Every other object keeps the original order, because it is
+# the outer press that works for them.
+PRESS_CHILD_FIRST = ("Free Trial", "Button")
+_PRESS_CHILD_PATHS = ("//Fitter", "//Button", "//Btn")
+
+
+def _press_candidates(altdriver, name):
+    """The things to press for ``name``, in the order worth trying."""
+    obj = find_any(altdriver, name)
+    children = []
+    for path in _PRESS_CHILD_PATHS:
+        try:
+            child = obj.find_object_from_object(By.PATH, path) if obj else None
+        except Exception:                            # noqa: BLE001
+            child = None
+        if child is not None:
+            children.append((f"via its {path} child", child))
+    outer = [("", obj)] if obj is not None else []
+    return (children + outer) if name in PRESS_CHILD_FIRST else (outer + children)
+
 
 def press_object(altdriver, name, timeout=12, settle=1.0, expect=(), gone=(),
                  confirm=10):
     """Press the object called ``name`` and, when told what to expect, verify it.
 
     Some VocaTooki buttons wrap their interactive component in a ``Fitter``
-    layout child, so a press on the outer object is delivered but ignored. When
-    ``expect``/``gone`` say the UI did not move, the Fitter child is tried too.
+    layout child, so a press on the outer object is delivered but ignored —
+    those are listed in ``PRESS_CHILD_FIRST`` and their child is pressed first.
 
-    The outer press only gets a SHORT probe; the child then gets the full
-    window. Before pressing the child the confirmation is re-read once, so an
-    outer press that worked but was merely slow cannot be pressed a second time.
+    Each candidate gets a SHORT probe except the last, which gets the full
+    window; and before pressing the next one the confirmation is re-read, so a
+    press that worked but was merely slow is never fired twice.
     """
     if not wait_for_any(altdriver, name, timeout=timeout):
         inactive = find_any(altdriver, name, enabled=False)
@@ -1117,33 +1141,19 @@ def press_object(altdriver, name, timeout=12, settle=1.0, expect=(), gone=(),
                       + ("exists but is inactive" if inactive is not None else "not found"))
         return False
 
-    obj = find_any(altdriver, name)
-    if obj is not None and _press(obj):
-        logging.info(f"[Guest] pressed '{name}'")
+    candidates = _press_candidates(altdriver, name)
+    for index, (how, target) in enumerate(candidates):
+        last = index == len(candidates) - 1
+        if index and (expect or gone) and _press_confirmed(altdriver, expect, gone,
+                                                           timeout=0.1):
+            return True                              # a previous press landed late
+        if not _press(target):
+            continue
+        logging.info(f"[Guest] pressed '{name}'" + (f" {how}" if how else ""))
         time.sleep(0.3 if (expect or gone) else settle)
         if _press_confirmed(altdriver, expect, gone,
-                            timeout=min(confirm, PRESS_PROBE_SECONDS)):
+                            timeout=confirm if last else min(confirm, PRESS_PROBE_SECONDS)):
             return True
-
-    # The outer object swallowed it — try the layout child that owns the raycast.
-    obj = find_any(altdriver, name)
-    for path in ("//Fitter", "//Button", "//Btn"):
-        child = None
-        try:
-            child = obj.find_object_from_object(By.PATH, path) if obj else None
-        except Exception:
-            child = None
-        if child is None:
-            continue
-        # Late arrival? Then the press DID land and pressing again would fire
-        # the button twice.
-        if (expect or gone) and _press_confirmed(altdriver, expect, gone, timeout=0.1):
-            return True
-        if _press(child):
-            logging.info(f"[Guest] pressed '{name}' via its {path} child")
-            time.sleep(settle)
-            if _press_confirmed(altdriver, expect, gone, timeout=confirm):
-                return True
 
     logging.error(f"[Guest] '{name}' did not move the UI "
                   f"(expected {list(expect) or 'anything'})")
@@ -1735,6 +1745,72 @@ def dismiss_help_popup(altdriver, settle=0.4):
 
 ACTIVITY_EXITS = ("prev", "BackButton", "X", "CloseButton", "Close")
 
+# How long an activity is given to build itself before it is inspected.
+GUEST_ACTIVITY_SETTLE_SECONDS = 3.0
+
+# What each activity puts on screen, taken from the objects its own solver
+# drives. Only DISTINCTIVE names are listed: "Canvas", "Button" and "Text"
+# exist in every scene and would prove nothing. An activity missing from this
+# map is checked against the generic marker instead — and never fails a run on
+# that basis, because absence of a marker we never established is not evidence.
+ACTIVITY_UI_MARKERS = {
+    "BEE_CAREFUL": ("BeeCareful_activity", "WordPanel"),
+    "BRICKOUT": ("Paddle", "Ball"),
+    "CROSSWORD": ("CrosswordActivity", "WordsToFindPanel"),
+    "CROSSWORD2": ("FillLetter", "RTLTMPWordPanel"),
+    "FROGGER": ("FroggerGameManager", "Frogger"),
+    "GAP_GURU": ("QuizWordToggle(Clone)",),
+    "LETTERS_BUBBLES": ("LettersBubbles_activity", "LettersBubble(Clone)"),
+    "LETTERS_SEARCH": ("LettersSearch_activity", "WordPanel"),
+    "LISTEN_FIND": ("ListenFind_activity", "ListenFindGameManager"),
+    "MEMMORY_CARDS": ("ImageCardPrefab(Clone)", "TextCardPrefab(Clone)"),
+    "MISSING_BUBBLE": ("BubblesGameManager", "bubbles_activity"),
+    "PARASHOOT": ("ParashootGameManager", "FireButton"),
+    "PUZZLES": ("PuzzlesManager",),
+    "RADAR": ("radarObj", "Radar_activity"),
+    "SEARCH": ("SearchObj(Clone)", "WordPanel"),
+    "SENTENCE_COMPLETION_QUIZ": ("RTLTMPWordPanel",),
+    "TETRIS": ("LeftArrow", "DownArrow"),
+    "TRANSLATION_WIZ": ("ContextTranslationWizQuiz(Clone)",),
+    "TURTLE_ISLAND": ("RTLTMPWordPanel",),
+    "TYPE_IT_RIGHT": ("ContextTypingItQuiz(Clone)", "InputField"),
+}
+# The progress counter ("3/6") is up in nearly every activity, so it stands in
+# for the scenes above that have nothing distinctive of their own.
+ACTIVITY_GENERIC_MARKERS = ("ProgressText",)
+
+
+def validate_activity_ui(altdriver, scene, timeout=8):
+    """``(ok, known, note)`` — are THIS activity's own elements on screen?
+
+    "The scene changed" only says the app navigated; it does not say the
+    activity drew itself. This looks for the objects the activity's own solver
+    drives, so a scene that loads empty is caught here rather than as a solver
+    failure later.
+
+    ``known`` is False when the scene has no markers established for it — the
+    caller must not fail a run on that, since it would be reporting our own
+    ignorance as a defect.
+    """
+    markers = ACTIVITY_UI_MARKERS.get(scene)
+    known = markers is not None
+    markers = markers or ACTIVITY_GENERIC_MARKERS
+
+    found, deadline = set(), time.time() + timeout
+    while True:
+        for marker in markers:
+            if marker not in found and find_any(altdriver, marker) is not None:
+                found.add(marker)
+        if found or time.time() >= deadline:
+            break
+        time.sleep(0.5)
+
+    missing = [m for m in markers if m not in found]
+    if not found:
+        return False, known, f"none of {list(markers)} are on screen"
+    return True, known, (f"found {sorted(found)}"
+                         + (f" (missing {missing})" if missing else ""))
+
 
 def back_to_activity_list(altdriver, timeout=10):
     """Leave the open activity and land back on ITS activity list. Bool.
@@ -1944,6 +2020,29 @@ def guest_walk_levels(altdriver, levels=(1, 2, 3), complete_one=True, timeout=90
             entry["opened"].append(f"{title} -> {scene}")
             report["opened"].append(f"L{level} {title} -> {scene}")
             logging.info(f"[Guest] level {level}: '{title}' opened as {scene}")
+
+            # Let the activity finish building, then close the parrot's
+            # instruction bubble — it sits over the board, so anything checked
+            # underneath it is checked through a popup.
+            time.sleep(GUEST_ACTIVITY_SETTLE_SECONDS)
+            dismiss_help_popup(altdriver)
+
+            # Now prove the activity actually DREW itself. The scene changing
+            # only says the app navigated there.
+            ui_ok, ui_known, ui_note = validate_activity_ui(altdriver, scene)
+            if ui_ok:
+                logging.info(f"[Guest] level {level}: '{title}' UI ok — {ui_note}")
+            elif ui_known:
+                shot = capture_failure_screenshot(altdriver, f"L{level}_{title}_no_ui")
+                problem = (f"{title}: opened as {scene} but its UI never appeared "
+                           f"({ui_note})" + (f" [screenshot: {shot}]" if shot else ""))
+                entry["problems"].append(problem)
+                report["problems"].append(f"level {level} {problem}")
+            else:
+                # No markers established for this activity — say so plainly
+                # rather than failing the run on our own missing knowledge.
+                logging.warning(f"[Guest] level {level}: '{title}' ({scene}) has no UI "
+                                f"markers to check — {ui_note}")
 
             # Back to the activity list for the next thumb — the list, NOT the
             # map: walking out to the map costs a level re-entry per activity.
@@ -2249,6 +2348,12 @@ def guest_level_locked(altdriver, level=None, timeout=25):
                 "note": f"level {level} has no icon on the map to press"}
 
     logging.info(f"[Guest] checking level {level} is locked ('{icon_name}')")
+    # This press follows the exam being submitted and the app returning to the
+    # map, which is the least settled the map ever is — the score/collect
+    # animation is still unwinding. A press that lands in that window is
+    # swallowed, and a swallowed press looks exactly like a locked level: the
+    # app stays on the map, so the check would PASS without ever testing it.
+    time.sleep(MAP_SETTLE_SECONDS)
     press_object(altdriver, icon_name, settle=2.0)
 
     deadline = time.time() + timeout
@@ -2995,6 +3100,33 @@ def solve_level(altdriver, difficulty):
 
 
 
+# How long to let an exam page finish appearing before reading its type.
+EXAM_APPEAR_SETTLE_SECONDS = 3.0
+# The results screen that proves a submit was ACCEPTED. Its "Collect" button is
+# what the run presses to bank the score, so its presence is the observable
+# difference between "submitted" and "the app ignored the submit because
+# something was still unanswered".
+EXAM_RESULT_MARKERS = ("Collect", "CollectButton", "ResultPanel", "ScorePanel")
+
+
+def detect_exam_type_settled(altdriver, tries=6, pause=0.5):
+    """The page's type, once the page has STOPPED changing into it.
+
+    A page is built in pieces, and the first widget to exist decides the answer
+    — that is how a page was solved with ``exam_swap_letters`` in the very
+    second the exam icon was pressed. Two agreeing reads mean the page is
+    really that type, not merely part-way to being it.
+    """
+    previous = ""
+    for _ in range(tries):
+        current = detect_exam_type(altdriver)
+        if current and current == previous:
+            return current
+        previous = current
+        time.sleep(pause)
+    return previous
+
+
 def detect_exam_type(altdriver):
     """Detect active exam type based on UI elements.
 
@@ -3041,6 +3173,11 @@ def open_exam(altdriver, timeout=60):
     deadline = time.time() + timeout
     while time.time() < deadline:
         if find_element(altdriver, "TestNumText") is not None:
+            # The counter shows before the page's widgets are built. Solving
+            # immediately reads the type off a half-built page and runs the
+            # WRONG solver (seen live: 'swap_letters' picked in the same second
+            # the exam icon was pressed), so let the page appear properly.
+            time.sleep(EXAM_APPEAR_SETTLE_SECONDS)
             return True
         if find_element(altdriver, "nextButton") is not None:
             click_by_name(altdriver, "nextButton")
@@ -3083,6 +3220,36 @@ def solve_exam_pages(altdriver, label="", dismiss_help=False):
             return int((get_text_by_name(altdriver, "TestNumText") or "").split("/", 1)[0])
         except Exception:
             return None
+
+    def submit_and_confirm(current, solver, attempts=3):
+        """Submit the exam, and PROVE it was accepted.
+
+        The app accepts a submit only when every question is answered: press it
+        with anything still open and it simply stays on the page — the results
+        screen never comes. So a submit with no results screen does NOT mean the
+        button was missed, it means something is still unanswered. Solve what is
+        left and submit again, rather than clicking Collect at a screen that is
+        not there and reporting the exam as submitted.
+        """
+        for attempt in range(1, attempts + 1):
+            click_by_name(altdriver, "SubmitButton")
+            click_by_name(altdriver, "YesButton")
+            time.sleep(1.5)
+            if wait_for_any(altdriver, EXAM_RESULT_MARKERS, timeout=20):
+                if attempt > 1:
+                    logging.info(f"[Exam] submitted on attempt {attempt}")
+                return True
+            logging.warning(f"[Exam] the submit was not accepted "
+                            f"(attempt {attempt}/{attempts}) — the exam still has "
+                            f"unanswered questions; solving them and re-submitting")
+            if not solver:
+                break
+            try:
+                solver(altdriver)
+            except Exception as e:                   # noqa: BLE001
+                logging.error(f"[Exam] re-solve before re-submit failed: {e}")
+                break
+        return False
 
     def advance_from(current, solver, attempts=3):
         """Leave page ``current``, making sure it is FULLY answered first.
@@ -3172,7 +3339,8 @@ def solve_exam_pages(altdriver, label="", dismiss_help=False):
         # bubble, so a second press would bring it back.
         if dismiss_help:
             dismiss_help_popup(altdriver)
-        exam_type = detect_exam_type(altdriver)
+        # Read the type only once the page has settled INTO that type.
+        exam_type = detect_exam_type_settled(altdriver)
         solver = exam_solvers.get(exam_type)
 
         if solver:
@@ -3195,14 +3363,18 @@ def solve_exam_pages(altdriver, label="", dismiss_help=False):
                                 + (f" [screenshot: {shot}]" if shot else ""))
                 break
         else:
-            click_by_name(altdriver, "SubmitButton")
-            click_by_name(altdriver, "YesButton")
-            time.sleep(1)
-            click_by_name(altdriver, "Collect")
-            time.sleep(5)
-            click_by_name(altdriver, "BackButton")
-            time.sleep(2)
-            submitted = True
+            if submit_and_confirm(current, solver):
+                click_by_name(altdriver, "Collect")
+                time.sleep(5)
+                click_by_name(altdriver, "BackButton")
+                time.sleep(2)
+                submitted = True
+            else:
+                shot = capture_failure_screenshot(altdriver, f"exam_submit_{current}")
+                logging.error(f"[Exam] the exam would not submit from page {label}")
+                problems.append(f"page {label}: the exam would not submit — "
+                                f"questions are still unanswered"
+                                + (f" [screenshot: {shot}]" if shot else ""))
             break
 
     # Pages that were never opened are a failure, not a silent pass: entering an

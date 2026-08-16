@@ -299,140 +299,135 @@ def megaphone(altdriver):
 
     print("[INFO] Megaphone activity complete")
 
-def exams_word_to_meaning(altdriver, attempts=3):
-    """Matches words to their correct meaning shapes by swiping.
+def _read_matchables(objects, component=None, lift=0):
+    """``[(text, object, position)]`` for one side of a matching exam.
 
-    Every placement is VERIFIED and the ones that did not take are swiped
-    again. A single unplaced word is not cosmetic: the app refuses to advance a
-    page that is not fully answered, so the exam then stalls on this page while
-    the log claims the solver completed. Positions are re-read on each pass —
-    a screen position captured before a swipe describes where the word WAS.
+    ``component`` reads the word off a component property; without it the
+    printed label is used. ``lift`` raises the target point, which is how these
+    exams have always aimed at a shape's drop area.
     """
-    def board():
-        words = altdriver.find_objects(By.NAME, 'WordMeaningObject(Clone)')
-        if not words:
-            words = altdriver.find_objects(By.NAME, 'KL_WordMeaningObject(Clone)')
-        shapes = altdriver.find_objects(By.NAME, 'WordMeaningShape(Clone)')
-        word_data, shape_data = [], []
-        for w in words:
-            try:
-                word_data.append((w.get_text(), w, w.get_screen_position()))
-            except Exception:
-                continue
-        for s in shapes:
-            try:
-                pos = s.get_screen_position()
-                shape_data.append((
-                    s.get_component_property('com.kideo.learn.english.WordMeaningShape',
-                                             'word', 'Assembly-CSharp'),
-                    s, (pos[0], pos[1] - 100)))
-            except Exception:
-                continue
-        return word_data, shape_data
+    out = []
+    for obj in objects or []:
+        try:
+            text = (obj.get_component_property(component, 'word', 'Assembly-CSharp')
+                    if component else obj.get_text())
+            x, y = obj.get_screen_position()
+            out.append(((text or "").strip(), obj, (x, y - lift)))
+        except Exception:                            # noqa: BLE001 - skip unreadable
+            continue
+    return out
+
+
+def solve_match_exam(altdriver, read_board, label, attempts=3, match=None,
+                     tolerance=(60, 80), duration=2.3):
+    """Drag each word onto the shape that wants it, and PROVE each one landed.
+
+    Shared by every match-and-swipe exam page. ``read_board()`` returns
+    ``(words, shapes)`` READ FRESH FROM THE APP each time — a screen position
+    captured before a swipe describes where the word WAS, so a second pass that
+    reuses it would drag from empty space.
+
+    Why the verification matters: the app refuses to advance or submit a page
+    that is not fully answered. A solver that swipes once and prints "completed"
+    therefore does not fail — it strands the whole exam later, on a page nobody
+    can leave. One unplaced word ("black", seen live) is enough.
+
+    Returns the list of words it could not place (empty means all placed).
+    """
+    same = match or (lambda w, s: (w or "").strip().lower() == (s or "").strip().lower())
+    tol_x, tol_y = tolerance
 
     def placed(word_pos, shape_pos):
-        """Has the word landed on its shape?"""
-        return abs(word_pos[0] - shape_pos[0]) < 60 and abs(word_pos[1] - shape_pos[1]) < 80
+        return (abs(word_pos[0] - shape_pos[0]) < tol_x
+                and abs(word_pos[1] - shape_pos[1]) < tol_y)
 
-    time.sleep(1)
+    def outstanding(words, shapes):
+        """Words that are not sitting on the shape that wants them."""
+        left, used = [], set()
+        for text, obj, pos in words:
+            index = next((i for i, (s_text, _o, _p) in enumerate(shapes)
+                          if i not in used and same(text, s_text)), None)
+            if index is None:
+                continue                             # no shape wants this word
+            used.add(index)
+            if not placed(pos, shapes[index][2]):
+                left.append((text, obj, pos, shapes[index][2]))
+        return left
+
     left = []
-    for attempt in range(1, attempts + 1):
-        word_data, shape_data = board()
-        if not word_data:
-            raise Exception("Not a word-to-meaning exam")
-        left = []
-        for word_text, word_obj, word_pos in word_data:
-            target = next((sp for st, _so, sp in shape_data if st == word_text), None)
-            if target is None:
-                continue                       # no shape wants this word
-            if placed(word_pos, target):
-                continue                       # already sitting on its shape
-            altdriver.swipe(word_pos, target, 2.3)
+    for attempt in range(1, max(1, attempts) + 1):
+        words, shapes = read_board()
+        if not words:
+            raise Exception(f"Not a {label} exam")
+        pending = outstanding(words, shapes)
+        if not pending:
+            break
+        for text, obj, word_pos, target in pending:
+            altdriver.swipe(word_pos, target, duration)
+            time.sleep(0.4)
             try:
-                word_obj.click()
-            except Exception:
+                obj.click()
+            except Exception:                        # noqa: BLE001
                 pass
-            left.append(word_text)
-        if not left:
-            break
         time.sleep(0.8)
-        # Re-read and see which of those actually landed.
-        word_data, shape_data = board()
-        still = []
-        for word_text, _w, word_pos in word_data:
-            target = next((sp for st, _so, sp in shape_data if st == word_text), None)
-            if target is not None and not placed(word_pos, target):
-                still.append(word_text)
-        left = still
+        words, shapes = read_board()                 # which of them actually landed?
+        left = [t for t, _o, _p, _g in outstanding(words, shapes)]
         if not left:
             break
-        print(f"[WARN] word-to-meaning: {left} not placed (attempt {attempt})")
+        print(f"[WARN] {label}: {left} not placed (attempt {attempt})")
 
     if left:
-        print(f"[WARN] exams_word_to_meaning finished with {left} unplaced")
+        print(f"[WARN] {label} finished with {left} unplaced")
     else:
-        print("[INFO] exams_word_to_meaning completed")
+        print(f"[INFO] {label} completed")
+    return left
 
-def exams_word_to_image(altdriver):
-    """Matches words to images by swiping and clicking."""
+
+def exams_word_to_meaning(altdriver, attempts=3):
+    """Match words to their meaning shapes by swiping, verifying each one."""
     time.sleep(1)
-    words = altdriver.find_objects(By.NAME, 'MatchWordText(Clone)')
-    if not words:
-        raise Exception("Not a word-to-image exam")
 
-    shapes = altdriver.find_objects(By.NAME, 'MatchShapeImage(Clone)')
+    def read_board():
+        words = (altdriver.find_objects(By.NAME, 'WordMeaningObject(Clone)')
+                 or altdriver.find_objects(By.NAME, 'KL_WordMeaningObject(Clone)'))
+        shapes = altdriver.find_objects(By.NAME, 'WordMeaningShape(Clone)')
+        return (_read_matchables(words),
+                _read_matchables(shapes, 'com.kideo.learn.english.WordMeaningShape', lift=100))
 
-    word_data = [(w.get_text(), w, w.get_screen_position()) for w in words]
-    shape_data = [(s.get_component_property('com.kideo.learn.english.MatchTestShape', 'word', 'Assembly-CSharp'),
-                   s, (s.get_screen_position()[0], s.get_screen_position()[1] - 100)) for s in shapes]
+    solve_match_exam(altdriver, read_board, "exams_word_to_meaning", attempts=attempts)
 
-    for word_text, word_obj, word_pos in word_data:
-        for shape_text, shape_obj, shape_pos in shape_data:
-            if word_text == shape_text:
-                altdriver.swipe(word_pos, shape_pos, 2.3)
-                word_obj.click()
-                break
 
-    print("[INFO] exams_word_to_image completed")
-
-def exams_3rd_letter_to_word_image_match(altdriver):
-    """Generically matches words to images based on shared letters (e.g. 'G' -> 'giraffe')."""
+def exams_word_to_image(altdriver, attempts=3):
+    """Match words to images by swiping, verifying each one."""
     time.sleep(1)
-    words = altdriver.find_objects(By.NAME, 'LetterWordText Variant(Clone)')
-    shapes = altdriver.find_objects(By.NAME, 'LetterShapeImage Variant(Clone)')
 
-    if not words or not shapes:
-        raise Exception("Missing words or shapes for letter-to-word matching")
+    def read_board():
+        words = altdriver.find_objects(By.NAME, 'MatchWordText(Clone)')
+        shapes = altdriver.find_objects(By.NAME, 'MatchShapeImage(Clone)')
+        return (_read_matchables(words),
+                _read_matchables(shapes, 'com.kideo.learn.english.MatchTestShape', lift=100))
 
-    # Get word data: (text, object, screen_position)
-    word_data = [
-        (w.get_component_property('com.kideo.learn.english.MatchTestWord', 'word', 'Assembly-CSharp'), w, w.get_screen_position())
-        for w in words
-    ]
+    solve_match_exam(altdriver, read_board, "exams_word_to_image", attempts=attempts)
 
-    # Get shape data: (letter, object, adjusted_screen_position)
-    shape_data = [
-        (s.get_component_property('com.kideo.learn.english.MatchTestShape', 'word', 'Assembly-CSharp'),
-         s, (s.get_screen_position()[0], s.get_screen_position()[1] - 100))
-        for s in shapes
-    ]
 
-    used_words = set()
+def exams_3rd_letter_to_word_image_match(altdriver, attempts=3):
+    """Match a letter shape to a word that contains it ('G' -> 'giraffe')."""
+    time.sleep(1)
 
-    for shape_letter, shape_obj, shape_pos in shape_data:
-        matched = False
-        for word_text, word_obj, word_pos in word_data:
-            if word_text.lower() not in used_words and shape_letter.lower() in word_text.lower():
-                print(f"[INFO] Matching letter '{shape_letter}' with word '{word_text}'")
-                altdriver.swipe(word_pos, shape_pos, 2.3)
-                word_obj.click()
-                used_words.add(word_text.lower())
-                matched = True
-                break
-        if not matched:
-            print(f"[WARNING] No matching word found for letter: {shape_letter}")
+    def read_board():
+        words = altdriver.find_objects(By.NAME, 'LetterWordText Variant(Clone)')
+        shapes = altdriver.find_objects(By.NAME, 'LetterShapeImage Variant(Clone)')
+        if not words or not shapes:
+            raise Exception("Missing words or shapes for letter-to-word matching")
+        return (_read_matchables(words, 'com.kideo.learn.english.MatchTestWord'),
+                _read_matchables(shapes, 'com.kideo.learn.english.MatchTestShape', lift=100))
 
-    print("[INFO] Letter-to-word image matching completed.")
+    # The pairing rule is CONTAINMENT here, not equality: the shape carries a
+    # letter and the word is the one spelled with it.
+    solve_match_exam(altdriver, read_board, "letter-to-word image matching",
+                     attempts=attempts,
+                     match=lambda w, s: bool(s) and (s or "").strip().lower()
+                     in (w or "").strip().lower())
 
 
 def exams_3rd_audio_to_letter_matrix(altdriver):
@@ -458,71 +453,38 @@ def exams_3rd_audio_to_letter_matrix(altdriver):
     print("[INFO] Letter-to-word image matching completed.")
 
 
-def exams_audio_to_meaning(altdriver):
-    """Automates matching audio meanings to word labels via swipe interaction."""
+def exams_audio_to_meaning(altdriver, attempts=3):
+    """Match audio meanings to word labels by swiping, verifying each one."""
     time.sleep(1)
 
-    # --- Find audio shapes ---
-    audio_shapes = altdriver.find_objects(By.NAME, 'WordAudioShape(Clone)')
-    if not audio_shapes:
-        audio_shapes = altdriver.find_objects(By.NAME, 'KL_WordAudioShape(Clone)')
-    if not audio_shapes:
-        audio_shapes = altdriver.find_objects(By.NAME, 'WordAudioShape_RTL(Clone)')
-    if not audio_shapes:
-        raise Exception("[ERROR] No audio shapes found. Not an audio-to-meaning exam.")
+    def audio_shapes():
+        return (altdriver.find_objects(By.NAME, 'WordAudioShape(Clone)')
+                or altdriver.find_objects(By.NAME, 'KL_WordAudioShape(Clone)')
+                or altdriver.find_objects(By.NAME, 'WordAudioShape_RTL(Clone)'))
 
-    # --- Click each shape once to activate audio ---
-    for shape in audio_shapes:
+    shapes = audio_shapes()
+    if not shapes:
+        raise Exception("[ERROR] No audio shapes found. Not an audio-to-meaning exam.")
+    # Each shape has to be played once before it can be matched.
+    for shape in shapes:
         try:
             shape.click()
             time.sleep(0.8)
         except Exception as e:
             print(f"[WARN] Failed to click shape: {e}")
 
-    # --- Find word objects ---
-    words = altdriver.find_objects(By.NAME, 'WordAudioObject(Clone)')
-    if not words:
-        words = altdriver.find_objects(By.NAME, 'KL_WordAudioObject(Clone)')
-    if not words:
-        words = altdriver.find_objects(By.NAME, 'WordAudioObject_RTL(Clone)')
-    if not words:
-        raise Exception("[ERROR] No word objects found.")
+    def read_board():
+        words = (altdriver.find_objects(By.NAME, 'WordAudioObject(Clone)')
+                 or altdriver.find_objects(By.NAME, 'KL_WordAudioObject(Clone)')
+                 or altdriver.find_objects(By.NAME, 'WordAudioObject_RTL(Clone)'))
+        if not words:
+            raise Exception("[ERROR] No word objects found.")
+        return (_read_matchables(words, 'com.kideo.learn.english.WordAudioObject'),
+                _read_matchables(audio_shapes(),
+                                 'com.kideo.learn.english.WordAudioShape', lift=100))
 
-    # --- Collect data ---
-    word_data = []
-    for w in words:
-        try:
-            word_text = w.get_component_property(
-                'com.kideo.learn.english.WordAudioObject', 'word', 'Assembly-CSharp'
-            )
-            word_pos = w.get_screen_position()
-            word_data.append((word_text, w, word_pos))
-        except Exception as e:
-            print(f"[WARN] Failed to read word: {e}")
+    solve_match_exam(altdriver, read_board, "exams_audio_to_meaning", attempts=attempts)
 
-    shape_data = []
-    for s in audio_shapes:
-        try:
-            shape_text = s.get_component_property(
-                'com.kideo.learn.english.WordAudioShape', 'word', 'Assembly-CSharp'
-            )
-            x, y = s.get_screen_position()
-            shape_data.append((shape_text, s, (x, y - 100)))  # small offset upwards
-        except Exception as e:
-            print(f"[WARN] Failed to read shape: {e}")
-
-    # --- Swipe matches ---
-    matched = 0
-    for word_text, word_obj, word_pos in word_data:
-        for shape_text, _, shape_pos in shape_data:
-            if word_text == shape_text:
-                altdriver.swipe(word_pos, shape_pos, 2.3)
-                time.sleep(0.5)
-                word_obj.click()
-                matched += 1
-                break
-
-    print(f"[INFO] exams_audio_to_meaning completed ({matched}/{len(word_data)} matched).")
 
 def exam_spelling(altdriver):
     """Completes the spelling activity by clicking missing letters."""
@@ -1907,68 +1869,35 @@ def magic_trace(altdriver):
 
     print("\n✅ Magic Trace activity complete.")
 
-def exams_image_to_audio(altdriver):
-
-    """Automates matching audio meanings to word labels via swipe interaction."""
+def exams_image_to_audio(altdriver, attempts=3):
+    """Match audio shapes to their word labels by swiping, verifying each one."""
     time.sleep(1)
 
-    # --- Find audio shapes ---
-    audio_shapes = altdriver.find_objects(By.NAME, 'ImageAudioShape(Clone)')
-    if not audio_shapes:
-        audio_shapes = altdriver.find_objects(By.NAME, 'KL_WordAudioShape(Clone)')
-    if not audio_shapes:
-        raise Exception("[ERROR] No audio shapes found. Not an audio-to-meaning exam.")
+    def audio_shapes():
+        return (altdriver.find_objects(By.NAME, 'ImageAudioShape(Clone)')
+                or altdriver.find_objects(By.NAME, 'KL_WordAudioShape(Clone)'))
 
-    # --- Click each shape once to activate audio ---
-    for shape in audio_shapes:
+    shapes = audio_shapes()
+    if not shapes:
+        raise Exception("[ERROR] No audio shapes found. Not an audio-to-meaning exam.")
+    # Each shape has to be played once before it can be matched.
+    for shape in shapes:
         try:
             shape.click()
             time.sleep(0.8)
         except Exception as e:
             print(f"[WARN] Failed to click shape: {e}")
 
-    # --- Find word objects ---
-    words = altdriver.find_objects(By.NAME, 'WordAudioObject(Clone)')
-    if not words:
-        words = altdriver.find_objects(By.NAME, 'KL_WordAudioObject(Clone)')
-    if not words:
-        raise Exception("[ERROR] No word objects found.")
+    def read_board():
+        words = (altdriver.find_objects(By.NAME, 'WordAudioObject(Clone)')
+                 or altdriver.find_objects(By.NAME, 'KL_WordAudioObject(Clone)'))
+        if not words:
+            raise Exception("[ERROR] No word objects found.")
+        return (_read_matchables(words, 'com.kideo.learn.english.WordAudioObject'),
+                _read_matchables(audio_shapes(),
+                                 'com.kideo.learn.english.WordAudioShape', lift=100))
 
-    # --- Collect data ---
-    word_data = []
-    for w in words:
-        try:
-            word_text = w.get_component_property(
-                'com.kideo.learn.english.WordAudioObject', 'word', 'Assembly-CSharp'
-            )
-            word_pos = w.get_screen_position()
-            word_data.append((word_text, w, word_pos))
-        except Exception as e:
-            print(f"[WARN] Failed to read word: {e}")
-
-    shape_data = []
-    for s in audio_shapes:
-        try:
-            shape_text = s.get_component_property(
-                'com.kideo.learn.english.WordAudioShape', 'word', 'Assembly-CSharp'
-            )
-            x, y = s.get_screen_position()
-            shape_data.append((shape_text, s, (x, y - 100)))  # small offset upwards
-        except Exception as e:
-            print(f"[WARN] Failed to read shape: {e}")
-
-    # --- Swipe matches ---
-    matched = 0
-    for word_text, word_obj, word_pos in word_data:
-        for shape_text, _, shape_pos in shape_data:
-            if word_text == shape_text:
-                altdriver.swipe(word_pos, shape_pos, 2.3)
-                time.sleep(0.5)
-                word_obj.click()
-                matched += 1
-                break
-
-    print(f"[INFO] exams_audio_to_meaning completed ({matched}/{len(word_data)} matched).")
+    solve_match_exam(altdriver, read_board, "exams_image_to_audio", attempts=attempts)
 
 
 def exams_image_for_voices(altdriver):
@@ -3495,9 +3424,6 @@ def crosswords(altdriver):
         'Assembly-CSharp'
     )
 
-    # Use the actual row/column values from properties
-    matrix_size = number_of_columns  # Assuming square matrix, or use max(number_of_columns, number_of_rows)
-
     print(f"Matrix size: {number_of_rows}x{number_of_columns}")
 
     # Initialize empty matrix and letter panel mapping
@@ -3508,39 +3434,74 @@ def crosswords(altdriver):
     # Get all letter panels
     texts = altdriver.find_objects(By.NAME, 'Text - RTLTMP')
 
+    # Where a letter sits is decided by WHERE IT IS, not by arithmetic on its
+    # name. AltTester disambiguates same-named objects with a "_N" suffix, so
+    # the old rule (base + offset) made "LetterPanel (5)_1" and "LetterPanel
+    # (6)" both mean 6: panels overwrote each other and the highest positions
+    # were never filled — a 9x10 board came back with its whole last row empty
+    # and lost a word. A square board hid it, because the collisions landed
+    # inside the grid.
+    cells = []
     for text in texts:
-        parent = text.get_parent()
-        parent_name = parent.name
-        letter = text.get_text()
+        try:
+            parent = text.get_parent()
+            letter = (text.get_text() or "").strip()
+            if 'LetterPanel' not in parent.name or not letter:
+                continue
+            cells.append({'x': float(parent.x), 'y': float(parent.y),
+                          'letter': letter, 'object': parent,
+                          'panel_name': parent.name})
+        except Exception:                            # noqa: BLE001
+            continue
 
-        # Only process LetterPanel objects with valid letters
-        if 'LetterPanel' in parent_name and letter.strip():
-            # Parse position from parent name
-            position = None
-            if parent_name == 'LetterPanel':
-                position = 0
-            else:
-                match = re.match(r'LetterPanel \((\d+)\)(?:_(\d+))?', parent_name)
-                if match:
-                    base_num = int(match.group(1))
-                    offset = int(match.group(2)) if match.group(2) else 0
-                    position = base_num + offset
+    def bands(values, expected, reverse=False):
+        """Cluster coordinates into ``expected`` lines of the grid.
 
-            # Place letter in matrix and save panel info
-            if position is not None:
-                row = position // number_of_columns
-                col = position % number_of_columns
-                if row < number_of_rows and col < number_of_columns:
-                    matrix[row][col] = letter
-                    letter_panels[position] = {
-                        'letter': letter,
-                        'panel_name': parent_name,
-                        'row': row,
-                        'col': col,
-                        'position': position,
-                        'object': parent
-                    }
-                    letter_objects[(row, col)] = parent
+        The tolerance is half a cell, taken from the board's OWN spread, so it
+        holds at any resolution. Both axes are banded by POSITION: assigning a
+        column by counting letters across a row would compact a row that has a
+        blank cell and shift every letter after it one place left.
+        """
+        ordered = sorted(set(values), reverse=reverse)
+        if not ordered:
+            return []
+        spread = abs(ordered[-1] - ordered[0])
+        tolerance = (spread / max(1, expected - 1) / 2.0) if spread else 1.0
+        out = []
+        for value in ordered:
+            if not out or abs(out[-1] - value) > tolerance:
+                out.append(value)
+        return out
+
+    if cells:
+        # Unity screen space counts y UP, so the largest y is row 0.
+        row_bands = bands([c['y'] for c in cells], number_of_rows, reverse=True)
+        col_bands = bands([c['x'] for c in cells], number_of_columns)
+        for cell in cells:
+            cell['row'] = min(range(len(row_bands)),
+                              key=lambda r: abs(row_bands[r] - cell['y']))
+            cell['col'] = min(range(len(col_bands)),
+                              key=lambda c: abs(col_bands[c] - cell['x']))
+
+        if len(row_bands) != number_of_rows or len(col_bands) != number_of_columns:
+            print(f"[WARN] crossword: the board shows "
+                  f"{len(row_bands)}x{len(col_bands)} but the activity reports "
+                  f"{number_of_rows}x{number_of_columns}")
+
+        for cell in cells:
+            row, col = cell['row'], cell.get('col')
+            if col is None or row >= number_of_rows or col >= number_of_columns:
+                continue
+            matrix[row][col] = cell['letter']
+            letter_panels[(row, col)] = {
+                'letter': cell['letter'], 'panel_name': cell['panel_name'],
+                'row': row, 'col': col, 'object': cell['object'],
+            }
+            letter_objects[(row, col)] = cell['object']
+
+    filled = sum(1 for r in matrix for c in r if c != 'empty')
+    print(f"[INFO] crossword: mapped {filled}/{number_of_rows * number_of_columns} cells "
+          f"from {len(cells)} lettered panel(s)")
 
     # Print the matrix
     print("\nCrossword Matrix:")

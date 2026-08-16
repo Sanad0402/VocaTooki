@@ -1449,15 +1449,27 @@ PASSWORD = "{password}"
     _GUEST_GENDER_LABELS = ("male", "female")
     _GUEST_DIFFICULTY_SUFFIXES = ("literacy", "proficiency")
 
+    # The English level a case picks maps to the school GRADE it stands for
+    # (user, 2026-08-14), and the grade is what the guest's name carries.
+    _GUEST_GRADES = {
+        "beginning literacy": "3rd",
+        "elementary proficiency": "4th",
+        "intermediate proficiency": "5th",
+        "advanced proficiency": "6th",
+    }
+
     @classmethod
     def _guest_last_name(cls, options: List[str]) -> str:
         """The guest's last name, carrying the two choices that define the run.
 
-        ``guest`` + the language's first two letters + the difficulty's initials
-        — "Arabic" + "Beginning Literacy" -> ``guestArBL``. A guest has no email
+        ``guest`` + the level's GRADE + the language's first two letters —
+        "Arabic" + "Beginning Literacy" -> ``guest3rdAr``. A guest has no email
         or id, so this name is the only way to tell one registration from
         another afterwards; deriving it means a case cannot silently register
         under a name that does not match what it selected.
+
+        A level with no grade mapped falls back to its initials, so an unknown
+        level still produces a distinct name instead of a colliding one.
         """
         language = difficulty = ""
         for option in options:
@@ -1471,8 +1483,10 @@ PASSWORD = "{password}"
         if not (language or difficulty):
             return ""
         short = re.sub(r"[^A-Za-z]", "", language)[:2].capitalize()
-        initials = "".join(w[0].upper() for w in re.findall(r"[A-Za-z]+", difficulty))
-        return f"guest{short}{initials}"
+        key = re.sub(r"\s+", " ", (difficulty or "").strip().lower())
+        grade = cls._GUEST_GRADES.get(key) or "".join(
+            w[0].upper() for w in re.findall(r"[A-Za-z]+", difficulty))
+        return f"guest{grade}{short}"
 
     def _gen_guest(self, tc_id, tc_name, test_func_name, description="",
                    steps=None, validation=None, elements=None) -> str:
@@ -1598,10 +1612,12 @@ FIRST_NAME = "{self._py_str(first, 60)}"
 LAST_NAME = "{self._py_str(last, 60)}"
 # What this case picks on the onboarding option screens, in any order.
 OPTIONS = {options_literal}
-# Rally: "tap on any level greater than 5 — verify it is locked". A guest's
-# accessible band is levels 1-4 on the live map; 5 is the exam (locked too, so
-# this case does not attempt it) and everything above it is locked.
-GUEST_LOCKED_LEVEL = 6
+# Rally: "tap on any level greater than 5 — verify it is locked". Checked at
+# level 9 (user, 2026-08-16): the level is pressed AFTER the exam has been
+# submitted, so the check has to sit well clear of anything finishing the exam
+# could have opened up — otherwise a level that legitimately unlocked would
+# read as a broken guest restriction.
+GUEST_LOCKED_LEVEL = 9
 # What the app must say when that level is pressed:
 #   "You've completed all free levels. Please subscribe to open more levels."
 # Kept as fragments so a typographic apostrophe or a re-wrap does not fail the

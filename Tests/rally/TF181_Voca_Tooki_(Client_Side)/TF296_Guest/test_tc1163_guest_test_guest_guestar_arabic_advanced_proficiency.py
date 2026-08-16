@@ -40,13 +40,15 @@ MANUAL_EDIT = False
 # first two letters + the difficulty's initials — so the registered guest can be
 # identified afterwards by what it selected (Rally said "guestAr").
 FIRST_NAME = "test guest"
-LAST_NAME = "guestArAP"
+LAST_NAME = "guest6thAr"
 # What this case picks on the onboarding option screens, in any order.
 OPTIONS = ["Arabic", "Advanced Proficiency", "Female"]
-# Rally: "tap on any level greater than 5 — verify it is locked". A guest's
-# accessible band is levels 1-4 on the live map; 5 is the exam (locked too, so
-# this case does not attempt it) and everything above it is locked.
-GUEST_LOCKED_LEVEL = 6
+# Rally: "tap on any level greater than 5 — verify it is locked". Checked at
+# level 9 (user, 2026-08-16): the level is pressed AFTER the exam has been
+# submitted, so the check has to sit well clear of anything finishing the exam
+# could have opened up — otherwise a level that legitimately unlocked would
+# read as a broken guest restriction.
+GUEST_LOCKED_LEVEL = 9
 # What the app must say when that level is pressed:
 #   "You've completed all free levels. Please subscribe to open more levels."
 # Kept as fragments so a typographic apostrophe or a re-wrap does not fail the
