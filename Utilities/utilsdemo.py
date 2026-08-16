@@ -1724,6 +1724,57 @@ def tap_empty_area(altdriver, tries=6):
     return False
 
 
+def is_on_screen(altdriver, target, margin=0.0):
+    """Is this object actually VISIBLE, or merely present in the hierarchy?
+
+    "It answers a find" proves nothing here — the app keeps hidden UI alive and
+    parked: a language row sat at y=-216, off screen, and still answered a find
+    by text (pressing it did nothing, which is how a Turkish case registered an
+    Arabic guest). So three independent signals are checked, and any one of
+    them saying "not shown" is enough:
+
+      * INSIDE THE VIEWPORT, measured against the app's own reported screen
+        size, so it holds at any resolution
+      * ACTIVE in the hierarchy
+      * NOT FADED OUT by a CanvasGroup (alpha 0 is a normal way to hide a panel
+        while leaving it in place, and it stays findable and positioned)
+
+    A signal the object does not carry is skipped rather than assumed.
+    """
+    obj = find_any(altdriver, target) if isinstance(target, str) else target
+    if obj is None:
+        return False
+    try:
+        x, y = float(obj.x), float(obj.y)
+    except (TypeError, ValueError):
+        return False
+
+    try:
+        width, height = (float(v) for v in altdriver.get_application_screensize())
+    except Exception:                                # noqa: BLE001
+        width = height = 0.0
+    if width and height:
+        mx, my = width * margin, height * margin
+        if not (mx <= x <= width - mx and my <= y <= height - my):
+            return False
+
+    try:
+        active = obj.get_component_property("UnityEngine.GameObject",
+                                            "activeInHierarchy", "UnityEngine.CoreModule")
+        if active is False or str(active).strip().lower() == "false":
+            return False
+    except Exception:                                # noqa: BLE001
+        pass
+
+    try:
+        alpha = obj.get_component_property("UnityEngine.CanvasGroup", "alpha", "UnityEngine")
+        if alpha is not None and float(alpha) <= 0.01:
+            return False
+    except Exception:                                # noqa: BLE001
+        pass
+    return True
+
+
 def dismiss_help_popup(altdriver, settle=0.4):
     """Close the parrot's instruction bubble. Returns True when it acted.
 
@@ -1737,7 +1788,7 @@ def dismiss_help_popup(altdriver, settle=0.4):
     """
     obj = find_any(altdriver, "HelpButton")
     if obj is not None and _press(obj):
-        logging.info("[Exam] closed the instruction popup via 'HelpButton'")
+        logging.info("[Help] closed the instruction popup via 'HelpButton'")
         time.sleep(settle)
         return True
     return tap_empty_area(altdriver)
@@ -1745,8 +1796,11 @@ def dismiss_help_popup(altdriver, settle=0.4):
 
 ACTIVITY_EXITS = ("prev", "BackButton", "X", "CloseButton", "Close")
 
-# How long an activity is given to build itself before it is inspected.
-GUEST_ACTIVITY_SETTLE_SECONDS = 3.0
+# How long an activity is given to build itself before it is touched. An
+# activity takes noticeably longer to settle than an exam page — its board
+# animates in — so its instruction bubble is only pressed after this. The exam
+# pages keep their own (shorter) timing, which was measured as fine.
+GUEST_ACTIVITY_SETTLE_SECONDS = 6.0
 
 # What each activity puts on screen, taken from the objects its own solver
 # drives. Only DISTINCTIVE names are listed: "Canvas", "Button" and "Text"
@@ -2152,6 +2206,191 @@ def visible_texts(altdriver, limit=40):
 # The app's own label for a popup's message ("You've completed all free levels.
 # Please subscribe to open more levels.").
 POPUP_MESSAGE_OBJECT = "MessageText"
+
+
+# The gate the app puts up once a guest finishes the free content: an "Image"
+# panel whose message lives on a "Text - RTLTMP" object, in the component
+# property ``originalText`` (get_text() returns the SHAPED/typed-out string,
+# which is why reading the label gave a fragment), closed with "OKButton".
+GUEST_GATE_PANEL = "Image"
+GUEST_GATE_TEXT = "Text - RTLTMP"
+GUEST_GATE_OK = "OKButton"
+GUEST_GATE_TEXT_PROPERTY = "originalText"
+# Closing the gate hands over to a second notice ("Web Purchase Unavailable"),
+# whose own button is called "Button". It has to be cleared as well: it covers
+# the map, so the locked-level press underneath would land on the popup.
+GUEST_GATE_FOLLOWUP_OK = "Button"
+# These panels animate in, so a press that arrives with the panel is swallowed.
+POPUP_CLICK_DELAY = 1.0
+
+
+# Where the app keeps a popup's untyped message (confirmed live, and by the
+# user): RTLTMPro's text component, whose "originalText" is the WHOLE string —
+# the rendered label only holds however much has been typed out so far.
+RTL_TEXT_COMPONENTS = (("RTLTMPro.RTLTextMeshPro", "RTLTMPro"),
+                       ("RTLTMPro.RTLTextMeshPro3D", "RTLTMPro"))
+
+
+def component_property(obj, prop):
+    """``prop`` from the component on ``obj`` that carries it, or "".
+
+    The known RTLTMPro components are tried first; only if neither answers is
+    the object asked what components it has, so a renamed or swapped text class
+    still resolves instead of failing silently.
+    """
+    for name, assembly in RTL_TEXT_COMPONENTS:
+        try:
+            value = obj.get_component_property(name, prop, assembly)
+        except Exception:                            # noqa: BLE001
+            continue
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    try:
+        components = obj.get_all_components() or []
+    except Exception:                                # noqa: BLE001
+        return ""
+    for component in components:
+        name = (component.get("componentName") or component.get("name") or "")
+        assembly = (component.get("assemblyName") or component.get("assembly") or "")
+        if not name:
+            continue
+        try:
+            value = obj.get_component_property(name, prop, assembly)
+        except Exception:                            # noqa: BLE001
+            continue
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def capture_evidence(altdriver, label, tc_id=""):
+    """A screenshot kept on purpose, not as a failure artefact. Returns a name.
+
+    Written into the run's own folder so it shows up with that run's frames in
+    the panel, and never counted against the per-run budget: these frames are
+    what a human looks at afterwards, so "we ran out of allowance" must not be
+    the reason one is missing.
+    """
+    try:
+        from runner import screenshots as _shots    # local: avoids a cycle
+        path = _shots.evidence(altdriver, label, tc_id=tc_id)
+        if path is not None:
+            return path.name
+    except Exception as e:                          # noqa: BLE001
+        logging.debug(f"[Shot] run-folder evidence unavailable: {e}")
+    return capture_failure_screenshot(altdriver, label)
+
+
+def guest_subscribe_gate(altdriver, expect=(), settle=None, timeout=30, tc_id=""):
+    """Wait for the post-exam subscribe gate, READ it, and close it.
+
+    Returns ``{"shown", "text", "closed", "note"}`` and never raises, so the
+    test can assert on the wording with the whole picture in the message.
+
+    The text is read from ``originalText`` rather than the rendered label: the
+    label types itself out, so reading it mid-animation returns a fragment —
+    ``originalText`` is the whole string from the moment the panel exists.
+    """
+    result = {"shown": False, "text": "", "closed": False, "note": "",
+              "followup": "", "followup_shown": False, "followup_closed": False,
+              "shots": []}
+    time.sleep(MAP_SETTLE_SECONDS if settle is None else settle)
+
+    if not wait_for_any(altdriver, (GUEST_GATE_OK, GUEST_GATE_PANEL), timeout=timeout):
+        result["note"] = (f"no subscribe gate appeared within {timeout}s "
+                          f"(looked for '{GUEST_GATE_OK}' / '{GUEST_GATE_PANEL}')")
+        return result
+    result["shown"] = True
+
+    # More than one object can be called "Text - RTLTMP"; take the one whose
+    # text actually reads like the gate, and fall back to everything found so a
+    # failure message shows what WAS on screen.
+    wanted = [w.lower() for w in expect if w]
+    candidates = []
+    try:
+        for obj in altdriver.find_objects(By.NAME, GUEST_GATE_TEXT) or []:
+            text = component_property(obj, GUEST_GATE_TEXT_PROPERTY)
+            if not text:
+                try:
+                    text = (obj.get_text() or "").strip()
+                except Exception:                    # noqa: BLE001
+                    text = ""
+            if text:
+                candidates.append(text)
+    except Exception as e:                           # noqa: BLE001
+        result["note"] = f"could not read the gate's text: {e}"
+
+    best = next((c for c in candidates
+                 if wanted and all(w in c.lower() for w in wanted)), "")
+    result["text"] = best or " ".join(candidates)
+    logging.info(f"[Guest] the subscribe gate says: {result['text']!r}")
+
+    # Photograph the gate BEFORE closing it — it is gone a second later.
+    shot = capture_evidence(altdriver, "guest-gate-subscribe", tc_id=tc_id)
+    if shot:
+        result["shots"].append(shot)
+
+    time.sleep(POPUP_CLICK_DELAY)                    # let the panel settle first
+    result["closed"] = bool(press_object(altdriver, GUEST_GATE_OK, timeout=6, settle=1.5))
+    if not result["closed"]:
+        result["note"] = (result["note"] + "; " if result["note"] else "") + \
+                         f"'{GUEST_GATE_OK}' did not close the gate"
+        return result
+
+    # The gate hands over to a "Web Purchase Unavailable" notice. Clear it too,
+    # or the next press lands on the popup instead of the map underneath.
+    if wait_for_any(altdriver, GUEST_GATE_FOLLOWUP_OK, timeout=8):
+        result["followup_shown"] = True
+        followup = ""
+        try:
+            for obj in altdriver.find_objects(By.NAME, GUEST_GATE_TEXT) or []:
+                text = component_property(obj, GUEST_GATE_TEXT_PROPERTY)
+                if text and len(text) > len(followup):
+                    followup = text
+        except Exception:                            # noqa: BLE001
+            pass
+        if followup:
+            logging.info(f"[Guest] follow-up notice: {followup!r}")
+        result["followup"] = followup
+        shot = capture_evidence(altdriver, "guest-gate-purchase-notice", tc_id=tc_id)
+        if shot:
+            result["shots"].append(shot)
+        time.sleep(POPUP_CLICK_DELAY)
+        result["followup_closed"] = bool(
+            press_object(altdriver, GUEST_GATE_FOLLOWUP_OK, timeout=6, settle=1.5))
+        if not result["followup_closed"]:
+            result["note"] = (result["note"] + "; " if result["note"] else "") + \
+                             f"the follow-up notice would not close via " \
+                             f"'{GUEST_GATE_FOLLOWUP_OK}'"
+
+    # The map with nothing in front of it: this is the frame that shows which
+    # levels are actually locked, which is the point of the whole check.
+    _guest_back_to_map(altdriver)
+    shot = capture_evidence(altdriver, "guest-map-after-gates", tc_id=tc_id)
+    if shot:
+        result["shots"].append(shot)
+        logging.info(f"[Guest] map frame saved: {shot}")
+    return result
+
+
+def guest_clear_data_notice(tc_id=""):
+    """Tell whoever is watching that the app must be reset before the next case.
+
+    A guest run deliberately does NOT log out at the end: the registration has
+    to be cleared from the device, and only a data clear plus an app restart
+    does that. Logging out instead would leave the guest registered and the
+    next case would resume it rather than registering its own.
+    """
+    banner = "=" * 72
+    for line in (banner,
+                 f"[Guest] {tc_id + ': ' if tc_id else ''}RUN FINISHED — the app was "
+                 f"left signed in as this guest, ON PURPOSE.",
+                 "[Guest] CLEAR THE APP DATA AND RESTART THE APP before the next "
+                 "guest test case,",
+                 "[Guest] or it will resume this guest instead of registering a new one.",
+                 banner):
+        logging.warning(line)
+        print(line)
 
 
 def popup_text(altdriver, settle=1.5, limit=40):

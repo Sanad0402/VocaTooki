@@ -126,19 +126,34 @@ def test_tc1165_guest_test_guest_guestfr_french_elementary_proficiency(altdriver
     #    open. Locked levels keep their icon, so the check is behavioural: press
     #    it and require the app stays on the map (a paywall/sign-up prompt counts
     #    as positive evidence and is reported).
+    # The subscribe gate the app raises once the exam is done and it is back on
+    # the map. Its message is read from 'originalText' rather than the rendered
+    # label — the label types itself out, so reading it returns whatever had
+    # been typed so far. Matched as FRAGMENTS: the apostrophe is typographic in
+    # some builds and the sentence wraps, while a gate that goes quiet, or
+    # offers something else, still fails. This is the proof that finishing the
+    # exam unlocked nothing.
+    gate = utilsdemo.guest_subscribe_gate(driver, expect=LOCKED_MESSAGE_FRAGMENTS,
+                                          tc_id=TC_ID)
+    assert gate["shown"], (
+        f"{TC_ID}: no subscribe gate after the exam — {gate['note']}")
+    missing = [f for f in LOCKED_MESSAGE_FRAGMENTS
+               if f.lower() not in (gate["text"] or "").lower()]
+    assert not missing, (
+        f"{TC_ID}: the subscribe gate did not say what it should "
+        f"(missing {missing}) — it said {gate['text']!r}")
+    assert gate["closed"], (
+        f"{TC_ID}: the subscribe gate would not close — {gate['note']}")
+    # The gate hands over to a "Web Purchase Unavailable" notice. If it showed
+    # and did not close, the locked-level press below would land on the POPUP
+    # and the app would stay on the map — which reads exactly like a locked
+    # level. Fail here instead of passing that check for the wrong reason.
+    assert not gate["followup_shown"] or gate["followup_closed"], (
+        f"{TC_ID}: the follow-up notice stayed on screen — {gate['note']}. "
+        f"It said {gate['followup']!r}")
+
     lock = utilsdemo.guest_level_locked(driver, level=GUEST_LOCKED_LEVEL)
     assert lock["locked"],         f"{TC_ID}: a level past the guest band was not locked — {lock['note']}"
-
-    # ...and it must SAY so. Read from the app's own message label
-    # (MessageText) once it stops typing itself out, and matched as FRAGMENTS:
-    # the apostrophe is typographic in some builds and the sentence wraps, but
-    # a gate that goes quiet — or offers something else — is a real regression.
-    # This is the proof that finishing the exam did not unlock anything.
-    shown = lock.get("text") or ""
-    missing = [f for f in LOCKED_MESSAGE_FRAGMENTS if f.lower() not in shown.lower()]
-    assert not missing, (
-        f"{TC_ID}: the locked level did not show the subscribe message "
-        f"(missing {missing}) — MessageText said {shown!r}")
 
     # 8. Rally steps that cannot be derived from the description — implement
     #    against the live app, then set MANUAL_EDIT = True to keep the code:
@@ -146,8 +161,9 @@ def test_tc1165_guest_test_guest_guestfr_french_elementary_proficiency(altdriver
     #   2. ℹ️ Activities were already solved in the Beginning Literacy test for French. Verify levels load correctly.
     #   3. Perform Clear Data to reset app state for the next test.
 
-    # 9. Reset for the next run (Rally: "Perform Clear Data"). Order matters:
-    #    log out FIRST, then clear Unity's data — clearing while the guest
-    #    session is live leaves it in memory and the next run resumes that guest
-    #    instead of registering a new one.
-    assert utilsdemo.reset_guest_data(driver),         f"{TC_ID}: could not reset the app (logout + clear data) after the run"
+    # 9. STOP HERE — deliberately no logout. Rally says "Perform Clear
+    #    Data", and that is a device-level reset a test cannot do: logging out
+    #    would leave this guest REGISTERED, so the next case would resume it
+    #    instead of registering its own. The run ends on the map, as this guest,
+    #    and says so in the log.
+    utilsdemo.guest_clear_data_notice(TC_ID)

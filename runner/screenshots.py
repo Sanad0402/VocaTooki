@@ -151,6 +151,35 @@ class Shooter:
         return path
 
 
+def evidence(driver, label, tc_id="", stamp=None):
+    """Save a frame that must ALWAYS be kept, whatever the budget has spent.
+
+    Some frames are the point of the run rather than a sample of it — the guest
+    flow's two gates and the map behind them are looked at deliberately, to see
+    which levels are locked. They land beside the budgeted frames of the same
+    run, under a name of their own so they cannot collide with them.
+
+    Returns the Path, or None; never raises.
+    """
+    if driver is None:
+        return None
+    run_id = _slug(f"{tc_id or 'run'}-{stamp or run_stamp()}", 80)
+    path = SHOTS_DIR / run_id / f"evidence-{_slug(label)}.png"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if not (path.parent / "meta.json").exists():
+            (path.parent / "meta.json").write_text(json.dumps({
+                "run_id": run_id, "label": str(tc_id or "run"),
+                "kind": "test", "stamp": str(stamp or run_stamp()),
+            }), encoding="utf-8")
+        driver.get_png_screenshot(str(path))
+        logger.info(f"[shots] evidence {run_id}/{path.name}")
+        return path
+    except Exception as e:                          # noqa: BLE001 - never fail a run
+        logger.warning(f"[shots] could not capture evidence '{label}': {e}")
+        return None
+
+
 def list_runs():
     """[{run_id, label, kind, stamp, count, files, modified}], newest first.
 

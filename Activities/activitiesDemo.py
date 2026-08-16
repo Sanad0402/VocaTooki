@@ -4206,6 +4206,54 @@ def exam_shuffled_context(altdriver, question_attempts=3):
         except Exception:
             return None
 
+    def settled(i, slot_idx, tile_idx, tries=6, pause=0.25):
+        """(slot, tile) once the board has STOPPED moving under them.
+
+        Placing a word takes it out of the bank and the words still waiting
+        REFLOW into the gap. A position read while that is happening describes
+        where the tile WAS, so the drag starts from empty space and silently
+        does nothing — which is exactly how one word of a long sentence stayed
+        behind while every shorter sentence passed.
+        """
+        previous = None
+        for _ in range(tries):
+            sl, tl = slots(i), tiles(i)
+            if slot_idx >= len(sl) or tile_idx >= len(tl):
+                return None, None
+            slot, tile = sl[slot_idx], tl[tile_idx]
+            here = (tile.x, tile.y, slot.x, slot.y)
+            if previous == here:
+                return slot, tile
+            previous = here
+            time.sleep(pause)
+        return slot, tile
+
+    def place(i, slot_idx, tile_idx, wanted, attempts=3):
+        """Drag one word into its blank and PROVE it landed. Returns bool.
+
+        Verified per WORD, not per pass: an unverified drag left the whole
+        question to be replayed, and the replay read the same moving board and
+        failed the same way, three times over.
+        """
+        for attempt in range(1, attempts + 1):
+            target, pick = settled(i, slot_idx, tile_idx)
+            if target is None or pick is None:
+                return False
+            if on_slot(pick, target):
+                return True                      # already there
+            if not (visible(target) and visible(pick)):
+                target, pick = in_view(i, slot_idx, tile_idx)
+                if target is None or pick is None or not (visible(target) and visible(pick)):
+                    print(f"[WARN] q{i + 1}: could not bring '{wanted}' into view")
+                    return False
+            drag(pick, target)
+            sl, tl = slots(i), tiles(i)
+            if (slot_idx < len(sl) and tile_idx < len(tl)
+                    and on_slot(tl[tile_idx], sl[slot_idx])):
+                return True
+            print(f"[WARN] q{i + 1}: '{wanted}' did not land (attempt {attempt}/{attempts})")
+        return False
+
     def in_view(i, slot_idx, tile_idx, steps=10):
         """(slot, tile) once BOTH are on screen, re-found after each nudge.
 
@@ -4265,12 +4313,7 @@ def exam_shuffled_context(altdriver, question_attempts=3):
                     print(f"[WARN] q{i + 1}: no free tile for '{wanted}'")
                     continue
                 used.add(ti)
-                # Both ends must be ON SCREEN or the gesture goes nowhere.
-                target, pick = in_view(i, si, ti)
-                if target is None or pick is None or not (visible(target) and visible(pick)):
-                    print(f"[WARN] q{i + 1}: could not bring '{wanted}' into view")
-                    continue
-                drag(pick, target)
+                place(i, si, ti, wanted)
 
             gaps_after = missing(i)
             if not gaps_after:
