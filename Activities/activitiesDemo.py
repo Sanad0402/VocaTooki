@@ -1605,6 +1605,14 @@ MAX_PASSES_PER_SENTENCE = 12
 ROW_HEIGHT_TOLERANCE = 30
 
 
+def _puzzle_progress(progress_object):
+    """How many sentences the game says are done, or None if unreadable."""
+    try:
+        return int(progress_object.get_text().split("/")[0])
+    except (AttributeError, IndexError, ValueError):
+        return None
+
+
 def solve_puzzles(altdriver):
     time.sleep(10)
     print("[INFO] Puzzle solver started...")
@@ -1626,6 +1634,10 @@ def solve_puzzles(altdriver):
     unsolved = []
     # Consecutive sentences in which no click moved a single piece.
     dead_boards = 0
+    # First piece id of each run already claimed by a sentence. Two sentences of
+    # one puzzle can read word for word the same, and without this the second
+    # would be handed the first one's pieces and never move.
+    used_windows = set()
 
     # ===== Timer Extension for Hard =====
     if total > 6:
@@ -1677,6 +1689,46 @@ def solve_puzzles(altdriver):
         pieces.sort(key=lambda p: (-p["obj"].y, p["obj"].x))
         return pieces
 
+    def piece_map():
+        """``{piece id: word}`` for every readable piece on the board."""
+        out = {}
+        for e in altdriver.get_all_elements():
+            if not e.name.isdigit() or not e.enabled:
+                continue
+            try:
+                word = e.get_component_property("PuzzlePiece", "text.text", "Assembly-CSharp")
+            except Exception:
+                continue
+            if word:
+                out[int(e.name)] = word
+        return out
+
+    def find_window(target_words, used):
+        """The run of pieces that IS this sentence, as ``(first id, last id)``.
+
+        The board is one grid of slots (168 of them on a hard puzzle) and a
+        sentence owns a CONTIGUOUS run of piece ids -- which is what the
+        `group_ranges` table above was guessing at. Guessing it is the whole
+        bug: when the guess drifts, the solver picks up same-word pieces
+        belonging to a neighbouring sentence and swaps those instead, so the
+        sentence it is trying to build never changes. Two sentences of a puzzle
+        can read word for word the same, so `used` keeps the second one from
+        being handed the first one's pieces.
+        """
+        pieces = piece_map()
+        ids = sorted(pieces)
+        want = Counter(target_words)
+        size = len(target_words)
+        for start in range(len(ids) - size + 1):
+            run = ids[start:start + size]
+            if run[-1] - run[0] != size - 1:         # must be consecutive slots
+                continue
+            if run[0] in used:
+                continue
+            if Counter(pieces[k] for k in run) == want:
+                return run[0], run[-1]
+        return None
+
     def read_rows(target_words):
         """The board's ROWS that hold this sentence, top row first.
 
@@ -1708,6 +1760,15 @@ def solve_puzzles(altdriver):
         return rows
 
     for i in range(total):
+        # The puzzle may already be part-done (a retry resumes a board that a
+        # previous attempt got most of the way through), and it ENDS the moment
+        # the count is full. Without this the loop kept playing phantom
+        # sentences on a finished board and called that a failure.
+        done_now = _puzzle_progress(progress)
+        if done_now is not None and done_now >= total:
+            print(f"[DONE] the puzzle is complete ({done_now}/{total}).")
+            break
+
         print(f"\n--- Sentence {i+1}/{total} ---")
         time.sleep(0.5)
 
@@ -1718,10 +1779,17 @@ def solve_puzzles(altdriver):
         ).split()
         print("[TARGET]", " ".join(target))
 
-        start_idx, end_idx = group_ranges[i] if i < len(group_ranges) else (0, 9999)
-        # Widened to the whole board the moment the guessed window comes up
-        # short, and it stays widened for this sentence.
-        window = (start_idx, end_idx)
+        # Which pieces ARE this sentence: found on the board, not guessed from
+        # a difficulty table. The guessed table stays as a fallback for a board
+        # this cannot read.
+        window = find_window(target, used_windows)
+        if window is not None:
+            used_windows.add(window[0])
+            print(f"[PIECES] sentence {i+1} is pieces {window[0]}-{window[1]}")
+        else:
+            window = group_ranges[i] if i < len(group_ranges) else (0, 9999)
+            print(f"[PIECES] no run of pieces spells this sentence - falling back "
+                  f"to the guessed window {window[0]}-{window[1]}")
 
         # A sentence is rearranged in PASSES, and the pass count is bounded.
         # Nothing here guarantees the board can reach the target: the index
@@ -1790,7 +1858,11 @@ def solve_puzzles(altdriver):
                         break
                     print(f" [ROW] that row does not move under a click - "
                           f"trying board row {row_choice} instead.")
-                    stalled, previous = 0, None
+                    # Reading a DIFFERENT row changes `current` without a single
+                    # piece having moved, so the movement check restarts here.
+                    # Otherwise switching rows looks like progress and the
+                    # dead-board exit below never fires.
+                    stalled, previous, first_seen = 0, None, None
                     continue
             else:
                 stalled = 0

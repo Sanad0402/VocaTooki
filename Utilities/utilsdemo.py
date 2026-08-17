@@ -2467,6 +2467,7 @@ TI_MISSIONS_BUTTON = "TaskSummary"        # the clipboard, top left
 TI_LEVEL_TEXT = "LevelText"               # "Level 1"
 TI_PERCENT_TEXT = "PercentText"           # "0%"
 TI_ROW = "CategorySummaryRow(Clone)"      # one per required skill
+TI_ROW_PLAY = "PlayButton"                # gone once the skill is complete
 TI_MISSIONS_EXIT = "ExitButton"
 TI_ISLAND_PREFIX = "Category_"            # Category_3-Context, ...
 TI_LOCK_HOLDER = "Lock-Place_Holder"
@@ -2538,10 +2539,29 @@ def ti_missions(altdriver):
                 "UnityEngine.UI.Slider", "value", "UnityEngine.UI"))
         except Exception:                            # noqa: BLE001
             pass
+
+        # A FINISHED skill swaps its row to the completion layer, and the
+        # slider stops answering — reading that as "progress unknown" would
+        # send the run off to replay a skill it had already completed.
+        # A FINISHED skill's row loses its Play button, its Progress and its
+        # slider outright — measured live, they stop resolving. That absence is
+        # the completion signal: `completedIcon` is no use because it exists on
+        # every row finished or not, and its active flag cannot be read (the
+        # property raises on these objects).
+        has_play = True
+        try:
+            altdriver.find_object(By.PATH, f"//{TI_ROW}[{i}]//{TI_ROW_PLAY}")
+        except Exception:                            # noqa: BLE001
+            has_play = False
+        done = progress is None and not has_play
+        if done:
+            progress = 1.0
+
         rows.append({
             "index": i,
             "skill": skill,
             "progress": progress,
+            "done": done,
             "automatable": skill.strip().lower() not in TI_NO_AUTOMATION,
         })
     return rows
@@ -2566,24 +2586,19 @@ def ti_press_row_play(altdriver, index, settle=4.0):
 
 
 def _ti_elements(altdriver):
-    """``(elements, by_id)`` for one walk of the scene tree."""
+    """``(elements, by_id)`` for one walk of the scene tree, INACTIVE included.
+
+    ``get_all_elements()`` defaults to ``enabled=True``, and that breaks the
+    walk from a building up to its island: one inactive node in the chain and
+    the walk simply stops. That is how a live run reported "Category_2-Reading
+    has no buildings to play" about an island covered in them.
+    """
     try:
-        elements = altdriver.get_all_elements() or []
+        elements = altdriver.get_all_elements(enabled=False) or []
     except Exception as e:                           # noqa: BLE001
         logging.error(f"[TI] could not read the scene: {e}")
         return [], {}
     return elements, {e.id: e for e in elements}
-
-
-def _ti_descends_from(obj, ancestor_id, by_id, hops=14):
-    """Is ``obj`` somewhere under ``ancestor_id``?"""
-    current, seen = obj, 0
-    while current is not None and seen < hops:
-        if current.id == ancestor_id:
-            return True
-        current = by_id.get(current.transformParentId)
-        seen += 1
-    return False
 
 
 def ti_island_for_skill(altdriver, skill):
@@ -2611,40 +2626,41 @@ def ti_island_locked(altdriver, island):
     The lock is PER ISLAND (`Category_N-X/Lock-Place_Holder/GO-TI-Lock_Fog`), so
     a bare search for the fog object answers about whichever island happens to
     be locked rather than about this one.
+
+    Measured live: the fog object EXISTS only under a locked island (Writing had
+    one, the four open islands had none), so its presence is the answer and no
+    active flag has to be read — which matters, because reading one off these
+    objects raises.
     """
-    elements, by_id = _ti_elements(altdriver)
-    island_obj = next((e for e in elements if e.name == island), None)
-    if island_obj is None:
-        return False
     try:
-        fogs = altdriver.find_objects(By.NAME, TI_LOCK_FOG) or []
+        return bool(altdriver.find_objects(By.PATH, f"//{island}//{TI_LOCK_FOG}"))
     except Exception:                                # noqa: BLE001
         return False
-    return any(_ti_descends_from(by_id.get(fog.id, fog), island_obj.id, by_id)
-               for fog in fogs)
 
 
 def ti_buildings(altdriver, island):
     """The activity buildings on one island, by object name.
 
+    Found by PATH, under the island itself. Walking up from a building instead
+    cannot work: an object's ``transformParentId`` is a TRANSFORM id while its
+    ``id`` is a GameObject id, so the two never match and every island came
+    back empty.
+
     The buildings are NAMED FOR THEIR ACTIVITY, which is the whole reason this
     is automatable: `GO-TI-Puzzles Variant(Clone)` opens the puzzles activity,
     for which a solver already exists.
     """
-    elements, by_id = _ti_elements(altdriver)
-    island_obj = next((e for e in elements if e.name == island), None)
-    if island_obj is None:
-        logging.error(f"[TI] no island object named '{island}'")
+    try:
+        found = altdriver.find_objects(By.PATH, f"//{island}//Cntrl_Resize/*") or []
+    except Exception as e:                           # noqa: BLE001
+        logging.error(f"[TI] could not read {island}'s buildings: {e}")
         return []
-    names = []
-    for element in elements:
-        if not element.name.startswith(TI_BUILDING_PREFIX):
-            continue
-        if "Variant(Clone)" not in element.name:     # locks, tubes, bars
-            continue
-        if _ti_descends_from(element, island_obj.id, by_id):
-            names.append(element.name)
-    return sorted(set(names))
+    names = {obj.name for obj in found
+             if obj.name.startswith(TI_BUILDING_PREFIX)
+             and "Variant(Clone)" in obj.name}       # not locks, tubes or bars
+    if not names:
+        logging.error(f"[TI] no buildings found under '{island}'")
+    return sorted(names)
 
 
 def ti_play_building(altdriver, building, timeout=90, tc_id=""):
@@ -2754,16 +2770,24 @@ def treasure_island_check(altdriver, username=None, password=None, tc_id="",
             continue
 
         while plays < max_plays:
+            # Read the row from an OPEN mission list. Playing an activity closes
+            # it, and rows read against a closed list come back empty — which
+            # reads as "progress unknown" and sends the run round again.
+            if not ti_open_missions(altdriver, timeout=timeout):
+                report["problems"].append(f"{skill}: the mission list would not open")
+                break
             current = next((m for m in ti_missions(altdriver) if m["index"] == index), None)
             progress = (current or {}).get("progress")
             report["skills"][skill]["after"] = progress
-            if progress is not None and progress >= TI_COMPLETE:
+            # A finished skill has no Play button at all — its row swaps to the
+            # completion layer — so "done" has to be believed before the run
+            # tries to press one that is not there.
+            if (current or {}).get("done") or (progress is not None
+                                               and progress >= TI_COMPLETE):
                 logging.info(f"[TI] '{skill}' is complete")
+                report["skills"][skill]["after"] = 1.0
                 break
 
-            if not ti_open_missions(altdriver, timeout=timeout):
-                report["problems"].append(f"{skill}: the mission list would not reopen")
-                break
             if not ti_press_row_play(altdriver, index):
                 report["problems"].append(f"{skill}: its Play button could not be pressed")
                 break
