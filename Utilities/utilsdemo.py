@@ -361,6 +361,10 @@ def run_activity(altdriver, activity):
     except Exception as popup_err:
         print(f"[WARN] Could not process 'Last Attempt' popup: {popup_err}")
 
+    # The instructions parrot covers the board with BlockScreenWithoutClick when
+    # an activity opens; until it is clicked away every press lands on it.
+    dismiss_screen_blocker(altdriver)
+
     try:
         if scene == 'CROSSWORD2':
             print("[INFO] Waiting 15 seconds for CROSSWORD2 to load")
@@ -2468,6 +2472,7 @@ TI_LEVEL_TEXT = "LevelText"               # "Level 1"
 TI_PERCENT_TEXT = "PercentText"           # "0%"
 TI_ROW = "CategorySummaryRow(Clone)"      # one per required skill
 TI_ROW_PLAY = "PlayButton"                # gone once the skill is complete
+TI_PANEL_PLAY = "PlayButton"              # the SAME name on a building's panel
 TI_MISSIONS_EXIT = "ExitButton"
 TI_ISLAND_PREFIX = "Category_"            # Category_3-Context, ...
 TI_LOCK_HOLDER = "Lock-Place_Holder"
@@ -2485,6 +2490,26 @@ TI_NO_AUTOMATION = ("speaking",)
 
 # A mission slider is 0.0 .. 1.0; this is what counts as finished.
 TI_COMPLETE = 0.999
+
+# How long the building's activity panel is given to finish fading in before
+# its Play is pressed, and how many times that press is repeated when the
+# activity does not start. Both measured live (2026-08-17).
+TI_PANEL_SETTLE_SECONDS = 3.0
+TI_PLAY_ATTEMPTS = 3
+
+
+def _wait_leaves_scene(altdriver, scene, timeout=15, poll=0.5):
+    """Wait until the app is no longer in ``scene``. Returns bool.
+
+    Used as PROOF that a press landed: on Treasure Island nothing else
+    distinguishes a Play that started an activity from one the panel swallowed.
+    """
+    end = time.time() + timeout
+    while time.time() < end:
+        if _current_scene(altdriver) != scene:
+            return True
+        time.sleep(poll)
+    return False
 
 
 def ti_skip_intro(altdriver):
@@ -2680,13 +2705,35 @@ def ti_play_building(altdriver, building, timeout=90, tc_id=""):
         out["note"] = f"'{building}' opened no activity panel"
         return out
 
-    try:
-        before = call_method(altdriver, "AltTesterUtils", "GetCurrentActivity")
-    except Exception:                                # noqa: BLE001
-        before = None
+    # The panel fades in, and a Play pressed into that animation is SWALLOWED —
+    # the panel just stays open. Measured live: the very press that did nothing
+    # mid-animation started the activity once the panel had settled. So the
+    # press is proven by the scene leaving Treasure Island, and repeated when
+    # it is not, instead of being assumed to have landed.
+    time.sleep(TI_PANEL_SETTLE_SECONDS)
+    started = False
+    for attempt in range(1, TI_PLAY_ATTEMPTS + 1):
+        press_object(altdriver, TI_PANEL_PLAY, settle=2.0)
+        if _wait_leaves_scene(altdriver, TREASURE_ISLAND_SCENE, timeout=15):
+            started = True
+            break
+        logging.warning(f"[TI] Play did not start '{building}' "
+                        f"(attempt {attempt}/{TI_PLAY_ATTEMPTS}) — the panel is still up")
+        time.sleep(2)
+    if not started:
+        out["note"] = (f"'{building}' opened its panel but Play never started the "
+                       f"activity after {TI_PLAY_ATTEMPTS} presses")
+        capture_evidence(altdriver, f"ti-{building}-play-stuck", tc_id=tc_id)
+        return out
 
-    press_object(altdriver, "PlayButton", settle=3.0)
-    activity = _get_current_activity_with_retry(altdriver, prev_scene=before)
+    # Ask WHICH activity, not for a CHANGE of activity. The scene leaving
+    # Treasure Island above already proved one started, and a run plays the
+    # same building twice all the time (a skill usually needs more than one go)
+    # — demanding a different name then spins through every retry wait, seven
+    # minutes of "scene still UNSCRAMBLE_QUIZ", and gives up on a run that was
+    # working perfectly.
+    activity = _get_current_activity_with_retry(altdriver, max_attempts=6,
+                                                waits=(2, 3, 5, 8, 12))
     if not activity:
         out["note"] = f"'{building}' did not start an activity"
         return out
@@ -2811,6 +2858,10 @@ def treasure_island_check(altdriver, username=None, password=None, tc_id="",
             after = next((m for m in ti_missions(altdriver) if m["index"] == index), None)
             moved = (after or {}).get("progress")
             report["skills"][skill]["after"] = moved
+            # Say what the activity was WORTH. Without this a skill that needs
+            # several plays looks identical to one that is not advancing at all.
+            logging.info(f"[TI] '{skill}' {progress} -> {moved} after "
+                         f"{outcome['activity'] or outcome['building']}")
             if moved is not None and progress is not None and moved <= progress:
                 report["problems"].append(
                     f"{skill}: finishing {outcome['activity']} left its progress at "
@@ -2945,6 +2996,9 @@ def _solve_open_activity(altdriver, scene, label="", settle_tries=10):
         return False
 
     dismiss_replay_popup(altdriver)
+    # The instructions parrot blocks the whole screen until it is clicked, and
+    # every press the solver makes would land on the blocker, not the board.
+    dismiss_screen_blocker(altdriver)
     try:
         solver(altdriver)
     except Exception as e:                       # noqa: BLE001
@@ -3860,6 +3914,37 @@ def wait_for_finish_feedback(altdriver, timeout=25):
     return False
 
 
+# The full-screen catcher that comes up with the INSTRUCTIONS PARROT when an
+# activity opens. Its name says what it does: it blocks the screen until it is
+# clicked. (The user named this object, 2026-08-17.)
+SCREEN_BLOCKER = "BlockScreenWithoutClick"
+
+
+def dismiss_screen_blocker(altdriver, tries=3, settle=1.0):
+    """Click the instructions parrot away if it is up. Returns bool.
+
+    An activity opens with the parrot reading out its instructions, over a
+    full-screen `BlockScreenWithoutClick`. Until that is clicked away every
+    press the solver makes lands on the blocker instead of the board, so the
+    activity scores nothing and it looks like a solver that cannot play.
+
+    Any click dismisses it, and the blocker is ITSELF a full-screen object — so
+    clicking the object does it without tapping a coordinate (see
+    [[no-coordinate-based-clicks]]).
+    """
+    dismissed = False
+    for _ in range(tries):
+        blocker = find_any(altdriver, SCREEN_BLOCKER)
+        if blocker is None:
+            break
+        if not _press(blocker):
+            break
+        dismissed = True
+        logging.info(f"[Activity] clicked '{SCREEN_BLOCKER}' away (the parrot's bubble)")
+        time.sleep(settle)
+    return dismissed
+
+
 def dismiss_replay_popup(altdriver):
     """Close the 'last attempt' notice that blocks a replayed activity.
 
@@ -4002,6 +4087,7 @@ def _play_activity(altdriver, target_scene, solvers, result):
     """
     result["found"] = True
     dismiss_replay_popup(altdriver)          # replayed activities are blocked by it
+    dismiss_screen_blocker(altdriver)        # so is the instructions parrot
     solvers[target_scene](altdriver)
     time.sleep(2)
     done, tot = read_activity_progress(altdriver)
