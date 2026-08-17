@@ -1594,6 +1594,17 @@ def _button_interactable(next_btn):
         return getattr(next_btn, "enabled", False)
 
 
+# How many rearrange passes one sentence gets before the solver moves on. A
+# pass is a full sweep over the sentence, so a solvable board is done in one or
+# two; this only ever stops a board that CANNOT be assembled from the pieces
+# the solver can read.
+MAX_PASSES_PER_SENTENCE = 12
+
+# Pieces of one sentence row share a y; this is how far apart two pieces may
+# sit and still count as the same row.
+ROW_HEIGHT_TOLERANCE = 30
+
+
 def solve_puzzles(altdriver):
     time.sleep(10)
     print("[INFO] Puzzle solver started...")
@@ -1601,8 +1612,20 @@ def solve_puzzles(altdriver):
     progress = altdriver.find_object(By.NAME, "ProgressText")
     manager = altdriver.find_object(By.NAME, "PuzzlesManager")
 
-    total = int(progress.get_text().split("/")[1])
+    # "3/6" — the second half is how many sentences this puzzle has.
+    raw = progress.get_text()
+    try:
+        total = int(raw.split("/")[1])
+    except (IndexError, ValueError) as e:
+        raise AssertionError(
+            f"PUZZLES: ProgressText read {raw!r}, which is not 'done/total' - "
+            f"the sentence count is unknown, so the puzzle cannot be played.") from e
     print(f"[INFO] Total sentences: {total}")
+
+    # Sentences that could not be assembled; reported together at the end.
+    unsolved = []
+    # Consecutive sentences in which no click moved a single piece.
+    dead_boards = 0
 
     # ===== Timer Extension for Hard =====
     if total > 6:
@@ -1654,6 +1677,36 @@ def solve_puzzles(altdriver):
         pieces.sort(key=lambda p: (-p["obj"].y, p["obj"].x))
         return pieces
 
+    def read_rows(target_words):
+        """The board's ROWS that hold this sentence, top row first.
+
+        The index windows above are per-difficulty guesses. When one drifts,
+        `read_pieces` happily returns pieces belonging to a DIFFERENT row --
+        and clicking those does nothing at all, because they are not the row
+        being played. Two sentences with the same words (the puzzle repeats
+        them) make that certain rather than unlucky. Pieces of one row share a
+        y, so grouping by y gives the real candidates to try instead.
+        """
+        by_row = {}
+        for e in altdriver.get_all_elements():
+            if not e.name.isdigit() or not e.enabled:
+                continue
+            try:
+                word = e.get_component_property("PuzzlePiece", "text.text", "Assembly-CSharp")
+            except Exception:
+                continue
+            if word:
+                by_row.setdefault(round(float(e.y) / ROW_HEIGHT_TOLERANCE), []).append(
+                    {"obj": e, "text": word})
+
+        want = Counter(target_words)
+        rows = []
+        for key, row in sorted(by_row.items(), key=lambda kv: -kv[0]):
+            if Counter(p["text"] for p in row) == want:
+                row.sort(key=lambda p: (-p["obj"].y, p["obj"].x))
+                rows.append(row)
+        return rows
+
     for i in range(total):
         print(f"\n--- Sentence {i+1}/{total} ---")
         time.sleep(0.5)
@@ -1666,15 +1719,82 @@ def solve_puzzles(altdriver):
         print("[TARGET]", " ".join(target))
 
         start_idx, end_idx = group_ranges[i] if i < len(group_ranges) else (0, 9999)
+        # Widened to the whole board the moment the guessed window comes up
+        # short, and it stays widened for this sentence.
+        window = (start_idx, end_idx)
 
-        while True:
-            pieces = read_pieces(target, start_idx, end_idx)
+        # A sentence is rearranged in PASSES, and the pass count is bounded.
+        # Nothing here guarantees the board can reach the target: the index
+        # windows above are per-difficulty guesses, so a window that misses a
+        # piece leaves `pieces` shorter than the sentence, every index falls
+        # through `idx >= len(pieces)`, and no click is ever made. That is how
+        # `while True` used to sit on the puzzle forever with the run hung.
+        solved = False
+        previous = None
+        stalled = 0
+        # Did ANY click move this board? A puzzle that has ended (or timed out)
+        # keeps its pieces on screen and keeps reporting a currentSentence_,
+        # but ignores every click -- see the dead-board check after the loop.
+        first_seen = None
+        moved = False
+        # None = the guessed index window (what has always worked); 0, 1, ... =
+        # the board's rows holding this sentence, tried in turn when the window
+        # picks a row whose pieces do not respond to a click.
+        row_choice = None
+
+        def read_now():
+            nonlocal window
+            if row_choice is not None:
+                rows = read_rows(target)
+                return rows[row_choice] if row_choice < len(rows) else []
+            found = read_pieces(target, *window)
+            if len(found) < len(target) and window != (0, 9999):
+                # The window missed pieces - read the WHOLE board rather than
+                # spin on a view that can never match the sentence. It stays
+                # widened for the rest of this sentence, so the re-reads after
+                # each swap below see the same pieces this pass did.
+                print(f" [WIDEN] window {window[0]}-{window[1]} found "
+                      f"{len(found)}/{len(target)} pieces - reading every piece.")
+                window = (0, 9999)
+                found = read_pieces(target, *window)
+            return found
+
+        for _pass in range(1, MAX_PASSES_PER_SENTENCE + 1):
+            pieces = read_now()
             current = [p["text"] for p in pieces]
             print("[CURRENT]", " ".join(current))
 
+            if first_seen is None:
+                first_seen = current
+            elif current != first_seen:
+                moved = True
+
             if current == target:
                 print(f"[OK] Sentence solved.")
+                solved = True
                 break
+
+            # Two passes that change nothing will not start working on a third:
+            # the swap rule is deterministic, so the same board makes the same
+            # moves. A row that does not move under a click is the WRONG row,
+            # so switch to the next candidate rather than giving up on the
+            # sentence -- that is what left "The uncle lives in Berlin." unbuilt
+            # while its pieces sat one row away.
+            if current == previous:
+                stalled += 1
+                if stalled >= 2:
+                    row_choice = 0 if row_choice is None else row_choice + 1
+                    if row_choice >= len(read_rows(target)):
+                        print(f" [STALL] no row of the board responds - giving up "
+                              f"on sentence {i + 1}.")
+                        break
+                    print(f" [ROW] that row does not move under a click - "
+                          f"trying board row {row_choice} instead.")
+                    stalled, previous = 0, None
+                    continue
+            else:
+                stalled = 0
+            previous = current
 
             visited = set()
 
@@ -1702,7 +1822,10 @@ def solve_puzzles(altdriver):
                     continue
 
                 visited.add(idx)
-                print(f" [SWAP] '{have}' ↔ '{want}' (idx={idx}, j={cand_idx})")
+                # ASCII only: this solver has to survive a cp1252 console. A
+                # '<->' here used to be a U+2194, and printing it killed the
+                # run mid-sentence outside the panel (which sets UTF-8 itself).
+                print(f" [SWAP] '{have}' <-> '{want}' (idx={idx}, j={cand_idx})")
                 a_obj, b_obj = pieces[idx]["obj"], pieces[cand_idx]["obj"]
 
                 try:
@@ -1714,14 +1837,14 @@ def solve_puzzles(altdriver):
                     print(" [WARNING] Swap click failed.")
                     continue
 
-                pieces = read_pieces(target, start_idx, end_idx)
+                pieces = read_now()
                 current = [p["text"] for p in pieces]
                 print("[AFTER SWAP]", " ".join(current))
 
                 if idx < len(current) and current[idx] == want:
                     print(f" [VALID] '{want}' now correctly placed.")
                 else:
-                    print(f" [REVERT] '{want}' not correct — reverting.")
+                    print(f" [REVERT] '{want}' not correct - reverting.")
                     try:
                         a_obj.click()
                         time.sleep(1)
@@ -1730,11 +1853,31 @@ def solve_puzzles(altdriver):
                     except Exception:
                         print(" [WARNING] Revert failed.")
 
-                    pieces = read_pieces(target, start_idx, end_idx)
+                    pieces = read_now()
                     current = [p["text"] for p in pieces]
                     print("[AFTER REVERT]", " ".join(current))
 
             time.sleep(0.5)
+
+        if not solved:
+            unsolved.append(i + 1)
+            print(f"[WARN] Sentence {i+1}/{total} was not assembled - moving on.")
+
+        # A puzzle that has ENDED -- finished, or its timer ran out -- leaves
+        # the pieces on screen and keeps answering currentSentence_, but takes
+        # no clicks at all. Grinding through the remaining sentences on a board
+        # like that buys nothing, so stop as soon as it is recognisable: two
+        # sentences running where not one click moved anything.
+        if not solved and not moved:
+            dead_boards += 1
+            if dead_boards >= 2:
+                raise AssertionError(
+                    f"PUZZLES: the board stopped responding at sentence "
+                    f"{i + 1}/{total} (ProgressText {progress.get_text()!r}). No "
+                    f"click moved a piece across two sentences, so the puzzle is "
+                    f"over or frozen -- there is nothing left to play.")
+        else:
+            dead_boards = 0
 
         print("[NEXT] Clicking next button...")
         try:
@@ -1746,6 +1889,16 @@ def solve_puzzles(altdriver):
 
         print("[WAIT] Waiting 5s for next sentence to load...")
         time.sleep(6.5)
+
+    # Say what happened instead of reporting success for a board that was left
+    # half-built. Raising hands it to the caller's 3-attempt retry (utilsdemo),
+    # which re-reads the board — and a failure that is REPORTED can be chased,
+    # where a hang could only be killed.
+    if unsolved:
+        raise AssertionError(
+            f"PUZZLES: {len(unsolved)} of {total} sentence(s) could not be "
+            f"assembled (sentence {unsolved}). The pieces the solver could read "
+            f"never matched the target sentence.")
 
     print("\n[SUCCESS] All puzzles processed!")
 # Example of how to run the script:
