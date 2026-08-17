@@ -1168,6 +1168,25 @@ PASSWORD = "{password}"
     utilsdemo.return_to_map(driver)
 '''
 
+    # Phrases that mean the case wants something DONE inside the feature, not
+    # merely the feature opened. Deliberately narrow: an ordinary page case
+    # ("Open the Events page successfully") matches none of them.
+    _BEYOND_A_PAGE = (
+        "100%", "goes up", "raises the", "until its progress", "reaches 100",
+        "completing the", "complete the activity", "must go up", "increases",
+    )
+
+    @classmethod
+    def _asks_for_more_than_a_page(cls, tc_name: str, description: str = "") -> bool:
+        """Does this case ask for more than opening the screen?
+
+        The page template can only prove a screen appeared. When the case is
+        really about playing something, generating a passing page test hides
+        the gap behind a green tick -- so callers turn this into a loud skip.
+        """
+        hay = f"{tc_name or ''} {description or ''}".lower()
+        return any(phrase in hay for phrase in cls._BEYOND_A_PAGE)
+
     def _gen_page(self, tc_id, tc_name, user_data, test_func_name,
                   description="", steps=None, nodeid="") -> str:
         """"Open <feature> and check it is there" test.
@@ -1192,6 +1211,18 @@ PASSWORD = "{password}"
             reason = (f"{tc_id}: no credentials on the Rally case — add "
                       f"Username/Password so the test can reach the start screen, "
                       f"then re-sync.")
+            guard = ('@pytest.mark.stub\n'
+                     f'@pytest.mark.skip(reason="{self._py_str(reason)}")\n')
+        elif self._asks_for_more_than_a_page(tc_name, description):
+            # This template only proves the screen APPEARED. A case that asks
+            # for work INSIDE the feature ("until its progress reaches 100%",
+            # "the level goes up") would pass here having done none of it — a
+            # green result that verified nothing, which is worse than no test.
+            # Skip loudly and name what is missing.
+            reason = (f"{tc_id}: this Rally case asks for work inside the feature, "
+                      f"but no flow is implemented for it — only 'open the page' is. "
+                      f"A pass here would prove nothing. Implement the flow, or "
+                      f"reword the case to be about opening the page.")
             guard = ('@pytest.mark.stub\n'
                      f'@pytest.mark.skip(reason="{self._py_str(reason)}")\n')
 
