@@ -2828,11 +2828,28 @@ def treasure_island_check(altdriver, username=None, password=None, tc_id="",
             if s not in report["skipped"] and (v.get("after") or 0) >= TI_COMPLETE]
     report["ok"] = (bool(done) and not report["problems"]
                     and report["level_after"] != report["level_before"])
-    if not report["ok"] and not report["note"]:
-        report["note"] = (
-            f"completed {done or 'no'} skill(s); level {report['level_before']!r} -> "
-            f"{report['level_after']!r}; skipped (no automation): {report['skipped']}; "
-            f"problems: {report['problems']}")
+
+    # What was NOT automated is said in the note ALWAYS — on a pass as much as
+    # on a failure. A green result that never mentions Speaking reads as though
+    # every required skill was exercised, and it was not: there is no solver for
+    # it in this framework. The user asked for this to be in the result.
+    notes = []
+    if report["skipped"]:
+        notes.append(
+            f"NOT AUTOMATED — no solver exists in this framework for: "
+            f"{', '.join(report['skipped'])}. "
+            f"{'That skill was' if len(report['skipped']) == 1 else 'Those skills were'} "
+            f"skipped and NOT verified by this run.")
+    notes.append(f"Completed: {', '.join(done) if done else 'no skill'}. "
+                 f"Level {report['level_before'] or '?'} -> {report['level_after'] or '?'} "
+                 f"({percent_before} -> {percent_after}).")
+    if report["plays"]:
+        notes.append(f"Played: {'; '.join(report['plays'])}.")
+    if report["problems"]:
+        notes.append(f"Problems: {report['problems']}.")
+    # A note set earlier (the run never got started) is the whole story.
+    report["note"] = report["note"] or " ".join(notes)
+    logging.info(f"[TI] {report['note']}")
     return report
 
 

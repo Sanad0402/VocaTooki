@@ -536,6 +536,7 @@ class RunManager:
                     done = sum(1 for c in self.cases if c["status"] not in ("PENDING", "RUNNING"))
                     self._update_case(idx, status=status, duration=_fmt_dur(rec.get("duration", 0)),
                                       error=rec.get("error", ""),
+                                      note=rec.get("note", ""),
                                       screenshot=os.path.basename(rec.get("screenshot", "") or ""))
                     # Feed the release status tab: an automated run counts as
                     # coverage for whichever platform the runner is testing.
@@ -579,6 +580,8 @@ class RunManager:
                     f.write(f"{c['tc_id']} - {c['tc_name']}\n")
                     f.write(f"  User    : {c['username']}\n")
                     f.write(f"  Status  : {c['status']}   Duration: {c['duration']}\n")
+                    if c.get("note"):
+                        f.write(f"  Note    : {c['note']}\n")
                     if c["error"]:
                         f.write(f"  Error   : {c['error']}\n")
                     if c.get("screenshot"):
@@ -604,6 +607,12 @@ class RunManager:
             st = c["status"]
             err = html.escape(c.get("error", "") or "")
             err_html = f'<details><summary>error</summary><pre>{err}</pre></details>' if err else ""
+            # Shown for a PASS as much as a failure: it is where a run says what
+            # it could NOT cover (a skill with no solver), and a green row that
+            # hides that reads as though everything was verified.
+            note = html.escape(c.get("note", "") or "")
+            if note:
+                err_html = f'<div class="note"><b>Note:</b> {note}</div>' + err_html
             # Embed the failure screenshot (taken on the exact screen the test
             # got stuck on) so the report is self-contained, incl. by email.
             shot = c.get("screenshot") or ""

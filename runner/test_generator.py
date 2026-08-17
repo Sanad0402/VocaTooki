@@ -1318,6 +1318,12 @@ PASSWORD = "{self._py_str(password)}"
     result = utilsdemo.treasure_island_check(
         driver, username=USERNAME, password=PASSWORD, tc_id=TC_ID)
 
+    # Say what this run did and did NOT cover, pass or fail. An assertion
+    # message is only ever seen on a failure, and a green result that never
+    # mentions the skills with no automation reads as though every required
+    # skill was verified.
+    print(f"{{TC_ID}} RESULT: {{result['note']}}")
+
     assert result["level_before"], (
         f"{{TC_ID}}: the mission list never showed a level - {{result['note']}}")
 

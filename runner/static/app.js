@@ -417,8 +417,6 @@ function renderSuiteTree() {
       <span class="row-actions">
         ${c.impl === "real" && !c.updated ? "" :
           `<button type="button" class="link c-gen" title="${c.updated ? "Re-generate this test so the code matches the updated Rally case" : "Read the running app (AltTester) and write this case's test code into the project"}">${c.updated ? "re-generate" : "generate"}</button>`}
-        ${c.impl === "unlinked" ? "" :
-          `<button type="button" class="link c-impl">${c.impl === "stub" ? "make real" : "make stub"}</button>`}
         <button type="button" class="link c-edit">edit</button>
         <button type="button" class="link danger c-del">delete</button>
       </span>`;
@@ -430,8 +428,6 @@ function renderSuiteTree() {
     row.querySelector(".nm").addEventListener("click", () => row.classList.toggle("nm-open"));
     const genBtn = row.querySelector(".c-gen");
     if (genBtn) genBtn.addEventListener("click", () => generateCase(c, genBtn));
-    const implBtn = row.querySelector(".c-impl");
-    if (implBtn) implBtn.addEventListener("click", (e) => toggleImpl(c, e.currentTarget));
     row.querySelector(".c-edit").addEventListener("click", () => showCaseForm(c));
     row.querySelector(".c-del").addEventListener("click", (e) => deleteCase(c, e.currentTarget));
     el.appendChild(row);
@@ -633,29 +629,6 @@ async function withBusy(btn, busyLabel, fn) {
     btn.innerHTML = prevHTML;
     btn.disabled = wasDisabled;
   }
-}
-
-// Manually flip a case between 'real' and 'stub' (edits the test file's markers,
-// locks MANUAL_EDIT=True so a re-sync keeps the choice).
-async function toggleImpl(c, btn) {
-  const target = c.impl === "stub" ? "real" : "stub";
-  if (target === "real" && !confirm(
-    `Mark ${c.id} as REAL? It will run instead of skipping. If it isn't implemented yet it may pass without testing anything.`)) return;
-  await withBusy(btn, "saving…", async () => {
-    try {
-      const res = await fetch("/api/suite/case/impl", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: c.id, impl: target }),
-      });
-      const data = await res.json();
-      if (!res.ok) { setSkeletonMsg(data.error || "Could not change status.", "err"); return; }
-      if (data.suite) { SUITE = data.suite; renderSuiteTree(); }
-      setSkeletonMsg(`${c.id} → ${data.impl}` + (data.warning ? " · " + data.warning : ""),
-                     data.warning ? "warn" : "ok");
-    } catch (e) {
-      setSkeletonMsg("Request failed: " + e.message, "err");
-    }
-  });
 }
 
 // #4 — discover elements on the LIVE app and turn selected stub cases into real
@@ -1084,6 +1057,10 @@ function openRallyPost(c) {
   $("rm-build").value = defaultBuild();
   const noteLines = [`Automated run: ${c.status}`];
   if (c.duration) noteLines.push(`Duration: ${c.duration}`);
+  // What the test said about its own run — on a PASS too. Without it a green
+  // result never mentions the parts a run could not cover (Treasure Island's
+  // Speaking skill has no solver), and reads as though everything was checked.
+  if (c.note) noteLines.push("", c.note);
   if (c.error) noteLines.push("", c.error);
   $("rm-notes").value = noteLines.join("\n");
   const shotRow = $("rm-shot-row");
@@ -1136,7 +1113,9 @@ async function postAllToRally() {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             tc_id: c.tc_id, verdict: verdictFor(c.status), build: defaultBuild(),
-            notes: `Automated run: ${c.status}` + (c.error ? "\n\n" + c.error : ""),
+            notes: `Automated run: ${c.status}`
+                   + (c.note ? "\n\n" + c.note : "")
+                   + (c.error ? "\n\n" + c.error : ""),
             screenshot: c.screenshot || "",
           }),
         });
