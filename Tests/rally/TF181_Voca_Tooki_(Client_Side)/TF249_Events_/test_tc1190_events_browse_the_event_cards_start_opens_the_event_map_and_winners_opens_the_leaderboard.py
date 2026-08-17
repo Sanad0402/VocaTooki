@@ -1,16 +1,16 @@
 """
-TC1188 — Events - Score from event activities matches the event leaderboard
+TC1190 — Events - Browse the event cards, Start opens the event map and Winners opens the leaderboard
 
 Auto-generated from Rally (Method = Automated).
 
 Description:
-    Test Type: Functional Priority: Important Severity: Major Username: vt233632 password : 6710 Player name: test events automation Objective: Verify that the score a user earns from event activities is the score shown for that user on the event leaderboard. In an event only ACTIVITY levels award score - exams award coins only and must not change the score - so the leaderboard score has to equal the sum of the scores earned from the solved activities. The leaderboard lists players by their NAME, not by username: vt233632 appears there as 'test events automation'.
+    Test Type: Functional Priority: Important Severity: Major Username: vt233632 password : 6710 Player name: test events automation Objective: Verify the events screen itself: every event card can be brought to the front, a RUNNING event opens its event map from Start, and a FINISHED event opens its winners list from Winners. An event card carries exactly one of the two buttons: Start while the event is running, Winners once it has closed. A finished event with nobody on its board shows 'No Results' - that is a valid outcome, not a failure.
 
 (No test steps recorded in Rally — add them to the case, then re-sync.)
 
 Validation (from Rally):
-    Input:    1. Launch the app and log in with vt233632. Log out first so the run starts on a known account. 2. On the start screen, tap the Events button to open the events screen. 3. On the event selection screen, tap Start on the active event card to open the event map. 4. Open event level 1, solve one activity in it, and read the score on the activity list (each activity shows earned/max, e.g. 80/240). 5. Return to the event map, open event level 2, solve one activity in it, and read its score the same way. 6. Return to the event map, open event level 3, solve one activity in it, and read its score the same way. 7. Back on the event map, tap the leaderboard (cup) button at the top right. The leaderboard opens over the event map. 8. Read the player's row on the leaderboard. The leaderboard identifies players by FIRST NAME, not by username. 9. Verify that the score on the player's row equals the sum of the level totals from steps 4, 5 and 6. 10. Tap Back to close the leaderboard. It returns to the event cards view, not to the event map.
-    Expected: - The events screen opens and the active event starts on its own event map. - Each of the 3 event levels opens and one activity in it is completed successfully. - Every completed activity shows a score on the activity list (earned out of the maximum). - The leaderboard opens over the event map and lists the player by FIRST NAME. - The score on that row equals the SUM of the three level totals. - Exams award coins only and do not change the leaderboard score. - Back from the leaderboard returns to the event cards view.
+    Input:    1. Launch the app and log in with vt233632. Log out first so the run starts on a known account. 2. On the start screen, tap the Events button to open the events screen. 3. Note how many event cards are stacked on the screen. 4. Swipe vertically over the stack to bring the next card to the front, and repeat until every card has been at the front once. 5. For the card in front, check which button it carries: Start (the event is running) or Winners (the event has closed). 6. On a card with Start: tap it and verify the event map opens, then go back to the events screen. 7. On a card with Winners: tap it and verify the winners list opens over the events screen - either the list of winners or 'No Results' when nobody scored - then go back to the events screen. 8. Verify that every card was visited and that each one opened its own screen.
+    Expected: - The events screen opens and shows the event cards stacked. - A vertical swipe brings the next card to the front; every card can be reached. - Each card carries exactly one of Start or Winners, never both. - Start opens that event's own event map (the level map). - Winners opens the winners list over the events screen; when the event has no winners it reads 'No Results'. - Going back from either returns to the events screen with the cards still browsable.
 
 Event flow, surveyed on the live app (2026-08-16):
     GO-Events -> EventSelectionScene -> StartButton -> EventScene (the map)
@@ -25,7 +25,7 @@ import pytest
 from Utilities import utilsdemo
 
 # Rally test case ID (for sync and maintenance)
-TC_ID = "TC1188"
+TC_ID = "TC1190"
 # Regenerated from the Rally case on every sync. Hand-editing? Set MANUAL_EDIT = True.
 MANUAL_EDIT = False
 
@@ -39,8 +39,24 @@ EVENT_LEVELS = (1, 2, 3)
 SOLVE_ALL_ACTIVITIES = False
 
 
-def test_tc1188_events_score_from_event_activities_matches_the_event_leaderboard(altdriver):
+def test_tc1190_events_browse_the_event_cards_start_opens_the_event_map_and_winners_opens_the_leaderboard(altdriver):
     driver, _platform = altdriver
+
+    # Browse the event cards ONLY: bring each card to the front, and open what
+    # it offers — Start must open that event's map, Winners must open its
+    # winners list. Nothing is played here; this case is about the events
+    # screen itself.
+    result = utilsdemo.event_cards_check(
+        driver, username=USERNAME, password=PASSWORD, tc_id=TC_ID)
+
+    assert result["cards"], f"{TC_ID}: no event cards on the events screen — {result['note']}"
+    assert not result["problems"], (
+        f"{TC_ID}: browsing the event cards hit problems: {result['problems']}. "
+        f"Visited: {result['visited']}")
+    assert len(result["visited"]) == result["cards"], (
+        f"{TC_ID}: only {len(result['visited'])} of {result['cards']} card(s) "
+        f"could be opened — {result['visited']}")
+    return
 
     # Log out and back in first, open the running event, solve one activity in
     # each level, then read the leaderboard. Never raises: the whole picture

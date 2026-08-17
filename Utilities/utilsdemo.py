@@ -1930,6 +1930,16 @@ def _text_of(obj):
     return component_property(obj, "originalText")
 
 
+# Proof that a login landed: the hub's own buttons. Checked instead of trusting
+# the login call, because ensure_logged_in() then SKIPS the login whenever the
+# cached user matches — so a login that silently did not happen sends every
+# later step to the login screen.
+HUB_MARKERS = ("GO-Events", "GO-Map", "GO-Tasks", "GO-Daily")
+# The hub appears before its buttons are listening; a feature pressed inside
+# this window is swallowed. Asked for by the user (2026-08-17).
+LOGIN_SETTLE_SECONDS = 7.0
+
+
 def fresh_login(altdriver, username, password):
     """Log OUT and back in, so a run starts from a known account. Returns bool.
 
@@ -1954,7 +1964,20 @@ def fresh_login(altdriver, username, password):
     except Exception as e:                           # noqa: BLE001
         logging.error(f"[Login] could not sign in as {username}: {e}")
         return False
+
+    # PROVE we are in before saying so. ensure_logged_in() skips the login
+    # whenever _LAST_LOGIN_USER matches, so marking a login that did not happen
+    # makes every later step run against the login screen — which is exactly
+    # how a card walk reported "GO-Events is not on the start screen".
+    if not wait_for_any(altdriver, HUB_MARKERS, timeout=30):
+        logging.error(f"[Login] {username}: the hub never appeared after login "
+                      f"(still on {_current_scene(altdriver)})")
+        return False
+    # The hub builds its buttons after it appears; going straight for a feature
+    # presses a button that is not listening yet.
+    time.sleep(LOGIN_SETTLE_SECONDS)
     _LAST_LOGIN_USER = username
+    logging.info(f"[Login] signed in as {username}")
     return True
 
 
@@ -2098,6 +2121,27 @@ def event_leaderboard(altdriver, timeout=20, tc_id=""):
                         "(it reads 'No Results' until somebody scores)")
         return rows
 
+    rows = _leaderboard_rows(altdriver)
+    for name, score in rows:
+        logging.info(f"[Event] leaderboard: {name!r} = {score}")
+    # Keep the board itself: it is the other half of the comparison, and it is
+    # gone as soon as the run closes it.
+    capture_evidence(altdriver, "event-leaderboard", tc_id=tc_id)
+    return rows
+
+
+EVENT_WINNERS_BUTTON = "WinnersButton"
+EVENT_NO_RESULTS_TEXT = "no results"
+
+
+def _leaderboard_rows(altdriver):
+    """``[(player_name, score)]`` from a leaderboard/winners list on screen.
+
+    A row is a name and a score on the SAME line, so they are paired by y
+    rather than by list order — a re-sorted board would otherwise hand a name
+    somebody else's score. Shared by the event leaderboard and the winners list
+    of a closed event, which are the same widget.
+    """
     names, scores = [], []
     try:
         for obj in altdriver.find_objects(By.NAME, EVENT_PLAYER_NAME_OBJECT) or []:
@@ -2109,21 +2153,186 @@ def event_leaderboard(altdriver, timeout=20, tc_id=""):
             if value is not None:
                 scores.append((float(obj.y), value))
     except Exception as e:                           # noqa: BLE001
-        logging.error(f"[Event] could not read the leaderboard: {e}")
-        return rows
+        logging.error(f"[Event] could not read the board: {e}")
+        return []
 
-    # A row is a name and a score on the SAME line — pair them by y, not by
-    # order, so a re-sorted board cannot pair a name with someone else's score.
+    rows = []
     for y, name in sorted(names):
-        nearest = min(scores, key=lambda s: abs(s[0] - y), default=None)
+        nearest = min(scores, key=lambda pair: abs(pair[0] - y), default=None)
         if nearest is not None and abs(nearest[0] - y) < 25:
             rows.append((name, nearest[1]))
-    for name, score in rows:
-        logging.info(f"[Event] leaderboard: {name!r} = {score}")
-    # Keep the board itself: it is the other half of the comparison, and it is
-    # gone as soon as the run closes it.
-    capture_evidence(altdriver, "event-leaderboard", tc_id=tc_id)
     return rows
+
+
+SCREEN_TEXT_NAMES = ("Text - RTLTMP", "Text (TMP)", "Text", "MessageText",
+                     "Title", "TitleText")
+
+
+def screen_texts(altdriver, limit=30):
+    """Every readable string on screen, found BY NAME.
+
+    Not ``visible_texts``: that walks By.PATH contains() queries, which return
+    nothing in this app — the subscribe gate read as empty twice before the
+    text was fetched by object name instead.
+    """
+    out = []
+    for name in SCREEN_TEXT_NAMES:
+        try:
+            objects = altdriver.find_objects(By.NAME, name) or []
+        except Exception:                            # noqa: BLE001
+            continue
+        for obj in objects[:limit]:
+            text = _text_of(obj)
+            if text:
+                out.append(text)
+        if len(out) >= limit:
+            break
+    return out
+
+
+# How long an overlay is given to draw itself before it is read or left. The
+# winners list fades in, and reading it too early sees neither a row nor the
+# "No Results" notice (user, 2026-08-17).
+OVERLAY_SETTLE_SECONDS = 4.0
+
+
+def event_cards(altdriver):
+    """What the events screen is showing: ``[(button_name, y)]`` per card.
+
+    A card carries exactly ONE of ``StartButton`` (the event is running) or
+    ``WinnersButton`` (it has closed), so the buttons are the cards for testing
+    purposes. The card in front is the one whose button sits at the SMALLEST y.
+    The titles ("RAMADAN") are artwork, not text objects, so there is nothing
+    readable to identify a card by.
+    """
+    found = []
+    for name in (EVENT_START_BUTTON, EVENT_WINNERS_BUTTON):
+        try:
+            for obj in altdriver.find_objects(By.NAME, name) or []:
+                found.append((name, float(obj.y)))
+        except Exception:                            # noqa: BLE001
+            continue
+    return sorted(found, key=lambda pair: pair[1])
+
+
+def event_next_card(altdriver, settle=2.0):
+    """Bring the next event card to the front. Returns True when it moved.
+
+    A VERTICAL swipe cycles the stack — measured live: horizontal swipes and
+    clicking a card behind both do nothing at all.
+    """
+    before = event_cards(altdriver)
+    try:
+        width, height = (float(v) for v in altdriver.get_application_screensize())
+        altdriver.swipe({"x": width * 0.5, "y": height * 0.35},
+                        {"x": width * 0.5, "y": height * 0.75}, duration=0.6)
+    except Exception as e:                           # noqa: BLE001
+        logging.error(f"[Event] could not swipe the card stack: {e}")
+        return False
+    time.sleep(settle)
+    return event_cards(altdriver) != before
+
+
+def event_cards_check(altdriver, username=None, password=None, tc_id="", timeout=60):
+    """Browse every event card and open what it offers. Never raises.
+
+    Start must open that event's MAP; Winners must open the winners list over
+    the events screen ("No Results" is a real answer, not a failure — a closed
+    event nobody scored in has none). Returns
+    ``{"ok", "cards", "visited", "problems", "note"}``.
+    """
+    report = {"ok": False, "cards": 0, "visited": [], "problems": [], "note": ""}
+
+    if username and not fresh_login(altdriver, username, password):
+        report["note"] = f"could not log in as {username}"
+        return report
+    if not open_feature(altdriver, "events", username, password, timeout=timeout):
+        report["note"] = "the events screen did not open"
+        return report
+
+    cards = event_cards(altdriver)
+    report["cards"] = len(cards)
+    if not cards:
+        report["note"] = "no event cards on the events screen"
+        return report
+    logging.info(f"[Event] {len(cards)} card(s): {[n for n, _y in cards]}")
+
+    seen = set()
+    for _ in range(len(cards)):
+        front = event_cards(altdriver)
+        if not front:
+            break
+        kind, _y = front[0]                          # smallest y = the front card
+        index = len(seen)
+
+        if kind == EVENT_START_BUTTON:
+            opened = press_object(altdriver, EVENT_START_BUTTON, settle=3.0) and \
+                wait_for_scene(altdriver, EVENT_SCENE, timeout=timeout)
+            time.sleep(OVERLAY_SETTLE_SECONDS)   # let the map finish drawing
+            capture_evidence(altdriver, f"event-card-{index}-start", tc_id=tc_id)
+            if opened:
+                report["visited"].append(f"card {index}: Start -> event map")
+            else:
+                report["problems"].append(
+                    f"card {index}: Start did not open the event map "
+                    f"(on {_current_scene(altdriver)})")
+            # Back out to the cards, whichever way it went.
+            press_object(altdriver, "BackButton", settle=2.0)
+            wait_for_scene(altdriver, EVENT_SELECTION_SCENE, timeout=timeout)
+        else:
+            press_object(altdriver, EVENT_WINNERS_BUTTON, settle=2.5)
+            # The winners list is an OVERLAY: the scene does not change, so it
+            # is recognised by its own content instead.
+            shown = wait_for_any(altdriver, (EVENT_PLAYER_NAME_OBJECT,), timeout=8)
+            # Let the panel finish drawing before reading OR leaving it.
+            time.sleep(OVERLAY_SETTLE_SECONDS)
+            if not shown:                            # a late row still counts
+                shown = find_any(altdriver, EVENT_PLAYER_NAME_OBJECT) is not None
+            text = " ".join(screen_texts(altdriver)).lower()
+            empty = EVENT_NO_RESULTS_TEXT in text
+            capture_evidence(altdriver, f"event-card-{index}-winners", tc_id=tc_id)
+            # Both outcomes are correct, and they mean different things: an
+            # event nobody played shows "No Results", one that was played lists
+            # its winners. So record WHICH, with the names and scores — a
+            # report that only said "it opened" could not tell them apart.
+            if shown:
+                winners = _leaderboard_rows(altdriver)
+                report.setdefault("winners", {})[index] = winners
+                listed = ", ".join(f"{n} = {s}" for n, s in winners[:5]) or "unreadable rows"
+                logging.info(f"[Event] card {index} winners: {listed}")
+                report["visited"].append(
+                    f"card {index}: Winners -> {len(winners)} winner(s): {listed}")
+            elif empty:
+                report.setdefault("winners", {})[index] = []
+                report["visited"].append(
+                    f"card {index}: Winners -> 'No Results' (nobody played this event)")
+            else:
+                report["problems"].append(
+                    f"card {index}: Winners opened nothing readable — neither a "
+                    f"winners row nor a 'No Results' notice")
+            # The overlay adds its own BackButton; the topmost one closes it.
+            backs = []
+            try:
+                backs = altdriver.find_objects(By.NAME, "BackButton") or []
+            except Exception:                        # noqa: BLE001
+                pass
+            if len(backs) > 1:
+                _press(sorted(backs, key=lambda o: float(o.y))[0])
+                time.sleep(2)
+            else:
+                press_object(altdriver, "BackButton", settle=2.0)
+
+        seen.add(index)
+        if len(seen) < len(cards) and not event_next_card(altdriver):
+            report["problems"].append("the card stack would not move to the next card")
+            break
+
+    report["ok"] = bool(report["visited"]) and not report["problems"] \
+        and len(report["visited"]) == report["cards"]
+    if not report["ok"] and not report["note"]:
+        report["note"] = (f"visited {len(report['visited'])} of {report['cards']} card(s); "
+                          f"problems: {report['problems']}")
+    return report
 
 
 def event_score_check(altdriver, levels=(1, 2, 3), player_name="",

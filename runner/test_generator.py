@@ -1248,6 +1248,11 @@ PASSWORD = "{password}"
         hay = (self._clean_html(description) + " " + v_in).lower()
         # "solve EVERY activity" vs "solve one activity" — the case decides.
         solve_all = ("every activit" in hay or "all activit" in hay or "all the activit" in hay)
+        # Browsing the events SCREEN (cards, Start, Winners) is a different
+        # test from playing an event. Solving activities in a case that only
+        # asks to look at the cards would exercise the wrong thing entirely.
+        cards_only = (("card" in hay or "browse" in hay or "navigate" in hay)
+                      and "winners" in hay and "leaderboard score" not in hay)
         # A case that says "the opened levels" plays whatever the event has
         # unlocked; otherwise the number it names ("3 event levels").
         if re.search(r"open(?:ed)?\s+levels?", hay):
@@ -1268,6 +1273,24 @@ PASSWORD = "{password}"
                       ". Add it to the description, then re-sync.")
             guard = ('@pytest.mark.stub\n'
                      f'@pytest.mark.skip(reason="{self._py_str(reason)}")\n')
+
+        cards_body = "" if not cards_only else f'''
+    # Browse the event cards ONLY: bring each card to the front, and open what
+    # it offers — Start must open that event's map, Winners must open its
+    # winners list. Nothing is played here; this case is about the events
+    # screen itself.
+    result = utilsdemo.event_cards_check(
+        driver, username=USERNAME, password=PASSWORD, tc_id=TC_ID)
+
+    assert result["cards"], f"{{TC_ID}}: no event cards on the events screen — {{result['note']}}"
+    assert not result["problems"], (
+        f"{{TC_ID}}: browsing the event cards hit problems: {{result['problems']}}. "
+        f"Visited: {{result['visited']}}")
+    assert len(result["visited"]) == result["cards"], (
+        f"{{TC_ID}}: only {{len(result['visited'])}} of {{result['cards']}} card(s) "
+        f"could be opened — {{result['visited']}}")
+    return
+'''
 
         return f'''"""
 {doc}
@@ -1301,7 +1324,7 @@ SOLVE_ALL_ACTIVITIES = {solve_all}
 
 {guard}def {test_func_name}(altdriver):
     driver, _platform = altdriver
-
+{cards_body}
     # Log out and back in first, open the running event, solve one activity in
     # each level, then read the leaderboard. Never raises: the whole picture
     # comes back in the report so a failure says which level scored what.

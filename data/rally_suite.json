@@ -1341,13 +1341,34 @@
         "kind": "pytest",
         "nodeid": "Tests/rally/TF181_Voca_Tooki_(Client_Side)/TF249_Events_/test_tc1189_events_solving_all_activities_in_3_event_levels_matches_the_leaderboard_score.py::test_tc1189_events_solving_all_activities_in_3_event_levels_matches_the_leaderboard_score"
       }
+    },
+    {
+      "id": "TC1190",
+      "name": "Events - Browse the event cards, Start opens the event map and Winners opens the leaderboard",
+      "folder": "TF249",
+      "description": "Test Type: Functional\nPriority: Important\nSeverity: Major\nUsername: vt233632\npassword : 6710\nPlayer name: test events automation\n\nObjective:\nVerify the events screen itself: every event card can be brought to the front, a RUNNING event opens its event map from Start, and a FINISHED event opens its winners list from Winners.\nAn event card carries exactly one of the two buttons: Start while the event is running, Winners once it has closed.\nA finished event with nobody on its board shows 'No Results' - that is a valid outcome, not a failure.",
+      "owner": "",
+      "status": "",
+      "user": {
+        "username": "vt233632",
+        "password": "6710"
+      },
+      "steps": [],
+      "validation": {
+        "input": "1. Launch the app and log in with vt233632. Log out first so the run starts on a known account.\n2. On the start screen, tap the Events button to open the events screen.\n3. Note how many event cards are stacked on the screen.\n4. Swipe vertically over the stack to bring the next card to the front, and repeat until every card has been at the front once.\n5. For the card in front, check which button it carries: Start (the event is running) or Winners (the event has closed).\n6. On a card with Start: tap it and verify the event map opens, then go back to the events screen.\n7. On a card with Winners: tap it and verify the winners list opens over the events screen - either the list of winners or 'No Results' when nobody scored - then go back to the events screen.\n8. Verify that every card was visited and that each one opened its own screen.",
+        "expected": "- The events screen opens and shows the event cards stacked.\n- A vertical swipe brings the next card to the front; every card can be reached.\n- Each card carries exactly one of Start or Winners, never both.\n- Start opens that event's own event map (the level map).\n- Winners opens the winners list over the events screen; when the event has no winners it reads 'No Results'.\n- Going back from either returns to the events screen with the cards still browsable."
+      },
+      "action": {
+        "kind": "pytest",
+        "nodeid": "Tests/rally/TF181_Voca_Tooki_(Client_Side)/TF249_Events_/test_tc1190_events_browse_the_event_cards_start_opens_the_event_map_and_winners_opens_the_leaderboard.py::test_tc1190_events_browse_the_event_cards_start_opens_the_event_map_and_winners_opens_the_leaderboard"
+      }
     }
   ],
   "metadata": {
     "project_id": "622679112169",
-    "total_cases": 47,
+    "total_cases": 48,
     "automated_only": true,
     "synced_from": "Rally API",
-    "synced_at": "2026-08-16T14:38:01.782816+00:00"
+    "synced_at": "2026-08-17T14:42:46.463699+00:00"
   }
 }

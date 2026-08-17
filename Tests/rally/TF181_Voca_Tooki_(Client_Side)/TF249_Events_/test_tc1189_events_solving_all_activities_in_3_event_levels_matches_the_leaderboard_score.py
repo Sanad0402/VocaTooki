@@ -47,7 +47,8 @@ def test_tc1189_events_solving_all_activities_in_3_event_levels_matches_the_lead
     # comes back in the report so a failure says which level scored what.
     result = utilsdemo.event_score_check(
         driver, levels=EVENT_LEVELS, player_name=PLAYER_NAME,
-        username=USERNAME, password=PASSWORD, solve_all=SOLVE_ALL_ACTIVITIES)
+        username=USERNAME, password=PASSWORD, solve_all=SOLVE_ALL_ACTIVITIES,
+        tc_id=TC_ID)
 
     # With no levels named the test plays what the event opened, so the report
     # says which ones those were.
