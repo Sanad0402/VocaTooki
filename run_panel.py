@@ -296,6 +296,37 @@ def api_rally_test():
     return jsonify({"ok": True, "message": msg}), 200
 
 
+def _result_images(tc_id, failure_shot=""):
+    """[(path, label)] — the pictures worth attaching to a Rally result.
+
+    The failure frame first (it is why anyone opens the result), then the run's
+    EVIDENCE frames for this case: the ones a test kept deliberately, such as
+    the subscribe gates, the map behind them, each event level's updated scores
+    and the leaderboard. Budgeted milestone frames are left out — they are
+    samples, not evidence, and Rally notes should not become a contact sheet.
+    """
+    from runner import screenshots as _shots
+    out = []
+    if failure_shot:
+        path = os.path.join(REPORTS_DIR, "screenshots", failure_shot)
+        if os.path.exists(path):
+            out.append((path, "failure.png"))
+    try:
+        runs = [r for r in _shots.list_runs()
+                if str(r.get("label", "")).lower() == str(tc_id).lower()]
+    except Exception:
+        runs = []
+    if runs:                                    # newest run for this case
+        folder = _shots.SHOTS_DIR / runs[0]["run_id"]
+        for name in runs[0].get("files", []):
+            if not name.startswith("evidence-"):
+                continue
+            path = folder / name
+            if path.exists():
+                out.append((str(path), name))
+    return out[:10]                             # a note, not an album
+
+
 @app.route("/api/rally/post-result", methods=["POST"])
 def api_rally_post_result():
     """Post a run result back to Rally as a TestCaseResult.
@@ -326,6 +357,27 @@ def api_rally_post_result():
         return jsonify({"error": f"{tc_id} not found in Rally."}), 404
 
     project_ref = (tc.get("Project") or {}).get("_ref")
+
+    # Put this run's pictures INTO the Notes. Rally's Notes is rich text, so an
+    # image has to exist as an attachment before a note can point at it: upload
+    # each frame to the TestCase, then reference it by its attachment URL. The
+    # failure frame and the run's evidence frames (the gates, the leaderboard,
+    # each level's scores) are what someone reading the result wants to see.
+    images, embedded = _result_images(tc_id, shot), []
+    for path, label in images:
+        info = client.attach_image(
+            tc.get("_ref"), path,
+            name=f"{tc_id}_{verdict}_{label}")
+        if info:
+            embedded.append((label, info["url"]))
+
+    if embedded:
+        gallery = "".join(
+            f'<div><b>{label}</b><br/><img src="{url}" alt="{label}" '
+            f'style="max-width:900px"/></div>'
+            for label, url in embedded)
+        notes = f"<div>{notes}</div>{gallery}"
+
     result = client.create_test_case_result(
         tc.get("_ref"), verdict, build, notes, project_ref=project_ref)
     if not result or result.get("_errors"):
@@ -518,30 +570,6 @@ def api_suite_case():
     except suite.SuiteError as e:
         return jsonify({"error": str(e)}), 400
     return jsonify(tree)
-
-
-@app.route("/api/suite/case/impl", methods=["POST"])
-def api_suite_case_impl():
-    """Manually flip a case's linked test between 'real' and 'stub'.
-
-    Edits the test file's markers (and locks MANUAL_EDIT=True so a re-sync keeps
-    the choice). Body: {"id": "TC452", "impl": "real"|"stub"}."""
-    from runner.impl_toggle import set_case_impl
-
-    d = request.get_json(force=True, silent=True) or {}
-    tc_id = (d.get("id") or "").strip()
-    target = (d.get("impl") or "").strip().lower()
-    if not tc_id:
-        return jsonify({"error": "Missing test case id."}), 400
-    try:
-        res = set_case_impl(tc_id, target)
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-    except Exception as e:
-        logger.exception("Impl toggle failed")
-        return jsonify({"error": str(e)}), 500
-    res["suite"] = suite.tree()
-    return jsonify(res)
 
 
 @app.route("/api/suite/case/<tc_id>", methods=["DELETE"])
