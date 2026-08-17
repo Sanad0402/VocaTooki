@@ -210,6 +210,14 @@ class RallyTestGenerator:
                 test_case.get("steps", []), test_case.get("validation"),
                 elements=elements or {},
             )
+        elif test_type == "treasure_island":
+            # Missions -> an island -> a building -> the activity it starts.
+            # Every step is an object lookup in proven utils, so live discovery
+            # adds nothing.
+            code = self._gen_treasure_island(
+                tc_id, tc_name, test_case.get("user", {}), func_name,
+                description, test_case.get("steps", []), test_case.get("validation"),
+            )
         elif test_type == "event":
             # The event flow is proven utils end to end, so live discovery adds
             # nothing here either.
@@ -501,6 +509,14 @@ class RallyTestGenerator:
             return "login_negative"
         if any(k in lower for k in ("logout", "log out", "sign out")):
             return "logout"
+        # Treasure Island is its own flow (missions -> an island -> a building).
+        # Checked BEFORE the activity and page rules because a Treasure Island
+        # case both names activities ("complete the activity it opens") and is a
+        # hub FEATURE — either rule would otherwise claim it and generate a test
+        # that plays a map level, or one that only opens the screen.
+        if not is_negative and self._is_treasure_island_case(
+                tc_name, description, nodeid, validation):
+            return "treasure_island"
         # An EVENT case is about PLAYING an event — its levels, its score, its
         # leaderboard — as opposed to merely opening the Events page. Checked
         # BEFORE the exam and activity rules for a reason: an event case has to
@@ -523,6 +539,21 @@ class RallyTestGenerator:
         if not is_negative and self._infer_feature(tc_name, description, nodeid):
             return "page"
         return "generic"
+
+    @classmethod
+    def _is_treasure_island_case(cls, tc_name: str, description: str = "",
+                                 nodeid: str = "",
+                                 validation: Optional[Dict[str, str]] = None) -> bool:
+        """Is this case about Treasure Island?
+
+        The feature names itself in every case that concerns it (the folder is
+        called "Treasure Island" too), so the name is the whole test — no
+        keyword guessing needed.
+        """
+        v = validation or {}
+        hay = " ".join([tc_name or "", description or "", nodeid or "",
+                        str(v.get("input", "")), str(v.get("expected", ""))]).lower()
+        return "treasure island" in hay or "treasure_island" in hay
 
     # Playing an event, as opposed to merely opening the Events page: the case
     # talks about the event AND about doing something inside it.
@@ -672,6 +703,9 @@ class RallyTestGenerator:
             return self._gen_activity(tc_id, tc_name, user_data, func_name,
                                       description, steps, validation,
                                       nodeid=nodeid, title_hint=title_hint)
+        elif test_type == "treasure_island":
+            return self._gen_treasure_island(tc_id, tc_name, user_data, func_name,
+                                             description, steps, validation)
         elif test_type == "event":
             return self._gen_event(tc_id, tc_name, user_data, func_name,
                                    description, steps, validation)
@@ -1213,6 +1247,102 @@ PASSWORD = "{password}"
                       r"\s+(?:Test Type|Priority|Severity|Username|password|Objective)\b)",
                       hay, re.I)
         return re.sub(r"\s+", " ", m.group(1)).strip() if m else ""
+
+    def _gen_treasure_island(self, tc_id, tc_name, user_data, test_func_name,
+                             description="", steps=None, validation=None) -> str:
+        """Play Treasure Island's missions and check that its LEVEL goes up.
+
+        The flow lives in ``utilsdemo.treasure_island_check``: open the mission
+        list from the clipboard, and for each required skill press its Play,
+        tap a building on that skill's island and complete the activity it
+        starts, until the skill reads 100%.
+
+        SPEAKING has no solver in this framework. The test does not fail for
+        it — it asserts that the run SAID it was skipped, because silently
+        ignoring a required skill is what would make this case lie.
+        """
+        username = user_data.get("username") or ""
+        password = user_data.get("password") or ""
+        doc = self._doc_block(tc_id, tc_name, description, steps or [])
+        v = validation or {}
+        v_in = self._clean_html(v.get("input", ""))
+        v_exp = self._clean_html(v.get("expected", ""))
+        if v_in or v_exp:
+            doc += "\n\nValidation (from Rally):"
+            if v_in:
+                doc += f"\n    Input:    {v_in}"
+            if v_exp:
+                doc += f"\n    Expected: {v_exp}"
+
+        guard = ""
+        if not username:
+            reason = (f"{tc_id}: the Rally case is missing Username/password. "
+                      f"Add it to the description, then re-sync.")
+            guard = ('@pytest.mark.stub\n'
+                     f'@pytest.mark.skip(reason="{self._py_str(reason)}")\n')
+
+        return f'''"""
+{doc}
+
+Treasure Island, surveyed on the live app (2026-08-17):
+    GO-Treasure_Island -> scene TreasureIsland (a first entry plays an intro; "Skip" leaves it)
+    TaskSummary (the clipboard) opens the mission list: LevelText, PercentText,
+    and one CategorySummaryRow(Clone) per required skill
+    a row's PlayButton ZOOMS to that skill's island - it does NOT change scene
+    the islands are objects: Category_1-Speaking .. Category_5-Listening
+    ("Sentences" is Category_3-Context - the row and the island disagree)
+    a building (GO-TI-<Activity> Variant(Clone)) opens a panel whose PlayButton
+    loads the real activity scene, which the framework's solvers then play
+SPEAKING has no solver here, so it is skipped and the result says so.
+"""
+
+import pytest
+from Utilities import utilsdemo
+
+# Rally test case ID (for sync and maintenance)
+TC_ID = "{tc_id}"
+# Regenerated from the Rally case on every sync. Hand-editing? Set MANUAL_EDIT = True.
+MANUAL_EDIT = False
+
+USERNAME = "{self._py_str(username)}"
+PASSWORD = "{self._py_str(password)}"
+
+
+{guard}def {test_func_name}(altdriver):
+    driver, _platform = altdriver
+
+    # Open the missions, play each automatable skill's island until that skill
+    # reads 100%, then read the Treasure Island level again. Never raises: the
+    # whole picture comes back in the report, so a failure says which skill
+    # stopped where.
+    result = utilsdemo.treasure_island_check(
+        driver, username=USERNAME, password=PASSWORD, tc_id=TC_ID)
+
+    assert result["level_before"], (
+        f"{{TC_ID}}: the mission list never showed a level - {{result['note']}}")
+
+    # The user's rule, asserted rather than assumed: Speaking has no automation,
+    # so the run must SAY it skipped it instead of passing over it quietly.
+    assert "Speaking" in result["skipped"] or not any(
+        s.lower() == "speaking" for s in result["skills"]), (
+        f"{{TC_ID}}: Speaking is a required skill with no automation, but the run "
+        f"did not report it as skipped (skipped: {{result['skipped']}})")
+
+    assert result["plays"], (
+        f"{{TC_ID}}: no activity was played on any island - {{result['note']}}")
+    assert not result["problems"], (
+        f"{{TC_ID}}: playing the missions hit problems: {{result['problems']}}. "
+        f"Played: {{result['plays']}}")
+
+    # The point of the case: completing the required skills raises the level.
+    assert result["level_after"] != result["level_before"], (
+        f"{{TC_ID}}: the Treasure Island level stayed at {{result['level_before']!r}} "
+        f"after completing {{ {{k: v.get('after') for k, v in result['skills'].items()}} }} "
+        f"(skipped, no automation: {{result['skipped']}}). {{result['note']}}")
+
+    assert result["ok"], (
+        f"{{TC_ID}}: the Treasure Island run did not pass - {{result['note']}}")
+'''
 
     def _gen_event(self, tc_id, tc_name, user_data, test_func_name,
                    description="", steps=None, validation=None) -> str:

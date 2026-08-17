@@ -1,6 +1,7 @@
 import logging
 from alttester import By, AltKeyCode, AltDriver
 from alttester.exceptions import ComponentNotFoundException
+import random
 import re
 import requests
 import io
@@ -2452,6 +2453,362 @@ def event_score_check(altdriver, levels=(1, 2, 3), player_name="",
         report["note"] = (f"the leaderboard says {report['leaderboard']} but the "
                           f"activities scored {report['earned']} "
                           f"({ {k: v.get('score') for k, v in report['levels'].items()} })")
+    return report
+
+
+# --- Treasure Island: missions, islands, and the buildings on them ---------
+#
+# Surveyed live 2026-08-17. The whole feature is reachable BY OBJECT, which is
+# what makes it automatable at all (see the no-coordinate-clicks rule).
+
+TREASURE_ISLAND_SCENE = "TreasureIsland"
+TI_INTRO_SKIP = "Skip"                    # the first-entry intro's pager
+TI_MISSIONS_BUTTON = "TaskSummary"        # the clipboard, top left
+TI_LEVEL_TEXT = "LevelText"               # "Level 1"
+TI_PERCENT_TEXT = "PercentText"           # "0%"
+TI_ROW = "CategorySummaryRow(Clone)"      # one per required skill
+TI_MISSIONS_EXIT = "ExitButton"
+TI_ISLAND_PREFIX = "Category_"            # Category_3-Context, ...
+TI_LOCK_HOLDER = "Lock-Place_Holder"
+TI_LOCK_FOG = "GO-TI-Lock_Fog"
+TI_BUILDING_PREFIX = "GO-TI-"
+
+# The mission row names a SKILL; the island object names a CATEGORY, and they
+# are not always the same word — the "Sentences" row is `Category_3-Context`.
+# Anything not listed here matches the island whose name ends with the skill.
+TI_ISLAND_ALIASES = {"sentences": "context"}
+
+# There is no solver for Speaking anywhere in this framework. The rule the user
+# set: skip it, and SAY SO in the result — never silently ignore it.
+TI_NO_AUTOMATION = ("speaking",)
+
+# A mission slider is 0.0 .. 1.0; this is what counts as finished.
+TI_COMPLETE = 0.999
+
+
+def ti_skip_intro(altdriver):
+    """Press the intro's Skip when it is showing. True if it was pressed."""
+    if find_any(altdriver, TI_INTRO_SKIP) is None:
+        return False
+    return press_object(altdriver, TI_INTRO_SKIP, settle=2.0)
+
+
+def ti_open_missions(altdriver, timeout=30):
+    """Open the mission list from the clipboard. True once it is readable."""
+    ti_skip_intro(altdriver)
+    if find_any(altdriver, TI_LEVEL_TEXT) is not None:
+        return True                              # already open
+    press_object(altdriver, TI_MISSIONS_BUTTON, settle=2.5)
+    return wait_for_any(altdriver, (TI_LEVEL_TEXT,), timeout=timeout)
+
+
+def ti_level(altdriver):
+    """``("Level 1", "0%")`` from the open mission list."""
+    level = find_any(altdriver, TI_LEVEL_TEXT)
+    percent = find_any(altdriver, TI_PERCENT_TEXT)
+    return (_text_of(level) if level else "",
+            _text_of(percent) if percent else "")
+
+
+def ti_missions(altdriver):
+    """The mission rows: ``[{"index", "skill", "progress", "automatable"}]``.
+
+    Rows are walked by INDEXED PATH rather than by scanning loose objects, so a
+    skill always keeps its own progress bar even though every row uses the same
+    object names.
+    """
+    rows = []
+    try:
+        found = altdriver.find_objects(By.NAME, TI_ROW) or []
+    except Exception as e:                           # noqa: BLE001
+        logging.error(f"[TI] could not read the mission rows: {e}")
+        return rows
+
+    for i in range(len(found)):
+        skill, progress = "", None
+        try:
+            skill = _text_of(altdriver.find_object(
+                By.PATH, f"//{TI_ROW}[{i}]//CategoryText")) or ""
+        except Exception:                            # noqa: BLE001
+            pass
+        try:
+            slider = altdriver.find_object(
+                By.PATH, f"//{TI_ROW}[{i}]//Progress//Slider")
+            progress = float(slider.get_component_property(
+                "UnityEngine.UI.Slider", "value", "UnityEngine.UI"))
+        except Exception:                            # noqa: BLE001
+            pass
+        rows.append({
+            "index": i,
+            "skill": skill,
+            "progress": progress,
+            "automatable": skill.strip().lower() not in TI_NO_AUTOMATION,
+        })
+    return rows
+
+
+def ti_press_row_play(altdriver, index, settle=4.0):
+    """Press one mission row's Play. Rows are addressed by INDEXED PATH.
+
+    Not ``press_object``: every row's button is called `PlayButton`, so a press
+    by name would play whichever row the app hands back first.
+    """
+    try:
+        button = altdriver.find_object(By.PATH, f"//{TI_ROW}[{index}]//PlayButton")
+    except Exception as e:                           # noqa: BLE001
+        logging.error(f"[TI] row {index} has no Play button: {e}")
+        return False
+    if not _press(button):
+        return False
+    logging.info(f"[TI] pressed Play on row {index}")
+    time.sleep(settle)
+    return True
+
+
+def _ti_elements(altdriver):
+    """``(elements, by_id)`` for one walk of the scene tree."""
+    try:
+        elements = altdriver.get_all_elements() or []
+    except Exception as e:                           # noqa: BLE001
+        logging.error(f"[TI] could not read the scene: {e}")
+        return [], {}
+    return elements, {e.id: e for e in elements}
+
+
+def _ti_descends_from(obj, ancestor_id, by_id, hops=14):
+    """Is ``obj`` somewhere under ``ancestor_id``?"""
+    current, seen = obj, 0
+    while current is not None and seen < hops:
+        if current.id == ancestor_id:
+            return True
+        current = by_id.get(current.transformParentId)
+        seen += 1
+    return False
+
+
+def ti_island_for_skill(altdriver, skill):
+    """The island object for a mission row's skill, or "".
+
+    Play does NOT change scene — it zooms the camera — and every island's
+    buildings stay findable whichever one is in front. So the island a skill
+    belongs to has to be resolved by NAME here; there is no "what is on screen"
+    to ask.
+    """
+    wanted = TI_ISLAND_ALIASES.get(skill.strip().lower(), skill.strip().lower())
+    elements, _by_id = _ti_elements(altdriver)
+    for element in elements:
+        if not element.name.startswith(TI_ISLAND_PREFIX):
+            continue
+        # "Category_3-Context" -> "context"
+        if element.name.split("-", 1)[-1].strip().lower() == wanted:
+            return element.name
+    return ""
+
+
+def ti_island_locked(altdriver, island):
+    """Is this island still fogged over?
+
+    The lock is PER ISLAND (`Category_N-X/Lock-Place_Holder/GO-TI-Lock_Fog`), so
+    a bare search for the fog object answers about whichever island happens to
+    be locked rather than about this one.
+    """
+    elements, by_id = _ti_elements(altdriver)
+    island_obj = next((e for e in elements if e.name == island), None)
+    if island_obj is None:
+        return False
+    try:
+        fogs = altdriver.find_objects(By.NAME, TI_LOCK_FOG) or []
+    except Exception:                                # noqa: BLE001
+        return False
+    return any(_ti_descends_from(by_id.get(fog.id, fog), island_obj.id, by_id)
+               for fog in fogs)
+
+
+def ti_buildings(altdriver, island):
+    """The activity buildings on one island, by object name.
+
+    The buildings are NAMED FOR THEIR ACTIVITY, which is the whole reason this
+    is automatable: `GO-TI-Puzzles Variant(Clone)` opens the puzzles activity,
+    for which a solver already exists.
+    """
+    elements, by_id = _ti_elements(altdriver)
+    island_obj = next((e for e in elements if e.name == island), None)
+    if island_obj is None:
+        logging.error(f"[TI] no island object named '{island}'")
+        return []
+    names = []
+    for element in elements:
+        if not element.name.startswith(TI_BUILDING_PREFIX):
+            continue
+        if "Variant(Clone)" not in element.name:     # locks, tubes, bars
+            continue
+        if _ti_descends_from(element, island_obj.id, by_id):
+            names.append(element.name)
+    return sorted(set(names))
+
+
+def ti_play_building(altdriver, building, timeout=90, tc_id=""):
+    """Open one building and play what it starts. Never raises.
+
+    Tapping a building opens an in-scene panel (an `ActivityCard` and a single
+    `PlayButton`); that Play loads the real ACTIVITY SCENE, so the framework's
+    own solvers finish the job. Returns ``{"building", "activity", "played",
+    "note"}``.
+    """
+    out = {"building": building, "activity": "", "played": False, "note": ""}
+
+    if not press_object(altdriver, building, settle=3.0):
+        out["note"] = f"the building '{building}' could not be pressed"
+        return out
+    if not wait_for_any(altdriver, ("PlayButton",), timeout=15):
+        out["note"] = f"'{building}' opened no activity panel"
+        return out
+
+    try:
+        before = call_method(altdriver, "AltTesterUtils", "GetCurrentActivity")
+    except Exception:                                # noqa: BLE001
+        before = None
+
+    press_object(altdriver, "PlayButton", settle=3.0)
+    activity = _get_current_activity_with_retry(altdriver, prev_scene=before)
+    if not activity:
+        out["note"] = f"'{building}' did not start an activity"
+        return out
+    out["activity"] = activity
+    logging.info(f"[TI] {building} started '{activity}'")
+
+    out["played"] = _solve_open_activity(altdriver, activity, label=f"TI {building}")
+    if not out["played"]:
+        out["note"] = f"the '{activity}' solver did not finish it"
+        capture_evidence(altdriver, f"ti-{activity}-unfinished", tc_id=tc_id)
+
+    # Back to the island whatever happened, so the next building is reachable.
+    for _ in range(4):
+        if _current_scene(altdriver) == TREASURE_ISLAND_SCENE:
+            break
+        try:
+            call_method(altdriver, "AltTesterUtils", "LoadPreviousScene")
+        except Exception:                            # noqa: BLE001
+            when_finish_activity(altdriver)
+        wait_for_scene(altdriver, TREASURE_ISLAND_SCENE, timeout=20)
+    if _current_scene(altdriver) != TREASURE_ISLAND_SCENE:
+        out["note"] = (out["note"] + "; " if out["note"] else "") + \
+            f"stuck on {_current_scene(altdriver)} after the activity"
+    return out
+
+
+def treasure_island_check(altdriver, username=None, password=None, tc_id="",
+                          max_plays=12, timeout=90):
+    """Play Treasure Island's missions and watch its LEVEL. Never raises.
+
+    Each required skill is played until its progress reads 100%, then the next;
+    when the automatable ones are done the Treasure Island level must go up.
+    SPEAKING is skipped — no solver exists for it — and the report says so
+    rather than passing over it quietly.
+
+    Returns ``{"ok", "level_before", "level_after", "skills", "skipped",
+    "plays", "problems", "note"}``.
+    """
+    report = {"ok": False, "level_before": "", "level_after": "", "skills": {},
+              "skipped": [], "plays": [], "problems": [], "note": ""}
+
+    if username and not fresh_login(altdriver, username, password):
+        report["note"] = f"could not log in as {username}"
+        return report
+    if not open_feature(altdriver, "treasure island", username, password, timeout=timeout):
+        report["note"] = "Treasure Island did not open"
+        return report
+
+    ti_skip_intro(altdriver)
+    if not ti_open_missions(altdriver, timeout=timeout):
+        report["note"] = "the mission list did not open from the clipboard"
+        return report
+
+    report["level_before"], percent_before = ti_level(altdriver)
+    missions = ti_missions(altdriver)
+    if not missions:
+        report["note"] = "the mission list has no rows"
+        return report
+    logging.info(f"[TI] {report['level_before']} ({percent_before}): "
+                 f"{[(m['skill'], m['progress']) for m in missions]}")
+    capture_evidence(altdriver, "ti-missions-before", tc_id=tc_id)
+
+    for mission in missions:
+        skill = mission["skill"]
+        report["skills"][skill] = {"before": mission["progress"], "after": mission["progress"]}
+        if not mission["automatable"]:
+            # Said out loud, in the result, exactly as the user asked.
+            report["skipped"].append(skill)
+            logging.warning(f"[TI] '{skill}' has NO automation in this framework — skipped")
+            continue
+
+    plays = 0
+    for mission in [m for m in missions if m["automatable"]]:
+        skill, index = mission["skill"], mission["index"]
+        island = ti_island_for_skill(altdriver, skill)
+        if not island:
+            report["problems"].append(f"{skill}: no island object matches this skill")
+            continue
+        if ti_island_locked(altdriver, island):
+            report["problems"].append(f"{skill}: its island ({island}) is still locked")
+            continue
+
+        while plays < max_plays:
+            current = next((m for m in ti_missions(altdriver) if m["index"] == index), None)
+            progress = (current or {}).get("progress")
+            report["skills"][skill]["after"] = progress
+            if progress is not None and progress >= TI_COMPLETE:
+                logging.info(f"[TI] '{skill}' is complete")
+                break
+
+            if not ti_open_missions(altdriver, timeout=timeout):
+                report["problems"].append(f"{skill}: the mission list would not reopen")
+                break
+            if not ti_press_row_play(altdriver, index):
+                report["problems"].append(f"{skill}: its Play button could not be pressed")
+                break
+
+            buildings = ti_buildings(altdriver, island)
+            if not buildings:
+                report["problems"].append(f"{skill}: {island} has no buildings to play")
+                break
+            # Any building on the island will do — the user's rule.
+            building = random.choice(buildings)
+            outcome = ti_play_building(altdriver, building, timeout=timeout, tc_id=tc_id)
+            plays += 1
+            report["plays"].append(
+                f"{skill}: {outcome['building']} -> {outcome['activity'] or '?'}"
+                f"{'' if outcome['played'] else ' (NOT finished: ' + outcome['note'] + ')'}")
+            if not outcome["played"]:
+                report["problems"].append(
+                    f"{skill}: {outcome['building']} did not complete — {outcome['note']}")
+                break
+
+            after = next((m for m in ti_missions(altdriver) if m["index"] == index), None)
+            moved = (after or {}).get("progress")
+            report["skills"][skill]["after"] = moved
+            if moved is not None and progress is not None and moved <= progress:
+                report["problems"].append(
+                    f"{skill}: finishing {outcome['activity']} left its progress at "
+                    f"{moved} — an activity must raise the skill's progress")
+                break
+
+    # The point of the case: the LEVEL moves once the required skills are done.
+    ti_open_missions(altdriver, timeout=timeout)
+    report["level_after"], percent_after = ti_level(altdriver)
+    capture_evidence(altdriver, "ti-missions-after", tc_id=tc_id)
+    logging.info(f"[TI] level {report['level_before']!r} -> {report['level_after']!r} "
+                 f"({percent_before} -> {percent_after})")
+
+    done = [s for s, v in report["skills"].items()
+            if s not in report["skipped"] and (v.get("after") or 0) >= TI_COMPLETE]
+    report["ok"] = (bool(done) and not report["problems"]
+                    and report["level_after"] != report["level_before"])
+    if not report["ok"] and not report["note"]:
+        report["note"] = (
+            f"completed {done or 'no'} skill(s); level {report['level_before']!r} -> "
+            f"{report['level_after']!r}; skipped (no automation): {report['skipped']}; "
+            f"problems: {report['problems']}")
     return report
 
 
