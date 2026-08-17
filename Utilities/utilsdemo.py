@@ -891,6 +891,11 @@ def daily_game_won(altdriver, timeout=20):
     return False
 
 
+# How long a start-screen feature button is waited for before the hub is
+# declared to be missing it.
+FEATURE_BUTTON_TIMEOUT = 20
+
+
 def open_feature(altdriver, feature, username=None, password=None, timeout=40):
     """Open a start-screen feature by name ("events", "tasks", ...).
 
@@ -910,9 +915,14 @@ def open_feature(altdriver, feature, username=None, password=None, timeout=40):
         ensure_on_map(altdriver, username, password)
         return_to_start(altdriver)
 
-    btn = find_element(altdriver, spec["button"])
-    if btn is None:
-        logging.error(f"[Feature] '{spec['button']}' is not on the start screen")
+    # WAIT for the button rather than asking once. The hub reports itself ready
+    # before it has finished spawning its buttons, so a single lookup here fails
+    # a run that is perfectly healthy — seen live: "signed in as vt233632"
+    # followed immediately by "'GO-Treasure_Island' is not on the start screen",
+    # on the same account that had opened it minutes earlier.
+    if not wait_for_any(altdriver, (spec["button"],), timeout=FEATURE_BUTTON_TIMEOUT):
+        logging.error(f"[Feature] '{spec['button']}' is not on the start screen "
+                      f"after {FEATURE_BUTTON_TIMEOUT}s (scene: {_current_scene(altdriver)})")
         return False
     click_by_name(altdriver, spec["button"])
 
@@ -2536,6 +2546,14 @@ def ti_level(altdriver):
             _text_of(percent) if percent else "")
 
 
+def _ti_percent(text):
+    """``"75%"`` -> ``75.0``. Unreadable -> ``0.0``."""
+    try:
+        return float(str(text).strip().rstrip("%"))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def ti_missions(altdriver):
     """The mission rows: ``[{"index", "skill", "progress", "automatable"}]``.
 
@@ -2875,10 +2893,29 @@ def treasure_island_check(altdriver, username=None, password=None, tc_id="",
     logging.info(f"[TI] level {report['level_before']!r} -> {report['level_after']!r} "
                  f"({percent_before} -> {percent_after})")
 
-    done = [s for s, v in report["skills"].items()
-            if s not in report["skipped"] and (v.get("after") or 0) >= TI_COMPLETE]
-    report["ok"] = (bool(done) and not report["problems"]
-                    and report["level_after"] != report["level_before"])
+    automatable = [s for s in report["skills"] if s not in report["skipped"]]
+    done = [s for s in automatable
+            if (report["skills"][s].get("after") or 0) >= TI_COMPLETE]
+    report["completed"] = done
+    report["percent_before"] = _ti_percent(percent_before)
+    report["percent_after"] = _ti_percent(percent_after)
+    report["level_rose"] = bool(report["level_after"]
+                                and report["level_after"] != report["level_before"])
+
+    # PASS = every skill this framework CAN play reads 100%, and the overall did
+    # not go backwards.
+    #
+    # Deliberately NOT "the level went up". Measured live: the overall is the
+    # mean of all four skills, Speaking included, so with no solver for Speaking
+    # the ceiling is exactly 75% and LevelText never moves. Asserting the level
+    # would fail every run for a reason no run can fix. `level_rose` is reported
+    # so the day Speaking becomes automatable it can be asserted.
+    #
+    # ">= before" rather than "> before" on purpose: a re-run starts with the
+    # skills already complete, plays nothing, and must still pass.
+    report["ok"] = (bool(automatable) and len(done) == len(automatable)
+                    and not report["problems"]
+                    and report["percent_after"] >= report["percent_before"])
 
     # What was NOT automated is said in the note ALWAYS — on a pass as much as
     # on a failure. A green result that never mentions Speaking reads as though
@@ -2894,6 +2931,13 @@ def treasure_island_check(altdriver, username=None, password=None, tc_id="",
     notes.append(f"Completed: {', '.join(done) if done else 'no skill'}. "
                  f"Level {report['level_before'] or '?'} -> {report['level_after'] or '?'} "
                  f"({percent_before} -> {percent_after}).")
+    if report["skipped"] and not report["level_rose"]:
+        # Say WHY the level held, or the reader is left to assume a bug.
+        notes.append(
+            f"The Treasure Island level did NOT change: the overall percentage is the "
+            f"mean of ALL required skills, so it cannot reach 100% while "
+            f"{', '.join(report['skipped'])} has no automation "
+            f"({percent_after} is the ceiling for this run).")
     if report["plays"]:
         notes.append(f"Played: {'; '.join(report['plays'])}.")
     if report["problems"]:

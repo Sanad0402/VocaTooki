@@ -118,8 +118,10 @@ class RallyAPIClient:
                 "project": self._project_ref(project_id),
                 "projectScopeDown": "true",
                 "pageSize": 200,
+                # Steps comes back as a summary carrying its Count, which costs
+                # nothing here and saves a whole round-trip per case below.
                 "fetch": ("FormattedID,Name,Description,Owner,Status,Method,"
-                          "TestFolder,ValidationInput,ValidationExpectedResult"),
+                          "TestFolder,ValidationInput,ValidationExpectedResult,Steps"),
             }
 
             if automated_only:
@@ -299,8 +301,25 @@ class RallyAPIClient:
             logger.error(f"create_test_case_result failed: {e}")
             return None
 
+    def attach_image(self, artifact_ref: str, image_path: str,
+                     name: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Attach a PNG and return ``{"oid", "name", "url"}`` for embedding.
+
+        The URL is what a rich-text field (a result's Notes) needs to SHOW the
+        image: Rally serves an attachment at /slm/attachment/<oid>/<name>, so
+        the picture has to exist as an attachment before any note can point at
+        it. Returns None on failure — a picture must never fail a result post.
+        """
+        info = self._attach(artifact_ref, image_path, name)
+        return info
+
     def attach_screenshot(self, artifact_ref: str, image_path: str,
                           name: Optional[str] = None) -> bool:
+        """Attach a PNG to an ARTIFACT. True when it landed (compat wrapper)."""
+        return bool(self._attach(artifact_ref, image_path, name))
+
+    def _attach(self, artifact_ref: str, image_path: str,
+                name: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Attach a PNG to an ARTIFACT (e.g. a TestCase).
 
         Rally attachments are two objects: an AttachmentContent (base64) and an
@@ -322,7 +341,7 @@ class RallyAPIClient:
             content_ref = content.get("_ref")
             if not content_ref:
                 logger.error("attachment content not created")
-                return False
+                return None
             att = {
                 "Attachment": {
                     "Artifact": artifact_ref,
@@ -335,15 +354,20 @@ class RallyAPIClient:
             ar = self.session.post(f"{self.wsapi}/attachment/create",
                                    data=json.dumps(att))
             ar.raise_for_status()
-            errs = ar.json().get("CreateResult", {}).get("Errors") or []
+            body = ar.json().get("CreateResult", {})
+            errs = body.get("Errors") or []
             if errs:
                 logger.error(f"attachment link failed: {errs}")
-                return False
-            logger.info("Attached screenshot to Rally result")
-            return True
+                return None
+            obj = body.get("Object") or {}
+            oid = str(obj.get("ObjectID") or (obj.get("_ref") or "").rstrip("/").split("/")[-1])
+            filename = name or os.path.basename(image_path)
+            logger.info(f"Attached {filename} to Rally ({oid})")
+            return {"oid": oid, "name": filename,
+                    "url": f"{self.RALLY_URL}/slm/attachment/{oid}/{filename}"}
         except Exception as e:
-            logger.error(f"attach_screenshot failed: {e}")
-            return False
+            logger.error(f"attach failed: {e}")
+            return None
 
     def get_test_steps(self, test_case_id: str) -> List[Dict[str, Any]]:
         """Fetch test steps for a test case."""
@@ -489,8 +513,16 @@ class RallyAPIClient:
 
                 # Fetch the Rally test steps so generated files carry the real
                 # procedure (not an empty stub). ObjectID is the last _ref segment.
+                #
+                # Only when the case HAS steps. This was one request per case,
+                # run one after another, and it was 71% of the whole sync (11.4s
+                # of 16.1s over 49 cases) fetching nothing at all — not one case
+                # in this project has Rally steps. The count rides along in the
+                # query above, so a case with none costs no request. A missing
+                # count still fetches, so nothing is lost when Rally omits it.
                 tc_oid = tc.get("_ref", "").split("/")[-1]
-                raw_steps = self.get_test_steps(tc_oid)
+                step_count = (tc.get("Steps") or {}).get("Count")
+                raw_steps = [] if step_count == 0 else self.get_test_steps(tc_oid)
                 steps_out = [
                     {
                         "index": s.get("StepIndex"),
