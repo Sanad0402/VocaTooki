@@ -151,6 +151,28 @@ class Shooter:
         return path
 
 
+def _same_as_previous(path):
+    """The most recent evidence frame identical to ``path``, or None.
+
+    Compares CONTENT, not the label: two steps can legitimately be called
+    different things and still show the very same screen.
+    """
+    try:
+        mine = path.read_bytes()
+    except OSError:
+        return None
+    others = [p for p in sorted(path.parent.glob("evidence-*.png"),
+                                key=lambda p: p.stat().st_mtime)
+              if p != path]
+    for other in reversed(others):
+        try:
+            if other.read_bytes() == mine:
+                return other
+        except OSError:
+            continue
+    return None
+
+
 def evidence(driver, label, tc_id="", stamp=None):
     """Save a frame that must ALWAYS be kept, whatever the budget has spent.
 
@@ -173,6 +195,17 @@ def evidence(driver, label, tc_id="", stamp=None):
                 "kind": "test", "stamp": str(stamp or run_stamp()),
             }), encoding="utf-8")
         driver.get_png_screenshot(str(path))
+        # Drop a frame identical to the one before it. Evidence is taken at
+        # every step of a flow, and some steps do not change the screen (a
+        # press that opened nothing, a panel already up) -- keeping those makes
+        # a report of four pictures where two are the same, and the reader
+        # cannot tell a real repeat from a wasted shot.
+        twin = _same_as_previous(path)
+        if twin is not None:
+            path.unlink(missing_ok=True)
+            logger.info(f"[shots] evidence {path.name} is identical to "
+                        f"{twin.name} - not kept")
+            return twin
         logger.info(f"[shots] evidence {run_id}/{path.name}")
         return path
     except Exception as e:                          # noqa: BLE001 - never fail a run

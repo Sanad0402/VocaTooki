@@ -2265,6 +2265,10 @@ def event_cards_check(altdriver, username=None, password=None, tc_id="", timeout
         report["note"] = "the events screen did not open"
         return report
 
+    reset_evidence_trail(tc_id)
+    trail = evidence_trail(tc_id)
+    trail.shot(altdriver, "events-screen", EVIDENCE_KEY)           # the stack as it opens
+
     cards = event_cards(altdriver)
     report["cards"] = len(cards)
     if not cards:
@@ -2284,7 +2288,7 @@ def event_cards_check(altdriver, username=None, password=None, tc_id="", timeout
             opened = press_object(altdriver, EVENT_START_BUTTON, settle=3.0) and \
                 wait_for_scene(altdriver, EVENT_SCENE, timeout=timeout)
             time.sleep(OVERLAY_SETTLE_SECONDS)   # let the map finish drawing
-            capture_evidence(altdriver, f"event-card-{index}-start", tc_id=tc_id)
+            trail.shot(altdriver, f"card-{index}-Start-opened", EVIDENCE_PROOF)
             if opened:
                 report["visited"].append(f"card {index}: Start -> event map")
             else:
@@ -2305,7 +2309,7 @@ def event_cards_check(altdriver, username=None, password=None, tc_id="", timeout
                 shown = find_any(altdriver, EVENT_PLAYER_NAME_OBJECT) is not None
             text = " ".join(screen_texts(altdriver)).lower()
             empty = EVENT_NO_RESULTS_TEXT in text
-            capture_evidence(altdriver, f"event-card-{index}-winners", tc_id=tc_id)
+            trail.shot(altdriver, f"card-{index}-Winners-opened", EVIDENCE_PROOF)
             # Both outcomes are correct, and they mean different things: an
             # event nobody played shows "No Results", one that was played lists
             # its winners. So record WHICH, with the names and scores — a
@@ -2338,10 +2342,12 @@ def event_cards_check(altdriver, username=None, password=None, tc_id="", timeout
                 press_object(altdriver, "BackButton", settle=2.0)
 
         seen.add(index)
+        trail.shot(altdriver, f"card-{index}-back-on-events")   # it really came back
         if len(seen) < len(cards) and not event_next_card(altdriver):
             report["problems"].append("the card stack would not move to the next card")
             break
 
+    report["screenshots"] = trail.names
     report["ok"] = bool(report["visited"]) and not report["problems"] \
         and len(report["visited"]) == report["cards"]
     if not report["ok"] and not report["note"]:
@@ -2520,6 +2526,105 @@ def _wait_leaves_scene(altdriver, scene, timeout=15, poll=0.5):
             return True
         time.sleep(poll)
     return False
+
+
+def _ti_short(building):
+    """`GO-TI-Break_Out Variant(Clone)` -> `Break_Out`, for a readable filename."""
+    return (str(building).replace(TI_BUILDING_PREFIX, "")
+            .replace(" Variant(Clone)", "").strip() or "building")
+
+
+# The most frames one test case may leave behind. The user set this (2026-08-17):
+# enough to review a run without having watched it, few enough to actually look
+# at. When a flow takes more, the LEAST important are dropped, never the ends.
+EVIDENCE_MAX_PER_CASE = 7
+
+# Lower = more important. KEY frames are never dropped.
+EVIDENCE_KEY = 1        # the state the case is ABOUT: start, end, a failure
+EVIDENCE_PROOF = 2      # proof a step really happened (progress moved)
+EVIDENCE_STEP = 3       # useful context: a screen opened, a board played
+
+
+class EvidenceTrail:
+    """A numbered, BUDGETED walkthrough of a run, in pictures.
+
+    **Use this in EVERY flow the framework tests, not just one.** The rule the
+    user set (2026-08-17): someone who had no time to watch the execution must
+    be able to review the whole case from the pictures afterwards — so a frame
+    is taken at every step that MATTERS, in order, named for what it shows.
+
+    At most ``EVIDENCE_MAX_PER_CASE`` survive. Take frames generously and say
+    how important each one is; when the budget is exceeded the least important
+    are deleted, and among equals the MIDDLE of a repeated kind goes first, so
+    the first and last of anything are still there to compare. A KEY frame is
+    never dropped.
+
+    The number is part of the filename because the panel lists a run's frames
+    by name: without it "missions-after-Reading" sorts above "Sentences-island"
+    and the story is scrambled. Frames identical to an earlier one are dropped
+    by ``runner.screenshots``, so instrumenting generously costs nothing.
+
+    Usage in any flow helper::
+
+        trail = EvidenceTrail(tc_id)
+        trail.shot(driver, "missions-BEFORE", EVIDENCE_KEY)
+        trail.shot(driver, f"{skill}-island")                    # EVIDENCE_STEP
+        trail.shot(driver, f"missions-after-{skill}", EVIDENCE_PROOF)
+        trail.shot(driver, "missions-FINAL", EVIDENCE_KEY)
+        report["screenshots"] = trail.names
+    """
+
+    def __init__(self, tc_id="", limit=EVIDENCE_MAX_PER_CASE):
+        self.tc_id = tc_id
+        self.limit = max(1, int(limit))
+        self.step = 0
+        self._kept = []                              # [{path, priority, order}]
+
+    @property
+    def names(self):
+        """The frames that SURVIVED, in the order they were taken."""
+        return [k["path"].name for k in sorted(self._kept, key=lambda k: k["order"])]
+
+    def shot(self, altdriver, label, priority=EVIDENCE_STEP):
+        """Capture one step. Returns the file name, or ""."""
+        self.step += 1
+        path = None
+        try:
+            from runner import screenshots as _shots   # local: avoids a cycle
+            path = _shots.evidence(altdriver, f"{self.step:02d}-{label}",
+                                   tc_id=self.tc_id)
+        except Exception as e:                       # noqa: BLE001
+            logging.debug(f"[Shot] evidence unavailable: {e}")
+        if path is None:
+            self.step -= 1                           # nothing was written
+            return ""
+        # A duplicate frame comes back as the EARLIER file; it is already kept.
+        if any(k["path"] == path for k in self._kept):
+            self.step -= 1
+            return path.name
+        self._kept.append({"path": path, "priority": priority, "order": self.step})
+        self._enforce_budget()
+        return path.name
+
+    def _enforce_budget(self):
+        """Delete the least important frames until the budget is met."""
+        while len(self._kept) > self.limit:
+            worst = max(k["priority"] for k in self._kept
+                        if k["priority"] != EVIDENCE_KEY)                 if any(k["priority"] != EVIDENCE_KEY for k in self._kept) else None
+            if worst is None:
+                return                               # all KEY: keep them all
+            group = sorted((k for k in self._kept if k["priority"] == worst),
+                           key=lambda k: k["order"])
+            # The middle of a repeated kind goes first: the first and the last
+            # are what a reader compares.
+            victim = group[len(group) // 2]
+            self._kept.remove(victim)
+            try:
+                victim["path"].unlink(missing_ok=True)
+                logging.info(f"[Shot] budget {self.limit}: dropped "
+                             f"{victim['path'].name}")
+            except OSError:
+                pass
 
 
 def ti_skip_intro(altdriver):
@@ -2706,7 +2811,7 @@ def ti_buildings(altdriver, island):
     return sorted(names)
 
 
-def ti_play_building(altdriver, building, timeout=90, tc_id=""):
+def ti_play_building(altdriver, building, timeout=90, tc_id="", trail=None):
     """Open one building and play what it starts. Never raises.
 
     Tapping a building opens an in-scene panel (an `ActivityCard` and a single
@@ -2721,7 +2826,12 @@ def ti_play_building(altdriver, building, timeout=90, tc_id=""):
         return out
     if not wait_for_any(altdriver, ("PlayButton",), timeout=15):
         out["note"] = f"'{building}' opened no activity panel"
+        if trail:
+            trail.shot(altdriver, f"{_ti_short(building)}-no-panel", EVIDENCE_KEY)
         return out
+    if trail:
+        # WHICH building was chosen, and the card it offered.
+        trail.shot(altdriver, f"{_ti_short(building)}-panel")
 
     # The panel fades in, and a Play pressed into that animation is SWALLOWED —
     # the panel just stays open. Measured live: the very press that did nothing
@@ -2741,7 +2851,10 @@ def ti_play_building(altdriver, building, timeout=90, tc_id=""):
     if not started:
         out["note"] = (f"'{building}' opened its panel but Play never started the "
                        f"activity after {TI_PLAY_ATTEMPTS} presses")
-        capture_evidence(altdriver, f"ti-{building}-play-stuck", tc_id=tc_id)
+        if trail:
+            trail.shot(altdriver, f"{_ti_short(building)}-play-stuck", EVIDENCE_KEY)
+        else:
+            capture_evidence(altdriver, f"ti-{building}-play-stuck", tc_id=tc_id)
         return out
 
     # Ask WHICH activity, not for a CHANGE of activity. The scene leaving
@@ -2758,10 +2871,20 @@ def ti_play_building(altdriver, building, timeout=90, tc_id=""):
     out["activity"] = activity
     logging.info(f"[TI] {building} started '{activity}'")
 
+    if trail:
+        trail.shot(altdriver, f"{activity}-opened")
+
     out["played"] = _solve_open_activity(altdriver, activity, label=f"TI {building}")
+    # The board as the solver left it — finished or not, this is the frame that
+    # shows whether the activity was really played.
+    if trail:
+        trail.shot(altdriver,
+                   f"{activity}-{'finished' if out['played'] else 'UNFINISHED'}",
+                   EVIDENCE_PROOF if out["played"] else EVIDENCE_KEY)
     if not out["played"]:
         out["note"] = f"the '{activity}' solver did not finish it"
-        capture_evidence(altdriver, f"ti-{activity}-unfinished", tc_id=tc_id)
+        if not trail:
+            capture_evidence(altdriver, f"ti-{activity}-unfinished", tc_id=tc_id)
 
     # Back to the island whatever happened, so the next building is reachable.
     for _ in range(4):
@@ -2805,6 +2928,10 @@ def treasure_island_check(altdriver, username=None, password=None, tc_id="",
         report["note"] = "the mission list did not open from the clipboard"
         return report
 
+    # ONE budget for the whole case, shared with any helper that calls
+    # capture_evidence() on its own.
+    reset_evidence_trail(tc_id)
+    trail = evidence_trail(tc_id)
     report["level_before"], percent_before = ti_level(altdriver)
     missions = ti_missions(altdriver)
     if not missions:
@@ -2812,7 +2939,7 @@ def treasure_island_check(altdriver, username=None, password=None, tc_id="",
         return report
     logging.info(f"[TI] {report['level_before']} ({percent_before}): "
                  f"{[(m['skill'], m['progress']) for m in missions]}")
-    capture_evidence(altdriver, "ti-missions-before", tc_id=tc_id)
+    trail.shot(altdriver, "missions-BEFORE", EVIDENCE_KEY)
 
     for mission in missions:
         skill = mission["skill"]
@@ -2856,6 +2983,8 @@ def treasure_island_check(altdriver, username=None, password=None, tc_id="",
             if not ti_press_row_play(altdriver, index):
                 report["problems"].append(f"{skill}: its Play button could not be pressed")
                 break
+            # The island Play zoomed to, with its buildings.
+            trail.shot(altdriver, f"{skill}-island")
 
             buildings = ti_buildings(altdriver, island)
             if not buildings:
@@ -2863,7 +2992,8 @@ def treasure_island_check(altdriver, username=None, password=None, tc_id="",
                 break
             # Any building on the island will do — the user's rule.
             building = random.choice(buildings)
-            outcome = ti_play_building(altdriver, building, timeout=timeout, tc_id=tc_id)
+            outcome = ti_play_building(altdriver, building, timeout=timeout,
+                                       tc_id=tc_id, trail=trail)
             plays += 1
             report["plays"].append(
                 f"{skill}: {outcome['building']} -> {outcome['activity'] or '?'}"
@@ -2873,8 +3003,14 @@ def treasure_island_check(altdriver, username=None, password=None, tc_id="",
                     f"{skill}: {outcome['building']} did not complete — {outcome['note']}")
                 break
 
+            # The TASK SUMMARY after every activity — the user asked for this
+            # one by name. It is the proof that the activity moved the skill,
+            # and the only frame that shows the mission list mid-run.
+            ti_open_missions(altdriver, timeout=timeout)
             after = next((m for m in ti_missions(altdriver) if m["index"] == index), None)
             moved = (after or {}).get("progress")
+            trail.shot(altdriver, f"missions-after-{skill}-{outcome['activity'] or 'play'}",
+                       EVIDENCE_PROOF)
             report["skills"][skill]["after"] = moved
             # Say what the activity was WORTH. Without this a skill that needs
             # several plays looks identical to one that is not advancing at all.
@@ -2889,7 +3025,8 @@ def treasure_island_check(altdriver, username=None, password=None, tc_id="",
     # The point of the case: the LEVEL moves once the required skills are done.
     ti_open_missions(altdriver, timeout=timeout)
     report["level_after"], percent_after = ti_level(altdriver)
-    capture_evidence(altdriver, "ti-missions-after", tc_id=tc_id)
+    trail.shot(altdriver, "missions-FINAL", EVIDENCE_KEY)
+    report["screenshots"] = trail.names
     logging.info(f"[TI] level {report['level_before']!r} -> {report['level_after']!r} "
                  f"({percent_before} -> {percent_after})")
 
@@ -3339,22 +3476,37 @@ def component_property(obj, prop):
     return ""
 
 
-def capture_evidence(altdriver, label, tc_id=""):
+# One trail per test case, so EVERY flow obeys the same budget — including the
+# ones that call capture_evidence() directly instead of holding a trail.
+_EVIDENCE_TRAILS = {}
+
+
+def evidence_trail(tc_id=""):
+    """The EvidenceTrail for this test case, created on first use.
+
+    Shared so that a case which takes evidence from several helpers (the guest
+    walk's gates, an event's levels) still lands inside ONE budget of
+    ``EVIDENCE_MAX_PER_CASE`` — the cap is per TEST CASE, not per helper.
+    """
+    return _EVIDENCE_TRAILS.setdefault(str(tc_id or "run"), EvidenceTrail(tc_id))
+
+
+def reset_evidence_trail(tc_id=""):
+    """Start a fresh budget (a new run of the same case)."""
+    _EVIDENCE_TRAILS.pop(str(tc_id or "run"), None)
+
+
+def capture_evidence(altdriver, label, tc_id="", priority=None):
     """A screenshot kept on purpose, not as a failure artefact. Returns a name.
 
-    Written into the run's own folder so it shows up with that run's frames in
-    the panel, and never counted against the per-run budget: these frames are
-    what a human looks at afterwards, so "we ran out of allowance" must not be
-    the reason one is missing.
+    Goes through this case's EvidenceTrail, so it is numbered in order, freed
+    of duplicates, and counted against the per-case budget the user set: at
+    most ``EVIDENCE_MAX_PER_CASE`` frames survive, and when a flow takes more
+    the LEAST important are dropped rather than the newest or the oldest.
     """
-    try:
-        from runner import screenshots as _shots    # local: avoids a cycle
-        path = _shots.evidence(altdriver, label, tc_id=tc_id)
-        if path is not None:
-            return path.name
-    except Exception as e:                          # noqa: BLE001
-        logging.debug(f"[Shot] run-folder evidence unavailable: {e}")
-    return capture_failure_screenshot(altdriver, label)
+    name = evidence_trail(tc_id).shot(altdriver, label,
+                                      priority or EVIDENCE_PROOF)
+    return name or capture_failure_screenshot(altdriver, label)
 
 
 def guest_subscribe_gate(altdriver, expect=(), settle=None, timeout=30, tc_id=""):
