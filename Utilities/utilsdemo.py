@@ -1955,6 +1955,55 @@ HUB_MARKERS = ("GO-Events", "GO-Map", "GO-Tasks", "GO-Daily")
 LOGIN_SETTLE_SECONDS = 7.0
 
 
+# First entry only: the app asks which avatar the user is before it will let
+# them do anything, and answering navigates INTO the avatar builder — so a run
+# that ignores it is left on the wrong scene with every later press missing.
+# Route verified live 2026-08-18: NewStartScene -> GenderSelectPopup(Clone) ->
+# Male/Female -> AvatarBuilderScene -> BackButton -> NewStartScene.
+GENDER_POPUP = "GenderSelectPopup(Clone)"
+GENDER_OPTIONS = ("Male", "Female")
+AVATAR_BUILDER_SCENE = "AvatarBuilderScene"
+# The LONGEST a login waits to see whether this is a first entry. It polls and
+# returns the moment the popup shows, so a first entry is handled at once; only
+# an account that has already answered pays the full wait.
+GENDER_POPUP_TIMEOUT = 20.0
+
+
+def handle_gender_select(altdriver, choose="Male", timeout=GENDER_POPUP_TIMEOUT):
+    """Answer the first-entry "You are" popup and come back. Returns bool.
+
+    True when the popup was there and was dealt with, False when this account
+    had already answered it — which is not a failure, just not a first entry.
+    Never raises: no run should die because a one-off popup moved.
+    """
+    if not wait_for_any(altdriver, (GENDER_POPUP,), timeout=timeout):
+        return False                                 # not a first entry
+
+    wanted = choose if choose in GENDER_OPTIONS else GENDER_OPTIONS[0]
+    picked = ""
+    for option in (wanted,) + GENDER_OPTIONS:        # the asked-for one first
+        if find_any(altdriver, option) is not None and press_object(altdriver, option,
+                                                                    settle=2.0):
+            picked = option
+            break
+    if not picked:
+        logging.error(f"[Login] the gender popup is up but neither "
+                      f"{GENDER_OPTIONS} could be pressed")
+        return False
+    logging.info(f"[Login] first entry: chose '{picked}' on the gender popup")
+
+    # Answering it opens the AVATAR BUILDER. Leaving is not optional: the run
+    # would otherwise carry on pressing start-screen buttons from another scene.
+    if wait_for_scene(altdriver, AVATAR_BUILDER_SCENE, timeout=20):
+        if not press_object(altdriver, "BackButton", settle=2.0):
+            logging.warning("[Login] could not press Back in the avatar builder")
+        wait_for_scene(altdriver, START_SCENE, timeout=20)
+    if _current_scene(altdriver) != START_SCENE:
+        logging.warning(f"[Login] after the gender popup the app is on "
+                        f"{_current_scene(altdriver)}, not the start screen")
+    return True
+
+
 def fresh_login(altdriver, username, password):
     """Log OUT and back in, so a run starts from a known account. Returns bool.
 
@@ -1988,9 +2037,21 @@ def fresh_login(altdriver, username, password):
         logging.error(f"[Login] {username}: the hub never appeared after login "
                       f"(still on {_current_scene(altdriver)})")
         return False
+    # A FIRST entry stops here to ask which avatar the user is, and answering
+    # walks into the avatar builder — so it is dealt with before anything else
+    # tries to press a start-screen button.
+    #
+    # This poll doubles as the settle below: it returns the moment the popup
+    # shows, and the hub is building its buttons meanwhile either way, so an
+    # account that has already answered is not charged twice for waiting.
+    settle_from = time.time()
+    handle_gender_select(altdriver)
+
     # The hub builds its buttons after it appears; going straight for a feature
     # presses a button that is not listening yet.
-    time.sleep(LOGIN_SETTLE_SECONDS)
+    waited = time.time() - settle_from
+    if waited < LOGIN_SETTLE_SECONDS:
+        time.sleep(LOGIN_SETTLE_SECONDS - waited)
     _LAST_LOGIN_USER = username
     logging.info(f"[Login] signed in as {username}")
     return True
@@ -4029,6 +4090,12 @@ def ensure_logged_in(altdriver, username, password):
         logging.info(f"[Login] already logged in as {username} — skipping login")
         return
     login(altdriver, username, password)
+    # A brand-new user is asked which avatar they are before anything else, and
+    # answering opens the avatar builder. Only ever on a FIRST entry: an
+    # account that has answered already just carries on. Checked here as well
+    # as in fresh_login, because this is the other way a run signs in — and it
+    # costs nothing on the path above, which does not log in at all.
+    handle_gender_select(altdriver)
     _LAST_LOGIN_USER = username
 
 
