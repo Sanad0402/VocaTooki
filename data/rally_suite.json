@@ -1367,12 +1367,12 @@
       "id": "TC1191",
       "name": "Treasure Island - Completing the level's missions raises the Treasure Island level",
       "folder": "TF193",
-      "description": "Test Type: Functional\nPriority: Important\nSeverity: Major\nUsername: vt233631\npassword : 2727\nObjective:\nVerify that Treasure Island's missions drive its level: each required skill is played until its progress reaches 100%, and when every required skill is complete the Treasure Island level goes up.\nThe mission list is opened from the TaskSummary (clipboard) button and shows the current Level, an overall percentage, and one row per required skill with its own progress and Play button.\nNOTE: the SPEAKING skill has NO automation in this framework - there is no solver for it. A run must skip Speaking, report that it was skipped, and judge the remaining required skills.\nOn a first entry Treasure Island plays an intro; it is skipped before anything else.",
+      "description": "Test Type: Functional\nPriority: Important\nSeverity: Major\nUsername: vt233635\npassword : 4850\nObjective:\nVerify that Treasure Island's missions drive its level: each required skill is played until its progress reaches 100%, and when every required skill is complete the Treasure Island level goes up.\nThe mission list is opened from the TaskSummary (clipboard) button and shows the current Level, an overall percentage, and one row per required skill with its own progress and Play button.\nNOTE: the SPEAKING skill has NO automation in this framework - there is no solver for it. A run must skip Speaking, report that it was skipped, and judge the remaining required skills.\nOn a first entry Treasure Island plays an intro; it is skipped before anything else.",
       "owner": "",
       "status": "",
       "user": {
-        "username": "vt233631",
-        "password": "2727"
+        "username": "vt233635",
+        "password": "4850"
       },
       "steps": [],
       "validation": {
@@ -1392,6 +1392,6 @@
     "total_cases": 49,
     "automated_only": true,
     "synced_from": "Rally API",
-    "synced_at": "2026-08-17T16:39:55.726385+00:00"
+    "synced_at": "2026-08-18T08:43:43.780966+00:00"
   }
 }

@@ -161,7 +161,11 @@ def _same_as_previous(path):
         mine = path.read_bytes()
     except OSError:
         return None
-    others = [p for p in sorted(path.parent.glob("evidence-*.png"),
+    # EVERY png in the run folder, not just the evidence ones: the budgeted
+    # milestone frames (01-start.png, 02-end.png) photograph the same screens a
+    # flow keeps as evidence, and a run that left four pictures of which two
+    # were duplicates was exactly that pair counted twice.
+    others = [p for p in sorted(path.parent.glob("*.png"),
                                 key=lambda p: p.stat().st_mtime)
               if p != path]
     for other in reversed(others):
