@@ -692,6 +692,12 @@ def level_kind(altdriver, level_num):
 
 
 START_SCENE = "NewStartScene"   # the screen GO-Map lives on; back from the map lands here
+# GO-Map lands HERE instead of the map when the account's class is configured
+# for a pretest in the CRM — a placement test that has to be taken before the
+# map is reachable. NOT every new user: it depends on the parent class config,
+# so two fresh accounts can behave differently (the user explained this on
+# 2026-08-18). Nothing is broken when a run sees this scene.
+PRETEST_SCENE = "PretestScene"
 MAP_SCENE = "MapScene"
 
 # Every feature reachable from the start screen, surveyed on the live app.
@@ -700,8 +706,11 @@ MAP_SCENE = "MapScene"
 # markers - objects that prove the feature is really open
 # back    - how to leave it (None: no back control exists, needs ensure_on_map)
 APP_FEATURES = {
+    # NOT BackButton: nearly every screen in the app has one, so it proved
+    # nothing — it reported the map "open" while the app was on PretestScene.
     "map":            {"button": "GO-Map", "scene": MAP_SCENE,
-                       "markers": ["BackButton"], "back": "BackButton"},
+                       "markers": ["Levels", "level_icons", "CountersPanel"],
+                       "back": "BackButton"},
     "tasks":          {"button": "GO-Tasks", "scene": "TasksSelectionScene",
                        "markers": ["ALL-NavigationTab", "Open-NavigationTab"], "back": "prev"},
     "events":         {"button": "GO-Events", "scene": "EventSelectionScene",
@@ -928,17 +937,38 @@ def open_feature(altdriver, feature, username=None, password=None, timeout=40):
 
     deadline = time.time() + timeout
     while time.time() < deadline:
-        if spec["scene"] and _current_scene(altdriver) == spec["scene"]:
+        here = _current_scene(altdriver)
+        if spec["scene"] and here == spec["scene"]:
+            # Opened is not the same as ready — let it finish building before
+            # anything presses into a half-built screen.
+            wait_for_scene_ready(altdriver, label=spec["scene"])
             logging.info(f"[Feature] '{feature}' open (scene {spec['scene']})")
             return True
-        for marker in spec["markers"]:
-            if find_element(altdriver, marker) is not None:
-                logging.info(f"[Feature] '{feature}' open (found {marker})")
-                return True
+        # Markers only get a say when the feature has no scene of its own (a
+        # popup over the start screen) or the scene cannot be read. Letting an
+        # object vouch for a feature while the app sits in a DIFFERENT known
+        # scene is how "map is open" came back true on PretestScene.
+        if not spec["scene"] or not here:
+            for marker in spec["markers"]:
+                if find_element(altdriver, marker) is not None:
+                    wait_for_scene_ready(altdriver, label=feature)
+                    logging.info(f"[Feature] '{feature}' open (found {marker})")
+                    return True
         time.sleep(2)
 
-    logging.error(f"[Feature] '{feature}' did not open "
-                  f"(scene: {_current_scene(altdriver)})")
+    here = _current_scene(altdriver)
+    if here == PRETEST_SCENE:
+        # The account's class is configured for a pretest in the CRM, and the
+        # map is behind it. Named explicitly so the failure says WHY: nothing is
+        # broken and no wait will fix it. Depends on the class config, not on
+        # the account being new — so another account may not hit this at all.
+        logging.error(f"[Feature] '{feature}' is behind the placement PRETEST: "
+                      f"this account's class is configured for a pretest in the "
+                      f"CRM and it has not been taken, so the map cannot be "
+                      f"reached. Take it, or run the case on an account whose "
+                      f"class has no pretest.")
+        return False
+    logging.error(f"[Feature] '{feature}' did not open (scene: {here})")
     return False
 
 
@@ -1191,11 +1221,63 @@ def press_label(altdriver, label, timeout=8, settle=1.0, expect=(), gone=()):
         time.sleep(0.5)
 
 
-def wait_for_scene(altdriver, scene, timeout=40, poll=0.5):
-    """Poll until the app is in ``scene``. Returns bool, never raises."""
+# Every scene builds itself over a second or two, and a press into that window
+# is swallowed. A scene is "ready" when it has stopped GROWING — counting the
+# ACTIVE objects is cheap (about 0.04s for a scene of ~130) and works for any
+# scene without knowing a thing about it.
+SCENE_READY_TIMEOUT = 12.0        # a ceiling, not a sleep
+SCENE_READY_STABLE_SECONDS = 1.5  # no new objects for this long = built
+SCENE_READY_POLL_SECONDS = 0.4
+
+
+def wait_for_scene_ready(altdriver, timeout=SCENE_READY_TIMEOUT,
+                         stable_for=SCENE_READY_STABLE_SECONDS, label=""):
+    """Wait until the current scene has finished building. Returns bool.
+
+    Watches the number of ACTIVE objects and waits for it to stop RISING.
+    Rising means the scene is still spawning; once it stops, what is on screen
+    is what there is going to be. Deliberately not "unchanged": a live game
+    scene has things appearing and disappearing all the time, and a run should
+    not sit out the whole timeout waiting for a board that will never be still.
+
+    Returns as soon as it settles — a fast scene is not punished — and never
+    raises: a scene that cannot be counted is simply carried on with.
+    """
+    deadline = time.time() + timeout
+    peak, grew_at = -1, time.time()
+    while time.time() < deadline:
+        try:
+            count = len(altdriver.get_all_elements() or [])
+        except Exception:                            # noqa: BLE001
+            return False                             # unreadable: carry on
+        if count > peak:
+            peak, grew_at = count, time.time()
+        elif peak > 0 and (time.time() - grew_at) >= stable_for:
+            logging.debug(f"[Scene] {label or _current_scene(altdriver)} ready "
+                          f"({peak} objects)")
+            return True
+        time.sleep(SCENE_READY_POLL_SECONDS)
+    logging.info(f"[Scene] {label or _current_scene(altdriver)} still growing "
+                 f"after {timeout}s ({peak} objects); carrying on")
+    return peak > 0
+
+
+def wait_for_scene(altdriver, scene, timeout=40, poll=0.5, ready=True):
+    """Poll until the app is in ``scene`` AND it has finished building.
+
+    Arriving in a scene is not the same as being able to use it: Unity reports
+    the scene as soon as it loads, while the objects keep spawning for another
+    second or two, and a press into that window is simply swallowed. So every
+    entry waits for the scene to stop growing as well (``ready=False`` to skip
+    it, e.g. when only the name is being checked).
+
+    Returns bool, never raises.
+    """
     end = time.time() + timeout
     while True:
         if _current_scene(altdriver) == scene:
+            if ready:
+                wait_for_scene_ready(altdriver, label=scene)
             return True
         if time.time() >= end:
             logging.error(f"[Guest] scene '{scene}' not reached "
@@ -1954,6 +2036,48 @@ HUB_MARKERS = ("GO-Events", "GO-Map", "GO-Tasks", "GO-Daily")
 # this window is swallowed. Asked for by the user (2026-08-17).
 LOGIN_SETTLE_SECONDS = 7.0
 
+# The start screen builds its buttons a few at a time, so "how many are there"
+# still rising means it is not finished. Waiting for that count to STOP rising
+# is what proves the screen is built — a fixed sleep is both slower than it
+# needs to be on a fast load and too short on a slow one.
+START_SCENE_BUTTONS = ("GO-Map", "GO-Tasks", "GO-Events", "GO-Audiobook",
+                       "GO-Competitions", "GO-Treasure_Island", "GO-Daily",
+                       "GO-Dialogue", "GO-Multiplayer", "GO-Avatar_Builder",
+                       "SettingsButton", "WordListButton", "LogoutButton")
+START_SCENE_READY_TIMEOUT = 15.0     # the LONGEST it waits, not a sleep
+START_SCENE_STABLE_SECONDS = 2.5     # unchanged this long = finished building
+START_SCENE_POLL_SECONDS = 1.0
+
+
+def wait_for_start_scene_ready(altdriver, timeout=START_SCENE_READY_TIMEOUT,
+                               stable_for=START_SCENE_STABLE_SECONDS):
+    """Wait until the start screen has finished loading. Returns bool.
+
+    Counts how many of the hub's buttons are on screen and waits for that
+    number to STOP changing — the screen is built when it stops growing, which
+    is a different moment on every account and every machine. Returns as soon
+    as it settles, so a fast load is not punished; ``timeout`` is a ceiling.
+
+    Not "are all of them there": a new account does not have every feature (a
+    fresh user showed no GO-Daily), and demanding the full set would wait out
+    the whole timeout on a screen that was ready.
+    """
+    deadline = time.time() + timeout
+    seen, steady_since = -1, time.time()
+    while time.time() < deadline:
+        count = sum(1 for name in START_SCENE_BUTTONS
+                    if find_any(altdriver, name) is not None)
+        if count != seen:
+            seen, steady_since = count, time.time()
+        elif count > 0 and (time.time() - steady_since) >= stable_for:
+            logging.info(f"[Login] start screen ready — {count} buttons, "
+                         f"steady for {stable_for}s")
+            return True
+        time.sleep(START_SCENE_POLL_SECONDS)
+    logging.warning(f"[Login] start screen still settling after {timeout}s "
+                    f"({seen} buttons); carrying on")
+    return seen > 0
+
 
 # First entry only: the app asks which avatar the user is before it will let
 # them do anything, and answering navigates INTO the avatar builder — so a run
@@ -2045,10 +2169,20 @@ def fresh_login(altdriver, username, password):
     # shows, and the hub is building its buttons meanwhile either way, so an
     # account that has already answered is not charged twice for waiting.
     settle_from = time.time()
-    handle_gender_select(altdriver)
 
-    # The hub builds its buttons after it appears; going straight for a feature
-    # presses a button that is not listening yet.
+    # Let the screen finish building FIRST. It grows a few buttons at a time,
+    # so waiting for that to stop is what proves it is ready — a fixed sleep is
+    # guesswork in both directions.
+    wait_for_start_scene_ready(altdriver)
+
+    # The popup is part of that build, so by now it is either up or not coming.
+    # It still gets whatever is left of its own budget rather than a single
+    # look, but an account that has already answered no longer pays the full
+    # wait on top of the wait it just did.
+    spent = time.time() - settle_from
+    handle_gender_select(altdriver,
+                         timeout=max(3.0, GENDER_POPUP_TIMEOUT - spent))
+
     waited = time.time() - settle_from
     if waited < LOGIN_SETTLE_SECONDS:
         time.sleep(LOGIN_SETTLE_SECONDS - waited)
@@ -2904,6 +3038,7 @@ def ti_play_building(altdriver, building, timeout=90, tc_id="", trail=None):
     for attempt in range(1, TI_PLAY_ATTEMPTS + 1):
         press_object(altdriver, TI_PANEL_PLAY, settle=2.0)
         if _wait_leaves_scene(altdriver, TREASURE_ISLAND_SCENE, timeout=15):
+            wait_for_scene_ready(altdriver, label="activity")
             started = True
             break
         logging.warning(f"[TI] Play did not start '{building}' "
