@@ -52,22 +52,22 @@
     },
     {
       "id": "TF195",
-      "name": "Login – Positive Flow",
+      "name": "Login \u2013 Positive Flow",
       "parent": "TF194"
     },
     {
       "id": "TF196",
-      "name": "Login – Negative Flow",
+      "name": "Login \u2013 Negative Flow",
       "parent": "TF194"
     },
     {
       "id": "TF197",
-      "name": "Login – Error Handling",
+      "name": "Login \u2013 Error Handling",
       "parent": "TF194"
     },
     {
       "id": "TF198",
-      "name": "Login – Security & Compliance",
+      "name": "Login \u2013 Security & Compliance",
       "parent": "TF194"
     },
     {
@@ -77,57 +77,57 @@
     },
     {
       "id": "TF200",
-      "name": "📂Start Scene – Positive Flow",
+      "name": "\ud83d\udcc2Start Scene \u2013 Positive Flow",
       "parent": "TF199"
     },
     {
       "id": "TF201",
-      "name": "📂Start Scene – Negative Flow",
+      "name": "\ud83d\udcc2Start Scene \u2013 Negative Flow",
       "parent": "TF199"
     },
     {
       "id": "TF202",
-      "name": "📂Start Scene – Error Handling",
+      "name": "\ud83d\udcc2Start Scene \u2013 Error Handling",
       "parent": "TF199"
     },
     {
       "id": "TF203",
-      "name": "📂 Start Scene – Usability & Accessibility",
+      "name": "\ud83d\udcc2 Start Scene \u2013 Usability & Accessibility",
       "parent": "TF199"
     },
     {
       "id": "TF204",
-      "name": "📂 Treasure Island – Positive Flow",
+      "name": "\ud83d\udcc2 Treasure Island \u2013 Positive Flow",
       "parent": "TF193"
     },
     {
       "id": "TF205",
-      "name": "📂 Treasure Island – Negative Flow",
+      "name": "\ud83d\udcc2 Treasure Island \u2013 Negative Flow",
       "parent": "TF193"
     },
     {
       "id": "TF206",
-      "name": "📂 Treasure Island – Error Handling",
+      "name": "\ud83d\udcc2 Treasure Island \u2013 Error Handling",
       "parent": "TF193"
     },
     {
       "id": "TF207",
-      "name": "📂 Treasure Island – Security & Compliance",
+      "name": "\ud83d\udcc2 Treasure Island \u2013 Security & Compliance",
       "parent": "TF193"
     },
     {
       "id": "TF208",
-      "name": "📂 Treasure Island – Performance & Load",
+      "name": "\ud83d\udcc2 Treasure Island \u2013 Performance & Load",
       "parent": "TF193"
     },
     {
       "id": "TF209",
-      "name": "📂 Treasure Island – Usability & Accessibility",
+      "name": "\ud83d\udcc2 Treasure Island \u2013 Usability & Accessibility",
       "parent": "TF193"
     },
     {
       "id": "TF210",
-      "name": "📂 Treasure Island – Edge Cases",
+      "name": "\ud83d\udcc2 Treasure Island \u2013 Edge Cases",
       "parent": "TF193"
     },
     {
@@ -137,32 +137,32 @@
     },
     {
       "id": "TF213",
-      "name": "📂 Tasks – Positive",
+      "name": "\ud83d\udcc2 Tasks \u2013 Positive",
       "parent": "TF212"
     },
     {
       "id": "TF214",
-      "name": "📂 Tasks – Negative",
+      "name": "\ud83d\udcc2 Tasks \u2013 Negative",
       "parent": "TF212"
     },
     {
       "id": "TF215",
-      "name": "📂 Tasks – Error Handling",
+      "name": "\ud83d\udcc2 Tasks \u2013 Error Handling",
       "parent": "TF212"
     },
     {
       "id": "TF216",
-      "name": "📂 Tasks – Edge Cases",
+      "name": "\ud83d\udcc2 Tasks \u2013 Edge Cases",
       "parent": "TF212"
     },
     {
       "id": "TF217",
-      "name": "📂 Tasks – Performance & Load",
+      "name": "\ud83d\udcc2 Tasks \u2013 Performance & Load",
       "parent": "TF212"
     },
     {
       "id": "TF218",
-      "name": "📂 Start Scene – Edge Cases",
+      "name": "\ud83d\udcc2 Start Scene \u2013 Edge Cases",
       "parent": "TF199"
     },
     {
@@ -172,57 +172,57 @@
     },
     {
       "id": "TF220",
-      "name": "📁Dialogues - Positive",
+      "name": "\ud83d\udcc1Dialogues - Positive",
       "parent": "TF219"
     },
     {
       "id": "TF221",
-      "name": "📁 Dialogues - Negative",
+      "name": "\ud83d\udcc1 Dialogues - Negative",
       "parent": "TF219"
     },
     {
       "id": "TF222",
-      "name": "📁Dialogues - Error Handling",
+      "name": "\ud83d\udcc1Dialogues - Error Handling",
       "parent": "TF219"
     },
     {
       "id": "TF223",
-      "name": "📁Dialogues - Edge Cases",
+      "name": "\ud83d\udcc1Dialogues - Edge Cases",
       "parent": "TF219"
     },
     {
       "id": "TF224",
-      "name": "📁Dialogues - Performance & Load",
+      "name": "\ud83d\udcc1Dialogues - Performance & Load",
       "parent": "TF219"
     },
     {
       "id": "TF226",
-      "name": "📂Map & Lesson Flow – Positive Flow",
+      "name": "\ud83d\udcc2Map & Lesson Flow \u2013 Positive Flow",
       "parent": "TF185"
     },
     {
       "id": "TF227",
-      "name": "📂Map & Lesson Flow – Negative Flow",
+      "name": "\ud83d\udcc2Map & Lesson Flow \u2013 Negative Flow",
       "parent": "TF185"
     },
     {
       "id": "TF228",
-      "name": "📂Map & Lesson Flow – Error Handling",
+      "name": "\ud83d\udcc2Map & Lesson Flow \u2013 Error Handling",
       "parent": "TF185"
     },
     {
       "id": "TF230",
-      "name": "📂Map & Lesson Flow – Edge Cases",
+      "name": "\ud83d\udcc2Map & Lesson Flow \u2013 Edge Cases",
       "parent": "TF185"
     },
     {
       "id": "TF231",
-      "name": "📂Map & Lesson Flow –  Performance",
+      "name": "\ud83d\udcc2Map & Lesson Flow \u2013  Performance",
       "parent": "TF185"
     },
     {
       "id": "TF232",
-      "name": "📂Map & Lesson Flow –  Brainstorming",
+      "name": "\ud83d\udcc2Map & Lesson Flow \u2013  Brainstorming",
       "parent": "TF185"
     },
     {
@@ -232,22 +232,22 @@
     },
     {
       "id": "TF236",
-      "name": " 📁Pre Test- Positive",
+      "name": " \ud83d\udcc1Pre Test- Positive",
       "parent": "TF233"
     },
     {
       "id": "TF237",
-      "name": " 📁Pre Test- Negative",
+      "name": " \ud83d\udcc1Pre Test- Negative",
       "parent": "TF233"
     },
     {
       "id": "TF238",
-      "name": " 📁Pre Test- Error Handling",
+      "name": " \ud83d\udcc1Pre Test- Error Handling",
       "parent": "TF233"
     },
     {
       "id": "TF239",
-      "name": " 📁Pre Test- Edge Cases",
+      "name": " \ud83d\udcc1Pre Test- Edge Cases",
       "parent": "TF233"
     },
     {
@@ -459,7 +459,7 @@
   "test_cases": [
     {
       "id": "TC128",
-      "name": "TC01 – Standard Login with Valid Credentials",
+      "name": "TC01 \u2013 Standard Login with Valid Credentials",
       "folder": "TF195",
       "description": "Verify that a user with valid credentials can log in successfully and access the Map Scene. Ensures proper authentication and active session creation.",
       "owner": "Sanad",
@@ -477,7 +477,7 @@
     },
     {
       "id": "TC130",
-      "name": "TC03 – Login with Alternate Valid Accounts",
+      "name": "TC03 \u2013 Login with Alternate Valid Accounts",
       "folder": "TF195",
       "description": "Validate that the system allows successful login using different valid pupil accounts. This ensures login functionality is consistent across multiple pupils and not limited to a single user credential.",
       "owner": "Sanad",
@@ -495,7 +495,7 @@
     },
     {
       "id": "TC132",
-      "name": "TC06 – Invalid Credentials",
+      "name": "TC06 \u2013 Invalid Credentials",
       "folder": "TF196",
       "description": "Verify login fails with wrong username/password.",
       "owner": "Sanad",
@@ -513,7 +513,7 @@
     },
     {
       "id": "TC133",
-      "name": "TC07 – Empty Fields",
+      "name": "TC07 \u2013 Empty Fields",
       "folder": "TF196",
       "description": "Validate system response when fields are empty.",
       "owner": "Sanad",
@@ -521,8 +521,8 @@
       "user": {},
       "steps": [],
       "validation": {
-        "input": "Leave Username empty → enter valid password.\nLeave Password empty → enter valid username.\nLeave both empty.",
-        "expected": "Error messages shown (“Username required”, “Password required”).\nLogin button disabled until valid input."
+        "input": "Leave Username empty \u2192 enter valid password.\nLeave Password empty \u2192 enter valid username.\nLeave both empty.",
+        "expected": "Error messages shown (\u201cUsername required\u201d, \u201cPassword required\u201d).\nLogin button disabled until valid input."
       },
       "action": {
         "kind": "pytest",
@@ -531,7 +531,7 @@
     },
     {
       "id": "TC134",
-      "name": "TC08 – Locked/Disabled Account",
+      "name": "TC08 \u2013 Locked/Disabled Account",
       "folder": "TF196",
       "description": "Verify that locked pupil accounts cannot log in.",
       "owner": "Sanad",
@@ -551,7 +551,7 @@
       "id": "TC452",
       "name": "EVT_01: Open Events page successfully",
       "folder": "TF251",
-      "description": "Test Overview:\nThis foundational smoke test validates that the VT-CRM Events management page loads correctly and displays all essential UI components required for event administration.\nBusiness Value:\nEnsures administrators can access the primary Events interface to manage educational events, which is critical for coordinating student competitions and learning activities across schools.\nComponents Validated:\n• Events page title and navigation\n• View Published Events navigation button\n• Select Event dropdown functionality\n• New Event creation link\n• Schools/Classes selection grid\n• Publish Event action button\nTest Classification:\n• Test Type: Smoke (Critical Path)\n• Priority: High\n• Execution Method: Manual verification\nDependencies:\n• Admin user authentication\n• VT-CRM system availability\n• Database connectivity for event data\nNotes:\nBased on provided UI screenshots. This test serves as a prerequisite for all other event management test cases.",
+      "description": "Test Overview:\nThis foundational smoke test validates that the VT-CRM Events management page loads correctly and displays all essential UI components required for event administration.\nBusiness Value:\nEnsures administrators can access the primary Events interface to manage educational events, which is critical for coordinating student competitions and learning activities across schools.\nComponents Validated:\n\u2022 Events page title and navigation\n\u2022 View Published Events navigation button\n\u2022 Select Event dropdown functionality\n\u2022 New Event creation link\n\u2022 Schools/Classes selection grid\n\u2022 Publish Event action button\nTest Classification:\n\u2022 Test Type: Smoke (Critical Path)\n\u2022 Priority: High\n\u2022 Execution Method: Manual verification\nDependencies:\n\u2022 Admin user authentication\n\u2022 VT-CRM system availability\n\u2022 Database connectivity for event data\nNotes:\nBased on provided UI screenshots. This test serves as a prerequisite for all other event management test cases.",
       "owner": "",
       "status": "",
       "user": {},
@@ -800,14 +800,14 @@
       "id": "TC1174",
       "name": "Guest - test guest guestHe - Hebrew - Intermediate Proficiency",
       "folder": "TF296",
-      "description": "Guest Flow Test — Hebrew / Intermediate Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Hebrew\nDifficulty: Intermediate Proficiency\nAvatar Gender: Male\n\nTest Type: Functional | Priority: High | Severity: Major",
+      "description": "Guest Flow Test \u2014 Hebrew / Intermediate Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Hebrew\nDifficulty: Intermediate Proficiency\nAvatar Gender: Male\n\nTest Type: Functional | Priority: High | Severity: Major",
       "owner": "",
       "status": "",
       "user": {},
       "steps": [],
       "validation": {
-        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestHe in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Hebrew.\n6. Tap Next.\n7. On the difficulty selection screen, select Intermediate Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Male.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. ℹ️ Activities were already solved in the Beginning Literacy test for Hebrew. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 — verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
-        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Intermediate Proficiency' is correctly applied.\n- Avatar gender 'Male' is selected and displayed correctly.\n- Map loads; levels 1–5 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
+        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestHe in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Hebrew.\n6. Tap Next.\n7. On the difficulty selection screen, select Intermediate Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Male.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. \u2139\ufe0f Activities were already solved in the Beginning Literacy test for Hebrew. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 \u2014 verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
+        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Intermediate Proficiency' is correctly applied.\n- Avatar gender 'Male' is selected and displayed correctly.\n- Map loads; levels 1\u20135 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
       },
       "action": {
         "kind": "pytest",
@@ -818,14 +818,14 @@
       "id": "TC1166",
       "name": "Guest - test guest guestFr - French - Intermediate Proficiency",
       "folder": "TF296",
-      "description": "Guest Flow Test — French / Intermediate Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: French\nDifficulty: Intermediate Proficiency\nAvatar Gender: Male\n\nTest Type: Functional | Priority: High | Severity: Major",
+      "description": "Guest Flow Test \u2014 French / Intermediate Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: French\nDifficulty: Intermediate Proficiency\nAvatar Gender: Male\n\nTest Type: Functional | Priority: High | Severity: Major",
       "owner": "",
       "status": "",
       "user": {},
       "steps": [],
       "validation": {
-        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestFr in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select French.\n6. Tap Next.\n7. On the difficulty selection screen, select Intermediate Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Male.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. ℹ️ Activities were already solved in the Beginning Literacy test for French. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 — verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
-        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Intermediate Proficiency' is correctly applied.\n- Avatar gender 'Male' is selected and displayed correctly.\n- Map loads; levels 1–5 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
+        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestFr in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select French.\n6. Tap Next.\n7. On the difficulty selection screen, select Intermediate Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Male.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. \u2139\ufe0f Activities were already solved in the Beginning Literacy test for French. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 \u2014 verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
+        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Intermediate Proficiency' is correctly applied.\n- Avatar gender 'Male' is selected and displayed correctly.\n- Map loads; levels 1\u20135 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
       },
       "action": {
         "kind": "pytest",
@@ -836,14 +836,14 @@
       "id": "TC1173",
       "name": "Guest - test guest guestHe - Hebrew - Elementary Proficiency",
       "folder": "TF296",
-      "description": "Guest Flow Test — Hebrew / Elementary Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Hebrew\nDifficulty: Elementary Proficiency\nAvatar Gender: Female\n\nTest Type: Functional | Priority: High | Severity: Major",
+      "description": "Guest Flow Test \u2014 Hebrew / Elementary Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Hebrew\nDifficulty: Elementary Proficiency\nAvatar Gender: Female\n\nTest Type: Functional | Priority: High | Severity: Major",
       "owner": "",
       "status": "",
       "user": {},
       "steps": [],
       "validation": {
-        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestHe in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Hebrew.\n6. Tap Next.\n7. On the difficulty selection screen, select Elementary Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Female.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. ℹ️ Activities were already solved in the Beginning Literacy test for Hebrew. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 — verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
-        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Elementary Proficiency' is correctly applied.\n- Avatar gender 'Female' is selected and displayed correctly.\n- Map loads; levels 1–5 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
+        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestHe in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Hebrew.\n6. Tap Next.\n7. On the difficulty selection screen, select Elementary Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Female.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. \u2139\ufe0f Activities were already solved in the Beginning Literacy test for Hebrew. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 \u2014 verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
+        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Elementary Proficiency' is correctly applied.\n- Avatar gender 'Female' is selected and displayed correctly.\n- Map loads; levels 1\u20135 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
       },
       "action": {
         "kind": "pytest",
@@ -854,14 +854,14 @@
       "id": "TC1170",
       "name": "Guest - test guest guestDe - German - Intermediate Proficiency",
       "folder": "TF296",
-      "description": "Guest Flow Test — German / Intermediate Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: German\nDifficulty: Intermediate Proficiency\nAvatar Gender: Male\n\nTest Type: Functional | Priority: High | Severity: Major",
+      "description": "Guest Flow Test \u2014 German / Intermediate Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: German\nDifficulty: Intermediate Proficiency\nAvatar Gender: Male\n\nTest Type: Functional | Priority: High | Severity: Major",
       "owner": "",
       "status": "",
       "user": {},
       "steps": [],
       "validation": {
-        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestDe in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select German.\n6. Tap Next.\n7. On the difficulty selection screen, select Intermediate Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Male.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. ℹ️ Activities were already solved in the Beginning Literacy test for German. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 — verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
-        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Intermediate Proficiency' is correctly applied.\n- Avatar gender 'Male' is selected and displayed correctly.\n- Map loads; levels 1–5 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
+        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestDe in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select German.\n6. Tap Next.\n7. On the difficulty selection screen, select Intermediate Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Male.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. \u2139\ufe0f Activities were already solved in the Beginning Literacy test for German. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 \u2014 verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
+        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Intermediate Proficiency' is correctly applied.\n- Avatar gender 'Male' is selected and displayed correctly.\n- Map loads; levels 1\u20135 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
       },
       "action": {
         "kind": "pytest",
@@ -872,14 +872,14 @@
       "id": "TC1164",
       "name": "Guest - test guest guestFr - French - Beginning Literacy",
       "folder": "TF296",
-      "description": "Guest Flow Test — French / Beginning Literacy\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: French\nDifficulty: Beginning Literacy\nAvatar Gender: Male\n\nTest Type: Functional | Priority: High | Severity: Major",
+      "description": "Guest Flow Test \u2014 French / Beginning Literacy\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: French\nDifficulty: Beginning Literacy\nAvatar Gender: Male\n\nTest Type: Functional | Priority: High | Severity: Major",
       "owner": "",
       "status": "",
       "user": {},
       "steps": [],
       "validation": {
-        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestFr in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select French.\n6. Tap Next.\n7. On the difficulty selection screen, select Beginning Literacy.\n8. Wait for the 'You Are' (gender) screen to appear, then select Male.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. ✅ Solve at least one activity in each accessible level (activities must be solved once per language).\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 — verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
-        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Beginning Literacy' is correctly applied.\n- Avatar gender 'Male' is selected and displayed correctly.\n- Map loads; levels 1–5 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
+        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestFr in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select French.\n6. Tap Next.\n7. On the difficulty selection screen, select Beginning Literacy.\n8. Wait for the 'You Are' (gender) screen to appear, then select Male.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. \u2705 Solve at least one activity in each accessible level (activities must be solved once per language).\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 \u2014 verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
+        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Beginning Literacy' is correctly applied.\n- Avatar gender 'Male' is selected and displayed correctly.\n- Map loads; levels 1\u20135 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
       },
       "action": {
         "kind": "pytest",
@@ -890,14 +890,14 @@
       "id": "TC1169",
       "name": "Guest - test guest guestDe - German - Elementary Proficiency",
       "folder": "TF296",
-      "description": "Guest Flow Test — German / Elementary Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: German\nDifficulty: Elementary Proficiency\nAvatar Gender: Female\n\nTest Type: Functional | Priority: High | Severity: Major",
+      "description": "Guest Flow Test \u2014 German / Elementary Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: German\nDifficulty: Elementary Proficiency\nAvatar Gender: Female\n\nTest Type: Functional | Priority: High | Severity: Major",
       "owner": "",
       "status": "",
       "user": {},
       "steps": [],
       "validation": {
-        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestDe in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select German.\n6. Tap Next.\n7. On the difficulty selection screen, select Elementary Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Female.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. ℹ️ Activities were already solved in the Beginning Literacy test for German. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 — verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
-        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Elementary Proficiency' is correctly applied.\n- Avatar gender 'Female' is selected and displayed correctly.\n- Map loads; levels 1–5 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
+        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestDe in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select German.\n6. Tap Next.\n7. On the difficulty selection screen, select Elementary Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Female.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. \u2139\ufe0f Activities were already solved in the Beginning Literacy test for German. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 \u2014 verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
+        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Elementary Proficiency' is correctly applied.\n- Avatar gender 'Female' is selected and displayed correctly.\n- Map loads; levels 1\u20135 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
       },
       "action": {
         "kind": "pytest",
@@ -908,14 +908,14 @@
       "id": "TC1171",
       "name": "Guest - test guest guestDe - German - Advanced Proficiency",
       "folder": "TF296",
-      "description": "Guest Flow Test — German / Advanced Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: German\nDifficulty: Advanced Proficiency\nAvatar Gender: Female\n\nTest Type: Functional | Priority: High | Severity: Major",
+      "description": "Guest Flow Test \u2014 German / Advanced Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: German\nDifficulty: Advanced Proficiency\nAvatar Gender: Female\n\nTest Type: Functional | Priority: High | Severity: Major",
       "owner": "",
       "status": "",
       "user": {},
       "steps": [],
       "validation": {
-        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestDe in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select German.\n6. Tap Next.\n7. On the difficulty selection screen, select Advanced Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Female.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. ℹ️ Activities were already solved in the Beginning Literacy test for German. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 — verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
-        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Advanced Proficiency' is correctly applied.\n- Avatar gender 'Female' is selected and displayed correctly.\n- Map loads; levels 1–5 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
+        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestDe in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select German.\n6. Tap Next.\n7. On the difficulty selection screen, select Advanced Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Female.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. \u2139\ufe0f Activities were already solved in the Beginning Literacy test for German. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 \u2014 verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
+        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Advanced Proficiency' is correctly applied.\n- Avatar gender 'Female' is selected and displayed correctly.\n- Map loads; levels 1\u20135 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
       },
       "action": {
         "kind": "pytest",
@@ -926,14 +926,14 @@
       "id": "TC1161",
       "name": "Guest - test guest guestAr - Arabic - Elementary Proficiency",
       "folder": "TF296",
-      "description": "Guest Flow Test — Arabic / Elementary Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Arabic\nDifficulty: Elementary Proficiency\nAvatar Gender: Female\n\nTest Type: Functional | Priority: High | Severity: Major",
+      "description": "Guest Flow Test \u2014 Arabic / Elementary Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Arabic\nDifficulty: Elementary Proficiency\nAvatar Gender: Female\n\nTest Type: Functional | Priority: High | Severity: Major",
       "owner": "",
       "status": "",
       "user": {},
       "steps": [],
       "validation": {
-        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestAr in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Arabic.\n6. Tap Next.\n7. On the difficulty selection screen, select Elementary Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Female.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. ℹ️ Activities were already solved in the Beginning Literacy test for Arabic. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 — verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
-        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Elementary Proficiency' is correctly applied.\n- Avatar gender 'Female' is selected and displayed correctly.\n- Map loads; levels 1–5 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
+        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestAr in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Arabic.\n6. Tap Next.\n7. On the difficulty selection screen, select Elementary Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Female.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. \u2139\ufe0f Activities were already solved in the Beginning Literacy test for Arabic. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 \u2014 verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
+        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Elementary Proficiency' is correctly applied.\n- Avatar gender 'Female' is selected and displayed correctly.\n- Map loads; levels 1\u20135 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
       },
       "action": {
         "kind": "pytest",
@@ -944,14 +944,14 @@
       "id": "TC1178",
       "name": "Guest - test guest guestPt - Portuguese - Intermediate Proficiency",
       "folder": "TF296",
-      "description": "Guest Flow Test — Portuguese / Intermediate Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Portuguese\nDifficulty: Intermediate Proficiency\nAvatar Gender: Male\n\nTest Type: Functional | Priority: High | Severity: Major",
+      "description": "Guest Flow Test \u2014 Portuguese / Intermediate Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Portuguese\nDifficulty: Intermediate Proficiency\nAvatar Gender: Male\n\nTest Type: Functional | Priority: High | Severity: Major",
       "owner": "",
       "status": "",
       "user": {},
       "steps": [],
       "validation": {
-        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestPt in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Portuguese.\n6. Tap Next.\n7. On the difficulty selection screen, select Intermediate Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Male.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. ℹ️ Activities were already solved in the Beginning Literacy test for Portuguese. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 — verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
-        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Intermediate Proficiency' is correctly applied.\n- Avatar gender 'Male' is selected and displayed correctly.\n- Map loads; levels 1–5 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
+        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestPt in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Portuguese.\n6. Tap Next.\n7. On the difficulty selection screen, select Intermediate Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Male.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. \u2139\ufe0f Activities were already solved in the Beginning Literacy test for Portuguese. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 \u2014 verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
+        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Intermediate Proficiency' is correctly applied.\n- Avatar gender 'Male' is selected and displayed correctly.\n- Map loads; levels 1\u20135 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
       },
       "action": {
         "kind": "pytest",
@@ -962,14 +962,14 @@
       "id": "TC1181",
       "name": "Guest - test guest guestEs - Spanish - Elementary Proficiency",
       "folder": "TF296",
-      "description": "Guest Flow Test — Spanish / Elementary Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Spanish\nDifficulty: Elementary Proficiency\nAvatar Gender: Female\n\nTest Type: Functional | Priority: High | Severity: Major",
+      "description": "Guest Flow Test \u2014 Spanish / Elementary Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Spanish\nDifficulty: Elementary Proficiency\nAvatar Gender: Female\n\nTest Type: Functional | Priority: High | Severity: Major",
       "owner": "",
       "status": "",
       "user": {},
       "steps": [],
       "validation": {
-        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestEs in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Spanish.\n6. Tap Next.\n7. On the difficulty selection screen, select Elementary Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Female.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. ℹ️ Activities were already solved in the Beginning Literacy test for Spanish. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 — verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
-        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Elementary Proficiency' is correctly applied.\n- Avatar gender 'Female' is selected and displayed correctly.\n- Map loads; levels 1–5 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
+        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestEs in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Spanish.\n6. Tap Next.\n7. On the difficulty selection screen, select Elementary Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Female.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. \u2139\ufe0f Activities were already solved in the Beginning Literacy test for Spanish. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 \u2014 verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
+        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Elementary Proficiency' is correctly applied.\n- Avatar gender 'Female' is selected and displayed correctly.\n- Map loads; levels 1\u20135 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
       },
       "action": {
         "kind": "pytest",
@@ -980,14 +980,14 @@
       "id": "TC1168",
       "name": "Guest - test guest guestDe - German - Beginning Literacy",
       "folder": "TF296",
-      "description": "Guest Flow Test — German / Beginning Literacy\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: German\nDifficulty: Beginning Literacy\nAvatar Gender: Male\n\nTest Type: Functional | Priority: High | Severity: Major",
+      "description": "Guest Flow Test \u2014 German / Beginning Literacy\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: German\nDifficulty: Beginning Literacy\nAvatar Gender: Male\n\nTest Type: Functional | Priority: High | Severity: Major",
       "owner": "",
       "status": "",
       "user": {},
       "steps": [],
       "validation": {
-        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestDe in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select German.\n6. Tap Next.\n7. On the difficulty selection screen, select Beginning Literacy.\n8. Wait for the 'You Are' (gender) screen to appear, then select Male.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. ✅ Solve at least one activity in each accessible level (activities must be solved once per language).\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 — verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
-        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Beginning Literacy' is correctly applied.\n- Avatar gender 'Male' is selected and displayed correctly.\n- Map loads; levels 1–5 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
+        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestDe in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select German.\n6. Tap Next.\n7. On the difficulty selection screen, select Beginning Literacy.\n8. Wait for the 'You Are' (gender) screen to appear, then select Male.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. \u2705 Solve at least one activity in each accessible level (activities must be solved once per language).\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 \u2014 verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
+        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Beginning Literacy' is correctly applied.\n- Avatar gender 'Male' is selected and displayed correctly.\n- Map loads; levels 1\u20135 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
       },
       "action": {
         "kind": "pytest",
@@ -998,14 +998,14 @@
       "id": "TC1176",
       "name": "Guest - test guest guestPt - Portuguese - Beginning Literacy",
       "folder": "TF296",
-      "description": "Guest Flow Test — Portuguese / Beginning Literacy\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Portuguese\nDifficulty: Beginning Literacy\nAvatar Gender: Male\n\nTest Type: Functional | Priority: High | Severity: Major",
+      "description": "Guest Flow Test \u2014 Portuguese / Beginning Literacy\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Portuguese\nDifficulty: Beginning Literacy\nAvatar Gender: Male\n\nTest Type: Functional | Priority: High | Severity: Major",
       "owner": "",
       "status": "",
       "user": {},
       "steps": [],
       "validation": {
-        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestPt in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Portuguese.\n6. Tap Next.\n7. On the difficulty selection screen, select Beginning Literacy.\n8. Wait for the 'You Are' (gender) screen to appear, then select Male.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. ✅ Solve at least one activity in each accessible level (activities must be solved once per language).\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 — verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
-        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Beginning Literacy' is correctly applied.\n- Avatar gender 'Male' is selected and displayed correctly.\n- Map loads; levels 1–5 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
+        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestPt in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Portuguese.\n6. Tap Next.\n7. On the difficulty selection screen, select Beginning Literacy.\n8. Wait for the 'You Are' (gender) screen to appear, then select Male.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. \u2705 Solve at least one activity in each accessible level (activities must be solved once per language).\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 \u2014 verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
+        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Beginning Literacy' is correctly applied.\n- Avatar gender 'Male' is selected and displayed correctly.\n- Map loads; levels 1\u20135 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
       },
       "action": {
         "kind": "pytest",
@@ -1016,14 +1016,14 @@
       "id": "TC1182",
       "name": "Guest - test guest guestEs - Spanish - Intermediate Proficiency",
       "folder": "TF296",
-      "description": "Guest Flow Test — Spanish / Intermediate Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Spanish\nDifficulty: Intermediate Proficiency\nAvatar Gender: Male\n\nTest Type: Functional | Priority: High | Severity: Major",
+      "description": "Guest Flow Test \u2014 Spanish / Intermediate Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Spanish\nDifficulty: Intermediate Proficiency\nAvatar Gender: Male\n\nTest Type: Functional | Priority: High | Severity: Major",
       "owner": "",
       "status": "",
       "user": {},
       "steps": [],
       "validation": {
-        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestEs in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Spanish.\n6. Tap Next.\n7. On the difficulty selection screen, select Intermediate Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Male.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. ℹ️ Activities were already solved in the Beginning Literacy test for Spanish. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 — verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
-        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Intermediate Proficiency' is correctly applied.\n- Avatar gender 'Male' is selected and displayed correctly.\n- Map loads; levels 1–5 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
+        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestEs in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Spanish.\n6. Tap Next.\n7. On the difficulty selection screen, select Intermediate Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Male.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. \u2139\ufe0f Activities were already solved in the Beginning Literacy test for Spanish. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 \u2014 verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
+        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Intermediate Proficiency' is correctly applied.\n- Avatar gender 'Male' is selected and displayed correctly.\n- Map loads; levels 1\u20135 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
       },
       "action": {
         "kind": "pytest",
@@ -1034,14 +1034,14 @@
       "id": "TC1167",
       "name": "Guest - test guest guestFr - French - Advanced Proficiency",
       "folder": "TF296",
-      "description": "Guest Flow Test — French / Advanced Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: French\nDifficulty: Advanced Proficiency\nAvatar Gender: Female\n\nTest Type: Functional | Priority: High | Severity: Major",
+      "description": "Guest Flow Test \u2014 French / Advanced Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: French\nDifficulty: Advanced Proficiency\nAvatar Gender: Female\n\nTest Type: Functional | Priority: High | Severity: Major",
       "owner": "",
       "status": "",
       "user": {},
       "steps": [],
       "validation": {
-        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestFr in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select French.\n6. Tap Next.\n7. On the difficulty selection screen, select Advanced Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Female.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. ℹ️ Activities were already solved in the Beginning Literacy test for French. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 — verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
-        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Advanced Proficiency' is correctly applied.\n- Avatar gender 'Female' is selected and displayed correctly.\n- Map loads; levels 1–5 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
+        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestFr in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select French.\n6. Tap Next.\n7. On the difficulty selection screen, select Advanced Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Female.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. \u2139\ufe0f Activities were already solved in the Beginning Literacy test for French. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 \u2014 verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
+        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Advanced Proficiency' is correctly applied.\n- Avatar gender 'Female' is selected and displayed correctly.\n- Map loads; levels 1\u20135 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
       },
       "action": {
         "kind": "pytest",
@@ -1052,14 +1052,14 @@
       "id": "TC1180",
       "name": "Guest - test guest guestEs - Spanish - Beginning Literacy",
       "folder": "TF296",
-      "description": "Guest Flow Test — Spanish / Beginning Literacy\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Spanish\nDifficulty: Beginning Literacy\nAvatar Gender: Male\n\nTest Type: Functional | Priority: High | Severity: Major",
+      "description": "Guest Flow Test \u2014 Spanish / Beginning Literacy\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Spanish\nDifficulty: Beginning Literacy\nAvatar Gender: Male\n\nTest Type: Functional | Priority: High | Severity: Major",
       "owner": "",
       "status": "",
       "user": {},
       "steps": [],
       "validation": {
-        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestEs in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Spanish.\n6. Tap Next.\n7. On the difficulty selection screen, select Beginning Literacy.\n8. Wait for the 'You Are' (gender) screen to appear, then select Male.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. ✅ Solve at least one activity in each accessible level (activities must be solved once per language).\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 — verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
-        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Beginning Literacy' is correctly applied.\n- Avatar gender 'Male' is selected and displayed correctly.\n- Map loads; levels 1–5 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
+        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestEs in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Spanish.\n6. Tap Next.\n7. On the difficulty selection screen, select Beginning Literacy.\n8. Wait for the 'You Are' (gender) screen to appear, then select Male.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. \u2705 Solve at least one activity in each accessible level (activities must be solved once per language).\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 \u2014 verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
+        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Beginning Literacy' is correctly applied.\n- Avatar gender 'Male' is selected and displayed correctly.\n- Map loads; levels 1\u20135 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
       },
       "action": {
         "kind": "pytest",
@@ -1070,14 +1070,14 @@
       "id": "TC1163",
       "name": "Guest - test guest guestAr - Arabic - Advanced Proficiency",
       "folder": "TF296",
-      "description": "Guest Flow Test — Arabic / Advanced Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Arabic\nDifficulty: Advanced Proficiency\nAvatar Gender: Female\n\nTest Type: Functional | Priority: High | Severity: Major",
+      "description": "Guest Flow Test \u2014 Arabic / Advanced Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Arabic\nDifficulty: Advanced Proficiency\nAvatar Gender: Female\n\nTest Type: Functional | Priority: High | Severity: Major",
       "owner": "",
       "status": "",
       "user": {},
       "steps": [],
       "validation": {
-        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestAr in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Arabic.\n6. Tap Next.\n7. On the difficulty selection screen, select Advanced Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Female.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. ℹ️ Activities were already solved in the Beginning Literacy test for Arabic. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 — verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
-        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Advanced Proficiency' is correctly applied.\n- Avatar gender 'Female' is selected and displayed correctly.\n- Map loads; levels 1–5 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
+        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestAr in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Arabic.\n6. Tap Next.\n7. On the difficulty selection screen, select Advanced Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Female.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. \u2139\ufe0f Activities were already solved in the Beginning Literacy test for Arabic. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 \u2014 verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
+        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Advanced Proficiency' is correctly applied.\n- Avatar gender 'Female' is selected and displayed correctly.\n- Map loads; levels 1\u20135 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
       },
       "action": {
         "kind": "pytest",
@@ -1088,14 +1088,14 @@
       "id": "TC1177",
       "name": "Guest - test guest guestPt - Portuguese - Elementary Proficiency",
       "folder": "TF296",
-      "description": "Guest Flow Test — Portuguese / Elementary Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Portuguese\nDifficulty: Elementary Proficiency\nAvatar Gender: Female\n\nTest Type: Functional | Priority: High | Severity: Major",
+      "description": "Guest Flow Test \u2014 Portuguese / Elementary Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Portuguese\nDifficulty: Elementary Proficiency\nAvatar Gender: Female\n\nTest Type: Functional | Priority: High | Severity: Major",
       "owner": "",
       "status": "",
       "user": {},
       "steps": [],
       "validation": {
-        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestPt in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Portuguese.\n6. Tap Next.\n7. On the difficulty selection screen, select Elementary Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Female.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. ℹ️ Activities were already solved in the Beginning Literacy test for Portuguese. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 — verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
-        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Elementary Proficiency' is correctly applied.\n- Avatar gender 'Female' is selected and displayed correctly.\n- Map loads; levels 1–5 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
+        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestPt in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Portuguese.\n6. Tap Next.\n7. On the difficulty selection screen, select Elementary Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Female.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. \u2139\ufe0f Activities were already solved in the Beginning Literacy test for Portuguese. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 \u2014 verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
+        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Elementary Proficiency' is correctly applied.\n- Avatar gender 'Female' is selected and displayed correctly.\n- Map loads; levels 1\u20135 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
       },
       "action": {
         "kind": "pytest",
@@ -1106,14 +1106,14 @@
       "id": "TC1160",
       "name": "Guest - test guest guestAr - Arabic - Beginning Literacy",
       "folder": "TF296",
-      "description": "Guest Flow Test — Arabic / Beginning Literacy\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Arabic\nDifficulty: Beginning Literacy\nAvatar Gender: Male\n\nTest Type: Functional | Priority: High | Severity: Major",
+      "description": "Guest Flow Test \u2014 Arabic / Beginning Literacy\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Arabic\nDifficulty: Beginning Literacy\nAvatar Gender: Male\n\nTest Type: Functional | Priority: High | Severity: Major",
       "owner": "",
       "status": "",
       "user": {},
       "steps": [],
       "validation": {
-        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestAr in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Arabic.\n6. Tap Next.\n7. On the difficulty selection screen, select Beginning Literacy.\n8. Wait for the 'You Are' (gender) screen to appear, then select Male.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. ✅ Solve at least one activity in each accessible level (activities must be solved once per language).\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 — verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
-        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Beginning Literacy' is correctly applied.\n- Avatar gender 'Male' is selected and displayed correctly.\n- Map loads; levels 1–5 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
+        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestAr in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Arabic.\n6. Tap Next.\n7. On the difficulty selection screen, select Beginning Literacy.\n8. Wait for the 'You Are' (gender) screen to appear, then select Male.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. \u2705 Solve at least one activity in each accessible level (activities must be solved once per language).\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 \u2014 verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
+        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Beginning Literacy' is correctly applied.\n- Avatar gender 'Male' is selected and displayed correctly.\n- Map loads; levels 1\u20135 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
       },
       "action": {
         "kind": "pytest",
@@ -1124,14 +1124,14 @@
       "id": "TC1179",
       "name": "Guest - test guest guestPt - Portuguese - Advanced Proficiency",
       "folder": "TF296",
-      "description": "Guest Flow Test — Portuguese / Advanced Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Portuguese\nDifficulty: Advanced Proficiency\nAvatar Gender: Female\n\nTest Type: Functional | Priority: High | Severity: Major",
+      "description": "Guest Flow Test \u2014 Portuguese / Advanced Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Portuguese\nDifficulty: Advanced Proficiency\nAvatar Gender: Female\n\nTest Type: Functional | Priority: High | Severity: Major",
       "owner": "",
       "status": "",
       "user": {},
       "steps": [],
       "validation": {
-        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestPt in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Portuguese.\n6. Tap Next.\n7. On the difficulty selection screen, select Advanced Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Female.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. ℹ️ Activities were already solved in the Beginning Literacy test for Portuguese. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 — verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
-        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Advanced Proficiency' is correctly applied.\n- Avatar gender 'Female' is selected and displayed correctly.\n- Map loads; levels 1–5 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
+        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestPt in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Portuguese.\n6. Tap Next.\n7. On the difficulty selection screen, select Advanced Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Female.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. \u2139\ufe0f Activities were already solved in the Beginning Literacy test for Portuguese. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 \u2014 verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
+        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Advanced Proficiency' is correctly applied.\n- Avatar gender 'Female' is selected and displayed correctly.\n- Map loads; levels 1\u20135 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
       },
       "action": {
         "kind": "pytest",
@@ -1142,14 +1142,14 @@
       "id": "TC1162",
       "name": "Guest - test guest guestAr - Arabic - Intermediate Proficiency",
       "folder": "TF296",
-      "description": "Guest Flow Test — Arabic / Intermediate Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Arabic\nDifficulty: Intermediate Proficiency\nAvatar Gender: Male\n\nTest Type: Functional | Priority: High | Severity: Major",
+      "description": "Guest Flow Test \u2014 Arabic / Intermediate Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Arabic\nDifficulty: Intermediate Proficiency\nAvatar Gender: Male\n\nTest Type: Functional | Priority: High | Severity: Major",
       "owner": "",
       "status": "",
       "user": {},
       "steps": [],
       "validation": {
-        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestAr in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Arabic.\n6. Tap Next.\n7. On the difficulty selection screen, select Intermediate Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Male.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. ℹ️ Activities were already solved in the Beginning Literacy test for Arabic. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 — verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
-        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Intermediate Proficiency' is correctly applied.\n- Avatar gender 'Male' is selected and displayed correctly.\n- Map loads; levels 1–5 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
+        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestAr in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Arabic.\n6. Tap Next.\n7. On the difficulty selection screen, select Intermediate Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Male.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. \u2139\ufe0f Activities were already solved in the Beginning Literacy test for Arabic. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 \u2014 verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
+        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Intermediate Proficiency' is correctly applied.\n- Avatar gender 'Male' is selected and displayed correctly.\n- Map loads; levels 1\u20135 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
       },
       "action": {
         "kind": "pytest",
@@ -1160,14 +1160,14 @@
       "id": "TC1172",
       "name": "Guest - test guest guestHe - Hebrew - Beginning Literacy",
       "folder": "TF296",
-      "description": "Guest Flow Test — Hebrew / Beginning Literacy\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Hebrew\nDifficulty: Beginning Literacy\nAvatar Gender: Male\n\nTest Type: Functional | Priority: High | Severity: Major",
+      "description": "Guest Flow Test \u2014 Hebrew / Beginning Literacy\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Hebrew\nDifficulty: Beginning Literacy\nAvatar Gender: Male\n\nTest Type: Functional | Priority: High | Severity: Major",
       "owner": "",
       "status": "",
       "user": {},
       "steps": [],
       "validation": {
-        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestHe in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Hebrew.\n6. Tap Next.\n7. On the difficulty selection screen, select Beginning Literacy.\n8. Wait for the 'You Are' (gender) screen to appear, then select Male.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. ✅ Solve at least one activity in each accessible level (activities must be solved once per language).\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 — verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
-        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Beginning Literacy' is correctly applied.\n- Avatar gender 'Male' is selected and displayed correctly.\n- Map loads; levels 1–5 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
+        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestHe in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Hebrew.\n6. Tap Next.\n7. On the difficulty selection screen, select Beginning Literacy.\n8. Wait for the 'You Are' (gender) screen to appear, then select Male.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. \u2705 Solve at least one activity in each accessible level (activities must be solved once per language).\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 \u2014 verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
+        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Beginning Literacy' is correctly applied.\n- Avatar gender 'Male' is selected and displayed correctly.\n- Map loads; levels 1\u20135 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
       },
       "action": {
         "kind": "pytest",
@@ -1178,14 +1178,14 @@
       "id": "TC1186",
       "name": "Guest - test guest guestTr - Turkish - Intermediate Proficiency",
       "folder": "TF296",
-      "description": "Guest Flow Test — Turkish / Intermediate Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Turkish\nDifficulty: Intermediate Proficiency\nAvatar Gender: Male\n\nTest Type: Functional | Priority: High | Severity: Major",
+      "description": "Guest Flow Test \u2014 Turkish / Intermediate Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Turkish\nDifficulty: Intermediate Proficiency\nAvatar Gender: Male\n\nTest Type: Functional | Priority: High | Severity: Major",
       "owner": "",
       "status": "",
       "user": {},
       "steps": [],
       "validation": {
-        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestTr in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Turkish.\n6. Tap Next.\n7. On the difficulty selection screen, select Intermediate Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Male.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. ℹ️ Activities were already solved in the Beginning Literacy test for Turkish. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 — verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
-        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Intermediate Proficiency' is correctly applied.\n- Avatar gender 'Male' is selected and displayed correctly.\n- Map loads; levels 1–5 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
+        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestTr in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Turkish.\n6. Tap Next.\n7. On the difficulty selection screen, select Intermediate Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Male.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. \u2139\ufe0f Activities were already solved in the Beginning Literacy test for Turkish. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 \u2014 verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
+        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Intermediate Proficiency' is correctly applied.\n- Avatar gender 'Male' is selected and displayed correctly.\n- Map loads; levels 1\u20135 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
       },
       "action": {
         "kind": "pytest",
@@ -1196,14 +1196,14 @@
       "id": "TC1175",
       "name": "Guest - test guest guestHe - Hebrew - Advanced Proficiency",
       "folder": "TF296",
-      "description": "Guest Flow Test — Hebrew / Advanced Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Hebrew\nDifficulty: Advanced Proficiency\nAvatar Gender: Female\n\nTest Type: Functional | Priority: High | Severity: Major",
+      "description": "Guest Flow Test \u2014 Hebrew / Advanced Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Hebrew\nDifficulty: Advanced Proficiency\nAvatar Gender: Female\n\nTest Type: Functional | Priority: High | Severity: Major",
       "owner": "",
       "status": "",
       "user": {},
       "steps": [],
       "validation": {
-        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestHe in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Hebrew.\n6. Tap Next.\n7. On the difficulty selection screen, select Advanced Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Female.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. ℹ️ Activities were already solved in the Beginning Literacy test for Hebrew. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 — verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
-        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Advanced Proficiency' is correctly applied.\n- Avatar gender 'Female' is selected and displayed correctly.\n- Map loads; levels 1–5 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
+        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestHe in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Hebrew.\n6. Tap Next.\n7. On the difficulty selection screen, select Advanced Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Female.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. \u2139\ufe0f Activities were already solved in the Beginning Literacy test for Hebrew. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 \u2014 verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
+        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Advanced Proficiency' is correctly applied.\n- Avatar gender 'Female' is selected and displayed correctly.\n- Map loads; levels 1\u20135 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
       },
       "action": {
         "kind": "pytest",
@@ -1214,14 +1214,14 @@
       "id": "TC1183",
       "name": "Guest - test guest guestEs - Spanish - Advanced Proficiency",
       "folder": "TF296",
-      "description": "Guest Flow Test — Spanish / Advanced Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Spanish\nDifficulty: Advanced Proficiency\nAvatar Gender: Female\n\nTest Type: Functional | Priority: High | Severity: Major",
+      "description": "Guest Flow Test \u2014 Spanish / Advanced Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Spanish\nDifficulty: Advanced Proficiency\nAvatar Gender: Female\n\nTest Type: Functional | Priority: High | Severity: Major",
       "owner": "",
       "status": "",
       "user": {},
       "steps": [],
       "validation": {
-        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestEs in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Spanish.\n6. Tap Next.\n7. On the difficulty selection screen, select Advanced Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Female.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. ℹ️ Activities were already solved in the Beginning Literacy test for Spanish. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 — verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
-        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Advanced Proficiency' is correctly applied.\n- Avatar gender 'Female' is selected and displayed correctly.\n- Map loads; levels 1–5 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
+        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestEs in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Spanish.\n6. Tap Next.\n7. On the difficulty selection screen, select Advanced Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Female.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. \u2139\ufe0f Activities were already solved in the Beginning Literacy test for Spanish. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 \u2014 verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
+        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Advanced Proficiency' is correctly applied.\n- Avatar gender 'Female' is selected and displayed correctly.\n- Map loads; levels 1\u20135 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
       },
       "action": {
         "kind": "pytest",
@@ -1232,14 +1232,14 @@
       "id": "TC1184",
       "name": "Guest - test guest guestTr - Turkish - Beginning Literacy",
       "folder": "TF296",
-      "description": "Guest Flow Test — Turkish / Beginning Literacy\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Turkish\nDifficulty: Beginning Literacy\nAvatar Gender: Male\n\nTest Type: Functional | Priority: High | Severity: Major",
+      "description": "Guest Flow Test \u2014 Turkish / Beginning Literacy\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Turkish\nDifficulty: Beginning Literacy\nAvatar Gender: Male\n\nTest Type: Functional | Priority: High | Severity: Major",
       "owner": "",
       "status": "",
       "user": {},
       "steps": [],
       "validation": {
-        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestTr in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Turkish.\n6. Tap Next.\n7. On the difficulty selection screen, select Beginning Literacy.\n8. Wait for the 'You Are' (gender) screen to appear, then select Male.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. ✅ Solve at least one activity in each accessible level (activities must be solved once per language).\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 — verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
-        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Beginning Literacy' is correctly applied.\n- Avatar gender 'Male' is selected and displayed correctly.\n- Map loads; levels 1–5 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
+        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestTr in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Turkish.\n6. Tap Next.\n7. On the difficulty selection screen, select Beginning Literacy.\n8. Wait for the 'You Are' (gender) screen to appear, then select Male.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. \u2705 Solve at least one activity in each accessible level (activities must be solved once per language).\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 \u2014 verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
+        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Beginning Literacy' is correctly applied.\n- Avatar gender 'Male' is selected and displayed correctly.\n- Map loads; levels 1\u20135 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
       },
       "action": {
         "kind": "pytest",
@@ -1250,14 +1250,14 @@
       "id": "TC1185",
       "name": "Guest - test guest guestTr - Turkish - Elementary Proficiency",
       "folder": "TF296",
-      "description": "Guest Flow Test — Turkish / Elementary Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Turkish\nDifficulty: Elementary Proficiency\nAvatar Gender: Female\n\nTest Type: Functional | Priority: High | Severity: Major",
+      "description": "Guest Flow Test \u2014 Turkish / Elementary Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Turkish\nDifficulty: Elementary Proficiency\nAvatar Gender: Female\n\nTest Type: Functional | Priority: High | Severity: Major",
       "owner": "",
       "status": "",
       "user": {},
       "steps": [],
       "validation": {
-        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestTr in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Turkish.\n6. Tap Next.\n7. On the difficulty selection screen, select Elementary Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Female.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. ℹ️ Activities were already solved in the Beginning Literacy test for Turkish. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 — verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
-        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Elementary Proficiency' is correctly applied.\n- Avatar gender 'Female' is selected and displayed correctly.\n- Map loads; levels 1–5 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
+        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestTr in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Turkish.\n6. Tap Next.\n7. On the difficulty selection screen, select Elementary Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Female.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. \u2139\ufe0f Activities were already solved in the Beginning Literacy test for Turkish. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 \u2014 verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
+        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Elementary Proficiency' is correctly applied.\n- Avatar gender 'Female' is selected and displayed correctly.\n- Map loads; levels 1\u20135 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
       },
       "action": {
         "kind": "pytest",
@@ -1268,14 +1268,14 @@
       "id": "TC1187",
       "name": "Guest - test guest guestTr - Turkish - Advanced Proficiency",
       "folder": "TF296",
-      "description": "Guest Flow Test — Turkish / Advanced Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Turkish\nDifficulty: Advanced Proficiency\nAvatar Gender: Female\n\nTest Type: Functional | Priority: High | Severity: Major",
+      "description": "Guest Flow Test \u2014 Turkish / Advanced Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: Turkish\nDifficulty: Advanced Proficiency\nAvatar Gender: Female\n\nTest Type: Functional | Priority: High | Severity: Major",
       "owner": "",
       "status": "",
       "user": {},
       "steps": [],
       "validation": {
-        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestTr in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Turkish.\n6. Tap Next.\n7. On the difficulty selection screen, select Advanced Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Female.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. ℹ️ Activities were already solved in the Beginning Literacy test for Turkish. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 — verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
-        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Advanced Proficiency' is correctly applied.\n- Avatar gender 'Female' is selected and displayed correctly.\n- Map loads; levels 1–5 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
+        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestTr in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select Turkish.\n6. Tap Next.\n7. On the difficulty selection screen, select Advanced Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Female.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. \u2139\ufe0f Activities were already solved in the Beginning Literacy test for Turkish. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 \u2014 verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
+        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Advanced Proficiency' is correctly applied.\n- Avatar gender 'Female' is selected and displayed correctly.\n- Map loads; levels 1\u20135 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
       },
       "action": {
         "kind": "pytest",
@@ -1286,14 +1286,14 @@
       "id": "TC1165",
       "name": "Guest - test guest guestFr - French - Elementary Proficiency",
       "folder": "TF296",
-      "description": "Guest Flow Test — French / Elementary Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: French\nDifficulty: Elementary Proficiency\nAvatar Gender: Female\n\nTest Type: Functional | Priority: High | Severity: Major",
+      "description": "Guest Flow Test \u2014 French / Elementary Proficiency\n\nVerifies that a guest user can complete the registration flow, enter the map, access activities, solve the first exam, and that levels greater than 5 are locked in guest mode.\n\nLanguage: French\nDifficulty: Elementary Proficiency\nAvatar Gender: Female\n\nTest Type: Functional | Priority: High | Severity: Major",
       "owner": "",
       "status": "",
       "user": {},
       "steps": [],
       "validation": {
-        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestFr in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select French.\n6. Tap Next.\n7. On the difficulty selection screen, select Elementary Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Female.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. ℹ️ Activities were already solved in the Beginning Literacy test for French. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 — verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
-        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Elementary Proficiency' is correctly applied.\n- Avatar gender 'Female' is selected and displayed correctly.\n- Map loads; levels 1–5 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
+        "input": "1. Launch the app and tap Start Free Trial button.\n2. Tap Let's Start button.\n3. Enter test guest in the First Name field.\n4. Enter guestFr in the Last Name field.\n5. In the 'Choose Your Native Language' screen, select French.\n6. Tap Next.\n7. On the difficulty selection screen, select Elementary Proficiency.\n8. Wait for the 'You Are' (gender) screen to appear, then select Female.\n9. On the avatar customization screen, tap the Back button.\n10. Tap anywhere on screen to dismiss the parrot.\n11. Enter the map.\n12. \u2139\ufe0f Activities were already solved in the Beginning Literacy test for French. Verify levels load correctly.\n13. Navigate to the first exam on the map and complete it.\n14. After the exam, tap on any level greater than 5 \u2014 verify it is locked (guest restriction).\n15. Perform Clear Data to reset app state for the next test.",
+        "expected": "- Guest registration completes successfully with correct name and language.\n- Difficulty 'Elementary Proficiency' is correctly applied.\n- Avatar gender 'Female' is selected and displayed correctly.\n- Map loads; levels 1\u20135 are accessible.\n- Activities launch and run correctly inside map levels.\n- First exam is accessible and completable.\n- Levels greater than 5 display a lock icon and cannot be entered (guest restriction enforced).\n- Clear Data resets app to the login/start screen."
       },
       "action": {
         "kind": "pytest",
@@ -1382,16 +1382,35 @@
       "action": {
         "kind": "pytest",
         "nodeid": "Tests/rally/TF181_Voca_Tooki_(Client_Side)/TF193_Treasure_Island/test_tc1191_treasure_island_completing_the_level_s_missions_raises_the_treasure_island_level.py::test_tc1191_treasure_island_completing_the_level_s_missions_raises_the_treasure_island_level"
+      }
+    },
+    {
+      "id": "TC1192",
+      "name": "Tasks - Solve an open task: answer every question, submit, and it moves to Sent",
+      "folder": "TF213",
+      "description": "Test Type: Functional\nPriority: Important\nSeverity: Major\nUsername: vt233635\npassword : 4850\n\nObjective:\nVerify a student can solve an OPEN task end to end: open it from the Tasks screen, answer every question in it, submit it, and see the task leave 'Open' and appear under 'Sent'.\n\nThe Tasks screen lists task cards under five tabs - ALL, Open, Sent, Checked, Missed - each tab showing its own count. An OPEN card is a TaskCard-Open(Clone); a card that can no longer be answered is a TaskCard-Closed(Clone).\n\nOpening an open card loads the task, which is a run of multiple-choice questions (15 in the task surveyed) shown one at a time, with a numbered strip along the bottom and a Submit at the end of the strip.\n\nNOTE: a task is NOT graded in the app. Submitting SENDS it to the teacher, so the outcome to verify is that the task moved from Open to Sent - not that the answers were correct.",
+      "owner": "",
+      "status": "",
+      "user": {
+        "username": "vt233635",
+        "password": "4850"
       },
-      "updated": false,
-      "updated_at": ""
+      "steps": [],
+      "validation": {
+        "input": "1. Launch the app and log in. Log out first so the run starts on a known account.\n2. On the start screen, tap the Tasks button to open the Tasks screen.\n3. Read the count on each tab (ALL, Open, Sent, Checked, Missed) and note how many tasks are Open.\n4. Open the Open tab and pick a task card that is still open (TaskCard-Open(Clone)); note its title.\n5. Tap that card and verify the task opens and shows its first question.\n6. Answer every question in the task, choosing one answer per question, using the numbered strip to move through them.\n7. Verify no question was left unanswered before submitting.\n8. Tap Submit at the end of the strip.\n9. Go back to the Tasks screen and read the tab counts again.\n10. Verify the task is no longer listed under Open, and is now listed under Sent.",
+        "expected": "- The Tasks screen opens and shows the five tabs with their counts.\n- An open task card opens the task, showing its questions one at a time.\n- Every question accepts exactly one answer, and the selected answer stays selected.\n- Submit is reachable at the end of the question strip once every question is answered.\n- After submitting, the Open count goes DOWN by one and the Sent count goes UP by one.\n- The task that was solved appears under the Sent tab, and no longer under Open.\n- The run reports the task it solved by title, and how many questions it answered."
+      },
+      "action": {
+        "kind": "pytest",
+        "nodeid": "Tests/rally/TF212_Tasks/TF213_\ud83d\udcc2_Tasks__Positive/test_tc1192_tasks_solve_an_open_task_answer_every_question_submit_and_it_moves_to_sent.py::test_tc1192_tasks_solve_an_open_task_answer_every_question_submit_and_it_moves_to_sent"
+      }
     }
   ],
   "metadata": {
     "project_id": "622679112169",
-    "total_cases": 49,
+    "total_cases": 50,
     "automated_only": true,
     "synced_from": "Rally API",
-    "synced_at": "2026-08-18T08:43:43.780966+00:00"
+    "synced_at": "2026-08-19T15:23:25.614807+00:00"
   }
 }

@@ -250,6 +250,7 @@ class RallyTestGenerator:
             code = self._gen_page(
                 tc_id, tc_name, test_case.get("user", {}), func_name,
                 description, test_case.get("steps", []), nodeid=nodeid,
+                validation=test_case.get("validation"),
             )
         elif test_type == "daily":
             code = self._gen_daily(
@@ -714,7 +715,8 @@ class RallyTestGenerator:
                                   description, steps, validation)
         elif test_type == "page":
             return self._gen_page(tc_id, tc_name, user_data, func_name,
-                                  description, steps, nodeid=nodeid)
+                                  description, steps, nodeid=nodeid,
+                                  validation=validation)
         elif test_type == "daily":
             return self._gen_daily(tc_id, tc_name, user_data, func_name,
                                    description, steps, nodeid=nodeid)
@@ -1171,24 +1173,63 @@ PASSWORD = "{password}"
     # Phrases that mean the case wants something DONE inside the feature, not
     # merely the feature opened. Deliberately narrow: an ordinary page case
     # ("Open the Events page successfully") matches none of them.
+    # Verbs that mean something is DONE inside the feature, not merely looked
+    # at. A page case is "open X and check it is there"; the moment a case asks
+    # to answer, submit, play or finish anything, the page template cannot
+    # honour it. Kept broad on purpose -- a phrase list tuned to one feature is
+    # what let TC1192 ("answer every question ... submit ... moves to Sent")
+    # through as a passing page test.
+    # Verbs that mean something is DONE inside the feature, not merely looked
+    # at. A page case is "open X and check it is there"; the moment a case asks
+    # to answer, submit, play or finish anything, the page template cannot
+    # honour it. Kept broad on purpose -- a list tuned to one feature is what
+    # let TC1192 ("answer every question ... submit ... moves to Sent") through
+    # as a passing page test.
+    #
+    # Matched on WORD BOUNDARIES: "played" as a substring also matches
+    # "dis-played", which flagged "Verify the Events page is displayed" and
+    # would have skipped a perfectly good page case.
     _BEYOND_A_PAGE = (
-        "100%", "goes up", "raises the", "until its progress", "reaches 100",
-        "completing the", "complete the activity", "must go up", "increases",
+        "answer", "answers", "answered", "submit", "submitted", "solve",
+        "solved", "complete", "completed", "completing", "finish", "finished",
+        "play", "plays", "played", "playing", "record", "recorded", "upload",
+        "send", "sent", "score", "scored", "progress", "reaches", "reach",
+        "increases", "decreases", "correct", "until", "100%",
     )
+    _BEYOND_A_PAGE_PHRASES = ("goes up", "raises the", "moves to", "each question",
+                              "every question", "must go up")
+    # A pure "open the page" case is a handful of steps: launch, log in, tap the
+    # button, check it opened. A case with a long script is describing a FLOW,
+    # whatever words it happens to use.
+    _PAGE_STEP_LIMIT = 5
 
     @classmethod
-    def _asks_for_more_than_a_page(cls, tc_name: str, description: str = "") -> bool:
+    def _asks_for_more_than_a_page(cls, tc_name: str, description: str = "",
+                                   validation: Optional[Dict[str, str]] = None) -> bool:
         """Does this case ask for more than opening the screen?
 
         The page template can only prove a screen appeared. When the case is
-        really about playing something, generating a passing page test hides
-        the gap behind a green tick -- so callers turn this into a loud skip.
+        really about doing something in there, generating a passing page test
+        hides the gap behind a green tick, so callers turn this into a loud
+        skip.
+
+        Judged two ways, because either alone has been fooled: the WORDS used,
+        and the SHAPE of the case -- a ten-step script is a flow no matter how
+        it is worded.
         """
-        hay = f"{tc_name or ''} {description or ''}".lower()
-        return any(phrase in hay for phrase in cls._BEYOND_A_PAGE)
+        v = validation or {}
+        hay = " ".join([tc_name or "", description or "",
+                        str(v.get("input", "")), str(v.get("expected", ""))]).lower()
+        words = set(re.findall(r"[a-z0-9%]+", hay))
+        if words & set(cls._BEYOND_A_PAGE):
+            return True
+        if any(phrase in hay for phrase in cls._BEYOND_A_PAGE_PHRASES):
+            return True
+        steps = len(re.findall(r"(?:^|[\s>])\d{1,2}\s*[.)]\s", str(v.get("input", ""))))
+        return steps >= cls._PAGE_STEP_LIMIT
 
     def _gen_page(self, tc_id, tc_name, user_data, test_func_name,
-                  description="", steps=None, nodeid="") -> str:
+                  description="", steps=None, nodeid="", validation=None) -> str:
         """"Open <feature> and check it is there" test.
 
         Every start-screen feature was surveyed on the live app, so the button,
@@ -1213,7 +1254,7 @@ PASSWORD = "{password}"
                       f"then re-sync.")
             guard = ('@pytest.mark.stub\n'
                      f'@pytest.mark.skip(reason="{self._py_str(reason)}")\n')
-        elif self._asks_for_more_than_a_page(tc_name, description):
+        elif self._asks_for_more_than_a_page(tc_name, description, validation):
             # This template only proves the screen APPEARED. A case that asks
             # for work INSIDE the feature ("until its progress reaches 100%",
             # "the level goes up") would pass here having done none of it — a
