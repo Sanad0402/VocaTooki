@@ -20,6 +20,81 @@ from runner import rally_naming
 logger = logging.getLogger(__name__)
 
 
+TASKS_TEMPLATE = '''"""
+{doc}
+
+Tasks, surveyed on the live app (2026-08-19):
+    GO-Tasks -> TasksSelectionScene, five tabs (ALL/Open/Sent/Checked/Missed)
+    an answerable card is TaskCard-Open(Clone); a spent one TaskCard-Closed(Clone)
+    the card opens TaskScene: Question_1..N on a strip, ending in SubmitButton
+    answers are Answer_Visual_<shown>_Data_<id>, and the SHOWN slot is shuffled
+    per question -- the Data id is the only stable handle
+    Submit only ASKS: YesNoPopup(Clone) -> YesButton is what actually sends it
+
+The answer key is NOT in the game. It comes from the backend, where every
+sub-task carries a correct_answer naming the right option BY the same id.
+A submitted multiple-choice task is scored and lands in CHECKED, not Sent.
+"""
+
+import pytest
+from Utilities import utilsdemo
+
+# Rally test case ID (for sync and maintenance)
+TC_ID = "{tc_id}"
+# Regenerated from the Rally case on every sync. Hand-editing? Set MANUAL_EDIT = True.
+MANUAL_EDIT = False
+
+USERNAME = "{username}"
+PASSWORD = "{password}"
+# The class the task belongs to (its answer key lives there) and the player
+# whose stored answers are read back to check the score.
+CLASS_ID = {class_id}
+USER_ID = {user_id}
+# How many questions to answer WRONG on purpose, to exercise that path.
+WRONG_ANSWERS = {wrong}
+
+
+{guard}def {func}(altdriver):
+    driver, _platform = altdriver
+
+    result = utilsdemo.tasks_check(
+        driver, username=USERNAME, password=PASSWORD, tc_id=TC_ID,
+        class_id=CLASS_ID, user_id=USER_ID, wrong_answers=WRONG_ANSWERS,
+        submit=True)
+
+    # Say what this run did and did NOT cover, pass or fail.
+    print(f"{{TC_ID}} RESULT: {{result['note']}}")
+
+    assert result["questions"], (
+        f"{{TC_ID}}: no task was opened to solve - {{result['note']}}")
+    assert not result["unsupported"], (
+        f"{{TC_ID}}: the task has questions this framework cannot answer (text "
+        f"or recording), so it was not submitted: {{result['unsupported']}}")
+    assert result["answered"] == result["questions"], (
+        f"{{TC_ID}}: answered only {{result['answered']}} of {{result['questions']}} "
+        f"question(s). {{result['note']}}")
+    assert result["submitted"], (
+        f"{{TC_ID}}: the task was never submitted - {{result['note']}}")
+
+    # The server is the judge, not the screen: it holds what was really stored.
+    server = result["server"]
+    assert server, (
+        f"{{TC_ID}}: the submitted answers could not be read back from the server, "
+        f"so nothing proves what was recorded. {{result['note']}}")
+    assert server["answers"] == result["questions"], (
+        f"{{TC_ID}}: the server recorded {{server['answers']}} answer(s) for "
+        f"{{result['questions']}} question(s). {{result['note']}}")
+    assert server["incorrect"] == WRONG_ANSWERS, (
+        f"{{TC_ID}}: {{server['incorrect']}} answer(s) were scored wrong, but "
+        f"{{WRONG_ANSWERS}} were meant to be. Deliberately wrong: {{result['wrong']}}")
+
+    assert not result["problems"], (
+        f"{{TC_ID}}: solving the task hit problems: {{result['problems']}}. "
+        f"{{result['note']}}")
+    assert result["ok"], f"{{TC_ID}}: the task run did not pass - {{result['note']}}"
+'''
+
+
 class RallyTestGenerator:
     """Generates pytest from Rally test case definitions."""
 
@@ -209,6 +284,12 @@ class RallyTestGenerator:
                 tc_id, tc_name, func_name, description,
                 test_case.get("steps", []), test_case.get("validation"),
                 elements=elements or {},
+            )
+        elif test_type == "tasks":
+            code = self._gen_tasks(
+                tc_id, tc_name, test_case.get("user", {}), func_name,
+                description, test_case.get("steps", []),
+                test_case.get("validation"),
             )
         elif test_type == "treasure_island":
             # Missions -> an island -> a building -> the activity it starts.
@@ -510,6 +591,13 @@ class RallyTestGenerator:
             return "login_negative"
         if any(k in lower for k in ("logout", "log out", "sign out")):
             return "logout"
+        # A TASKS case is about SOLVING a task -- opening it, answering its
+        # questions, submitting -- as opposed to merely opening the Tasks
+        # screen. Checked before the page rule, which would otherwise claim
+        # it and generate a test that opens a screen and passes.
+        if not is_negative and self._is_tasks_case(tc_name, description,
+                                                   nodeid, validation):
+            return "tasks"
         # Treasure Island is its own flow (missions -> an island -> a building).
         # Checked BEFORE the activity and page rules because a Treasure Island
         # case both names activities ("complete the activity it opens") and is a
@@ -540,6 +628,28 @@ class RallyTestGenerator:
         if not is_negative and self._infer_feature(tc_name, description, nodeid):
             return "page"
         return "generic"
+
+    # Doing something INSIDE a task, rather than looking at the Tasks screen.
+    _TASK_DO_WORDS = ("solve", "answer", "submit", "send", "score", "checked",
+                      "question")
+
+    @classmethod
+    def _is_tasks_case(cls, tc_name: str, description: str = "", nodeid: str = "",
+                       validation: Optional[Dict[str, str]] = None) -> bool:
+        """Is this case about solving a TASK?
+
+        The Tasks test folders (TF212 and its children) are the strongest
+        signal; otherwise the case has to mention tasks AND doing something
+        with one, so "Open the Tasks page" stays an ordinary page case.
+        """
+        v = validation or {}
+        hay = " ".join([tc_name or "", description or "", nodeid or "",
+                        str(v.get("input", "")), str(v.get("expected", ""))]).lower()
+        if re.search(r"tf21[2-7]", (nodeid or "").lower()):
+            return True
+        if not re.search(r"(?<![a-z])tasks?(?![a-z])", hay):
+            return False
+        return any(word in hay for word in cls._TASK_DO_WORDS)
 
     @classmethod
     def _is_treasure_island_case(cls, tc_name: str, description: str = "",
@@ -704,6 +814,9 @@ class RallyTestGenerator:
             return self._gen_activity(tc_id, tc_name, user_data, func_name,
                                       description, steps, validation,
                                       nodeid=nodeid, title_hint=title_hint)
+        elif test_type == "tasks":
+            return self._gen_tasks(tc_id, tc_name, user_data, func_name,
+                                   description, steps, validation)
         elif test_type == "treasure_island":
             return self._gen_treasure_island(tc_id, tc_name, user_data, func_name,
                                              description, steps, validation)
@@ -1319,6 +1432,60 @@ PASSWORD = "{password}"
                       r"\s+(?:Test Type|Priority|Severity|Username|password|Objective)\b)",
                       hay, re.I)
         return re.sub(r"\s+", " ", m.group(1)).strip() if m else ""
+
+    def _gen_tasks(self, tc_id, tc_name, user_data, test_func_name,
+                   description="", steps=None, validation=None) -> str:
+        """Solve a task set by the teacher, and check the score on the server.
+
+        The whole flow lives in ``utilsdemo.tasks_check``: open the Tasks
+        screen, open an OPEN task, answer every question from the backend
+        ANSWER KEY -- correctly, except for however many the case wants wrong
+        on purpose -- submit, confirm, then read back from the server what was
+        actually stored and what it scored.
+        """
+        username = user_data.get("username") or ""
+        password = user_data.get("password") or ""
+        doc = self._doc_block(tc_id, tc_name, description, steps or [])
+        v = validation or {}
+        v_in = self._clean_html(v.get("input", ""))
+        v_exp = self._clean_html(v.get("expected", ""))
+        if v_in or v_exp:
+            doc += "\n\nValidation (from Rally):"
+            if v_in:
+                doc += f"\n    Input:    {v_in}"
+            if v_exp:
+                doc += f"\n    Expected: {v_exp}"
+
+        hay = (self._clean_html(description) + " " + v_in).lower()
+        # "answer 2 of them incorrectly" -> 2. No number named -> all correct.
+        m = re.search(r"(\d+)\s+(?:questions?\s+)?(?:in)?correct", hay)
+        wrong = int(m.group(1)) if m else 0
+        # The answer key and the score check need the class and the player id.
+        cm = re.search(r"class\s*id\s*:?\s*(\d+)", hay)
+        um = re.search(r"user\s*id\s*:?\s*(\d+)", hay)
+        class_id = cm.group(1) if cm else "None"
+        user_id = um.group(1) if um else "None"
+
+        guard = ""
+        missing = []
+        if not username:
+            missing.append("Username/password")
+        if class_id == "None":
+            missing.append('the class id ("Class ID: 2336")')
+        if user_id == "None":
+            missing.append('the player id ("User ID: 73356")')
+        if missing:
+            reason = (f"{tc_id}: the Rally case is missing " + " and ".join(missing) +
+                      ". Without it the task cannot be answered from the answer key "
+                      "nor its score checked, so a run would prove nothing. Add it to "
+                      "the description, then re-sync.")
+            guard = ('@pytest.mark.stub\n'
+                     f'@pytest.mark.skip(reason="{self._py_str(reason)}")\n')
+
+        return TASKS_TEMPLATE.format(
+            doc=doc, tc_id=tc_id, username=self._py_str(username),
+            password=self._py_str(password), class_id=class_id, user_id=user_id,
+            wrong=wrong, guard=guard, func=test_func_name)
 
     def _gen_treasure_island(self, tc_id, tc_name, user_data, test_func_name,
                              description="", steps=None, validation=None) -> str:
