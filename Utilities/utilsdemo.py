@@ -2691,6 +2691,9 @@ TASK_MULTIPLE_CHOICE = "MultipleChoiceContent(Clone)"
 # until Yes is pressed.
 TASK_CONFIRM_POPUP = "YesNoPopup(Clone)"
 TASK_CONFIRM_YES = "YesButton"
+# How long a submitted task is given to appear on the server. The app sits
+# on the task uploading it -- measured at about 90 seconds.
+TASK_RECORD_TIMEOUT = 120
 
 
 def task_tab_counts(altdriver):
@@ -2876,6 +2879,30 @@ def task_submitted_answers(user_id, task_id, token=None, attempt=0):
         return {}
 
 
+def wait_for_task_recorded(user_id, task_id, timeout=90, poll=5):
+    """Wait until the SERVER has stored this submission. Returns the record.
+
+    Submitting is not instant: the app sits on the task while it uploads, and
+    reading the answers straight afterwards comes back empty -- which reads
+    exactly like a submit that never happened. Waiting for the record is also
+    what makes it safe to go on to the NEXT task: the run only moves once the
+    server agrees the last one landed.
+    """
+    end = time.time() + timeout
+    while True:
+        stored = task_submitted_answers(user_id, task_id)
+        if stored.get("answer"):
+            logging.info(f"[Tasks] the server recorded task {task_id} "
+                         f"({len(stored['answer'])} answer(s), "
+                         f"result={stored.get('result')})")
+            return stored
+        if time.time() >= end:
+            logging.error(f"[Tasks] the server never recorded task {task_id} "
+                          f"within {timeout}s")
+            return stored
+        time.sleep(poll)
+
+
 def task_answer_by_data_id(altdriver, data_id, settle=1.2):
     """Press the answer whose name ends ``_Data_<data_id>``. Returns bool.
 
@@ -2983,6 +3010,15 @@ def tasks_check(altdriver, username=None, password=None, tc_id="",
         else:
             report["problems"].append(
                 f"no answer key found for '{report['title']}' in class {class_id}")
+    if not key:
+        # Without the key the answers would be arbitrary, and the task is
+        # SCORED -- a run must not post a bad score to a real teacher's task and
+        # call it a pass. Said out loud instead.
+        report["problems"].append(
+            "no answer key: the class could not be determined (a brand-new "
+            "account has no task history to discover it from), so the answers "
+            'would be arbitrary. Add "Class ID: <n>" to the Rally case.')
+        submit = False
 
     # Which questions to get WRONG on purpose: the last ones, so the run still
     # exercises a correct answer first.
@@ -3054,6 +3090,16 @@ def tasks_check(altdriver, username=None, password=None, tc_id="",
     else:
         logging.warning("[Tasks] no submit confirmation appeared")
     report["submitted"] = True
+
+    # Wait for the SERVER before touching the UI again. The app stays on the
+    # task while it uploads (measured: ~90s), and reading the answers straight
+    # after the press comes back empty -- which is indistinguishable from a
+    # submit that never happened, and is what failed a run that had in fact
+    # answered all 15 questions correctly.
+    if user_id and report.get("task_id"):
+        report["server_record"] = wait_for_task_recorded(
+            user_id, report["task_id"], timeout=TASK_RECORD_TIMEOUT)
+
     wait_for_scene(altdriver, TASKS_SCENE, timeout=timeout)
     if _current_scene(altdriver) != TASKS_SCENE:
         return_to_start(altdriver)
@@ -3074,10 +3120,13 @@ def tasks_check(altdriver, username=None, password=None, tc_id="",
             f"{report['counts_after']})")
     else:
         # Leaving Open is the part that is always true.
-        if open_after != open_before - 1:
+        # A drop, not a drop of exactly one: submitting one task was measured
+        # moving TWO out of Open (3 -> 1, Checked 0 -> 2), because the app also
+        # settles whatever else it had already scored.
+        if open_after >= open_before:
             report["problems"].append(
-                f"Open went {open_before} -> {open_after}, expected "
-                f"{open_before - 1} after submitting one task")
+                f"Open went {open_before} -> {open_after}: submitting a task "
+                f"should take it out of Open")
         # Where it LANDS depends on the task. Measured live: a multiple-choice
         # task went straight to Checked (0 -> 2), not to Sent — the app scores
         # what it can score itself, and only what a teacher must read waits in
@@ -3093,7 +3142,8 @@ def tasks_check(altdriver, username=None, password=None, tc_id="",
     # The honest proof: what the SERVER recorded. A tab count says a task moved;
     # this says which answer was stored for every question and what it scored.
     if user_id and report.get("task_id"):
-        stored = task_submitted_answers(user_id, report["task_id"])
+        stored = report.get("server_record") or task_submitted_answers(
+            user_id, report["task_id"])
         answers = stored.get("answer") or []
         right = sum(1 for a in answers
                     if a.get("choosenAnswer") == a.get("correctAnswer"))
