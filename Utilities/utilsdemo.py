@@ -2807,6 +2807,26 @@ def class_tasks(class_id, token=None):
         return []
 
 
+def user_class_id(user_id, token=None):
+    """The class this player's tasks belong to, or None.
+
+    Saves the Rally case from carrying a class id that is only ever right for
+    one account: `get-user-tasks` answers with `taskid_classid` ("651_2336"),
+    so the class falls out of the player id on its own.
+    """
+    try:
+        r = requests.get(f"{VT_TASKS_API}/get-user-tasks/{user_id}",
+                         headers=task_api_headers(token), timeout=25)
+        r.raise_for_status()
+        for entry in (r.json() or []):
+            pair = str(entry.get("taskid_classid") or "")
+            if "_" in pair:
+                return int(pair.split("_", 1)[1])
+    except Exception as e:                           # noqa: BLE001
+        logging.error(f"[Tasks] could not work out the class for user {user_id}: {e}")
+    return None
+
+
 def task_answer_key(task_id, token=None):
     """``[{"index", "type", "question", "correct", "options"}]`` for a task.
 
@@ -2943,6 +2963,12 @@ def tasks_check(altdriver, username=None, password=None, tc_id="",
 
     # The answer key, when the class is known. Matched to the task by NAME,
     # which is what the card shows.
+    # The class need not be given: it falls out of the player id.
+    if not class_id and user_id:
+        class_id = user_class_id(user_id)
+        if class_id:
+            logging.info(f"[Tasks] class {class_id} discovered from user {user_id}")
+
     key = []
     if class_id:
         wanted = (report["title"] or "").strip().lower()

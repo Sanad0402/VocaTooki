@@ -1470,8 +1470,8 @@ PASSWORD = "{password}"
         missing = []
         if not username:
             missing.append("Username/password")
-        if class_id == "None":
-            missing.append('the class id ("Class ID: 2336")')
+        # The class is NOT required: it is discovered from the player id, so a
+        # case only has to carry the one number that is genuinely per-account.
         if user_id == "None":
             missing.append('the player id ("User ID: 73356")')
         if missing:
