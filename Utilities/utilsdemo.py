@@ -2779,20 +2779,125 @@ def task_answer_question(altdriver, settle=1.2):
     return False, f"none of {len(answers)} answers would select"
 
 
+# The task API. The answer key is NOT in the game: the app never marks an option
+# as correct, and no component exposes it (measured -- the driver cannot even
+# enumerate fields). It comes from the backend, where a sub-task carries its
+# options and a `correct_answer` naming the right one BY ID.
+#
+# The id is the link that makes this usable: `parameters[].id` is exactly the
+# Data index in `Answer_Visual_<shown>_Data_<id>`, so "correct_answer: 1" means
+# press the answer whose name ends `_Data_1`, wherever it happens to be shown.
+VT_TASKS_API = "https://vtbe.vocatooki.com/data"
+
+
+def task_api_headers(token=None):
+    """Bearer headers for the task API, logging in once if needed."""
+    return get_auth_headers(token=token)
+
+
+def class_tasks(class_id, token=None):
+    """``[{"id", "name", ...}]`` — the tasks set for a class."""
+    try:
+        r = requests.get(f"{VT_TASKS_API}/get-class-tasks/{class_id}",
+                         headers=task_api_headers(token), timeout=25)
+        r.raise_for_status()
+        return r.json() or []
+    except Exception as e:                           # noqa: BLE001
+        logging.error(f"[Tasks] could not list the class's tasks: {e}")
+        return []
+
+
+def task_answer_key(task_id, token=None):
+    """``[{"index", "type", "question", "correct", "options"}]`` for a task.
+
+    ``correct`` is the id to press (the `Data_` index), and ``options`` maps
+    every id to its text, so a WRONG answer can be chosen deliberately too.
+    """
+    try:
+        r = requests.get(f"{VT_TASKS_API}/get-task/{task_id}",
+                         headers=task_api_headers(token), timeout=25)
+        r.raise_for_status()
+        task = r.json() or {}
+    except Exception as e:                           # noqa: BLE001
+        logging.error(f"[Tasks] could not read task {task_id}: {e}")
+        return []
+
+    key = []
+    for index, sub in enumerate(task.get("sub_tasks") or [], start=1):
+        data = sub.get("data") or {}
+        options = {int(p.get("id")): p.get("freetext")
+                   for p in (data.get("parameters") or [])
+                   if p.get("id") is not None}
+        key.append({
+            "index": index,
+            "type": sub.get("type") or "",
+            "question": data.get("task_question") or "",
+            "correct": data.get("correct_answer"),
+            "options": options,
+        })
+    return key
+
+
+def task_submitted_answers(user_id, task_id, token=None, attempt=0):
+    """What the SERVER recorded for this user's attempt, or {}.
+
+    The honest proof a run worked: `choosenAnswer` against `correctAnswer` per
+    question, and the `result` the task scored -- read back from the backend
+    rather than inferred from a tab count.
+    """
+    try:
+        r = requests.get(
+            f"{VT_TASKS_API}/get-task-answer/{user_id}/{task_id}/{attempt}",
+            headers=task_api_headers(token), timeout=25)
+        r.raise_for_status()
+        return r.json() or {}
+    except Exception as e:                           # noqa: BLE001
+        logging.error(f"[Tasks] could not read the submitted answers: {e}")
+        return {}
+
+
+def task_answer_by_data_id(altdriver, data_id, settle=1.2):
+    """Press the answer whose name ends ``_Data_<data_id>``. Returns bool.
+
+    The visual slot is shuffled per question, so the answer is chosen by its
+    DATA id -- the one thing that means the same on every render.
+    """
+    wanted = f"_Data_{int(data_id)}"
+    for name in task_answers(altdriver):
+        if name.endswith(wanted):
+            if press_object(altdriver, name, settle=settle):
+                return task_answer_selected(altdriver, name)
+            return False
+    logging.error(f"[Tasks] no answer ending '{wanted}' on this question")
+    return False
+
+
 def tasks_check(altdriver, username=None, password=None, tc_id="",
-                submit=True, timeout=90):
+                submit=True, timeout=90, class_id=None, user_id=None,
+                wrong_answers=0):
     """Solve one OPEN task and prove it was sent. Never raises.
 
     A task is NOT graded in the app -- submitting SENDS it to the teacher --
     so the outcome verified here is that the task left Open and arrived in
     Sent, never "the answers were correct".
 
-    Returns ``{"ok", "title", "questions", "answered", "unsupported",
-    "counts_before", "counts_after", "submitted", "problems", "note"}``.
+    With ``class_id`` the answers come from the backend answer key, so the task
+    is answered CORRECTLY -- except for ``wrong_answers`` questions chosen on
+    purpose, which exercise the wrong-answer path and show up in the score. The
+    two are reported by number, because a run that quietly answered badly and a
+    run that deliberately answered badly must not look the same.
+
+    Without a key it falls back to pressing whatever selects, which answers the
+    task but scores arbitrarily.
+
+    Returns ``{"ok", "title", "questions", "answered", "unsupported", "wrong",
+    "counts_before", "counts_after", "submitted", "server", "problems",
+    "note"}``.
     """
     report = {"ok": False, "title": "", "questions": 0, "answered": 0,
-              "unsupported": [], "counts_before": {}, "counts_after": {},
-              "submitted": False, "problems": [], "note": ""}
+              "unsupported": [], "wrong": [], "counts_before": {},
+              "counts_after": {}, "submitted": False, "server": {},
+              "problems": [], "note": ""}
 
     reset_evidence_trail(tc_id)
     trail = evidence_trail(tc_id)
@@ -2836,11 +2941,53 @@ def tasks_check(altdriver, username=None, password=None, tc_id="",
         return report
     logging.info(f"[Tasks] '{report['title']}': {len(questions)} question(s)")
 
+    # The answer key, when the class is known. Matched to the task by NAME,
+    # which is what the card shows.
+    key = []
+    if class_id:
+        wanted = (report["title"] or "").strip().lower()
+        for entry in class_tasks(class_id):
+            if str(entry.get("name", "")).strip().lower() == wanted:
+                key = task_answer_key(entry.get("id"))
+                report["task_id"] = entry.get("id")
+                break
+        if key:
+            logging.info(f"[Tasks] answer key for '{report['title']}': "
+                         f"{len(key)} question(s)")
+        else:
+            report["problems"].append(
+                f"no answer key found for '{report['title']}' in class {class_id}")
+
+    # Which questions to get WRONG on purpose: the last ones, so the run still
+    # exercises a correct answer first.
+    deliberately_wrong = set()
+    if wrong_answers and key:
+        deliberately_wrong = {e["index"] for e in key[-int(wrong_answers):]}
+
     for index, question in enumerate(questions, start=1):
         if not press_object(altdriver, question, settle=1.5):
             report["problems"].append(f"question {index} could not be opened")
             continue
         wait_for_scene_ready(altdriver, timeout=6, stable_for=0.8, label=question)
+
+        entry = next((e for e in key if e["index"] == index), None)
+        if entry is not None and entry.get("correct") is not None:
+            correct = int(entry["correct"])
+            if index in deliberately_wrong:
+                # ANY option that is not the right one.
+                choice = next((i for i in entry["options"] if i != correct), correct)
+                report["wrong"].append(
+                    f"Q{index}: chose {entry['options'].get(choice)!r} "
+                    f"instead of {entry['options'].get(correct)!r}")
+            else:
+                choice = correct
+            if task_answer_by_data_id(altdriver, choice):
+                report["answered"] += 1
+                continue
+            report["problems"].append(
+                f"question {index}: could not press the answer Data_{choice}")
+            continue
+
         answered, why = task_answer_question(altdriver)
         if answered:
             report["answered"] += 1
@@ -2916,6 +3063,32 @@ def tasks_check(altdriver, username=None, password=None, tc_id="",
                 f"the task left Open but arrived in neither Sent nor Checked "
                 f"(Sent {sent_before} -> {sent_after}, "
                 f"Checked {checked_before} -> {checked_after})")
+
+    # The honest proof: what the SERVER recorded. A tab count says a task moved;
+    # this says which answer was stored for every question and what it scored.
+    if user_id and report.get("task_id"):
+        stored = task_submitted_answers(user_id, report["task_id"])
+        answers = stored.get("answer") or []
+        right = sum(1 for a in answers
+                    if a.get("choosenAnswer") == a.get("correctAnswer"))
+        report["server"] = {
+            "result": stored.get("result"),
+            "status": stored.get("status"),
+            "answers": len(answers),
+            "correct": right,
+            "incorrect": len(answers) - right,
+        }
+        logging.info(f"[Tasks] server recorded {len(answers)} answer(s), "
+                     f"{right} correct, result={stored.get('result')}")
+        if len(answers) != report["questions"]:
+            report["problems"].append(
+                f"the server recorded {len(answers)} answer(s) for "
+                f"{report['questions']} question(s)")
+        expected_wrong = len(report["wrong"])
+        if key and (len(answers) - right) != expected_wrong:
+            report["problems"].append(
+                f"{len(answers) - right} answer(s) came back wrong, but "
+                f"{expected_wrong} were meant to be")
 
     report["ok"] = (report["submitted"] and not report["problems"]
                     and report["answered"] == report["questions"])
