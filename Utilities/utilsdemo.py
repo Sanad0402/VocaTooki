@@ -2671,6 +2671,269 @@ def event_score_check(altdriver, levels=(1, 2, 3), player_name="",
     return report
 
 
+# --- Tasks: the teacher's tasks, and answering one -------------------------
+#
+# Surveyed live 2026-08-19. A task is NOT graded in the app: submitting SENDS it
+# to the teacher, which is why the outcome to verify is Open -> Sent and never
+# "the answers were right".
+
+TASKS_SCENE = "TasksSelectionScene"
+TASK_SCENE = "TaskScene"
+TASK_CARD_OPEN = "TaskCard-Open(Clone)"      # answerable
+TASK_CARD_CLOSED = "TaskCard-Closed(Clone)"  # no longer answerable
+TASK_TABS = ("ALL", "Open", "Sent", "Checked", "Missed")
+TASK_TITLE = "TitleText"
+TASK_QUESTION_PREFIX = "Question_"
+TASK_SUBMIT = "SubmitButton"
+TASK_ANSWER_PREFIX = "Answer_Visual"        # Answer_Visual_<shown>_Data_<original>
+TASK_MULTIPLE_CHOICE = "MultipleChoiceContent(Clone)"
+# Submit only ASKS: it raises a yes/no popup, and the task is not sent
+# until Yes is pressed.
+TASK_CONFIRM_POPUP = "YesNoPopup(Clone)"
+TASK_CONFIRM_YES = "YesButton"
+
+
+def task_tab_counts(altdriver):
+    """``{"Open": "2 Open", ...}`` — each tab's own count, read off the screen."""
+    counts = {}
+    for tab in TASK_TABS:
+        try:
+            obj = altdriver.find_object(By.PATH, f"//{tab}-NavigationTab//NumTasksText")
+            counts[tab] = _text_of(obj) or ""
+        except Exception:                            # noqa: BLE001
+            counts[tab] = ""
+    return counts
+
+
+def _task_count(text):
+    """"2 Open" -> 2. Unreadable -> None, which is NOT the same as zero."""
+    match = re.search(r"\d+", str(text or ""))
+    return int(match.group()) if match else None
+
+
+def task_questions(altdriver):
+    """The question chips on the strip, in order: ``["Question_1", ...]``."""
+    try:
+        found = [e.name for e in (altdriver.get_all_elements() or [])
+                 if e.name.startswith(TASK_QUESTION_PREFIX)]
+    except Exception:                                # noqa: BLE001
+        return []
+    def number(name):
+        digits = re.findall(r"\d+", name)
+        return int(digits[-1]) if digits else 0
+    return sorted(set(found), key=number)
+
+
+def task_answers(altdriver):
+    """The answer toggles of the question on screen, in the order SHOWN.
+
+    Named ``Answer_Visual_<shown>_Data_<original>``: the visual slot is
+    shuffled per question, so the Data index says nothing about which is
+    correct — measured live, Data_0 was the wrong answer on question 2.
+    """
+    try:
+        found = [e.name for e in (altdriver.get_all_elements() or [])
+                 if e.name.startswith(TASK_ANSWER_PREFIX)]
+    except Exception:                                # noqa: BLE001
+        return []
+    def shown(name):
+        digits = re.findall(r"\d+", name)
+        return int(digits[0]) if digits else 0
+    return sorted(set(found), key=shown)
+
+
+def task_answer_selected(altdriver, answer):
+    """Is this answer chosen? Reads the Toggle, which is the real state.
+
+    The `selectedAnswer` child exists on every answer whether chosen or not, so
+    its presence proves nothing — and its active flag cannot be read.
+    """
+    try:
+        obj = altdriver.find_object(By.NAME, answer)
+        return bool(obj.get_component_property("UnityEngine.UI.Toggle", "isOn",
+                                               "UnityEngine.UI"))
+    except Exception:                                # noqa: BLE001
+        return False
+
+
+def task_answer_question(altdriver, settle=1.2):
+    """Answer the question on screen. Returns ``(answered, note)``.
+
+    Only multiple choice is automated. A task can also ask for TEXT or a
+    RECORDING; those are reported, never silently passed over.
+    """
+    if find_any(altdriver, TASK_MULTIPLE_CHOICE) is None:
+        return False, "not a multiple-choice question (text or recording?)"
+
+    answers = task_answers(altdriver)
+    if not answers:
+        return False, "a multiple-choice question with no answers on screen"
+    if any(task_answer_selected(altdriver, a) for a in answers):
+        return True, ""                              # already answered
+
+    for answer in answers:
+        if not press_object(altdriver, answer, settle=settle):
+            continue
+        if task_answer_selected(altdriver, answer):
+            return True, ""
+    return False, f"none of {len(answers)} answers would select"
+
+
+def tasks_check(altdriver, username=None, password=None, tc_id="",
+                submit=True, timeout=90):
+    """Solve one OPEN task and prove it was sent. Never raises.
+
+    A task is NOT graded in the app -- submitting SENDS it to the teacher --
+    so the outcome verified here is that the task left Open and arrived in
+    Sent, never "the answers were correct".
+
+    Returns ``{"ok", "title", "questions", "answered", "unsupported",
+    "counts_before", "counts_after", "submitted", "problems", "note"}``.
+    """
+    report = {"ok": False, "title": "", "questions": 0, "answered": 0,
+              "unsupported": [], "counts_before": {}, "counts_after": {},
+              "submitted": False, "problems": [], "note": ""}
+
+    reset_evidence_trail(tc_id)
+    trail = evidence_trail(tc_id)
+
+    if username and not fresh_login(altdriver, username, password):
+        report["note"] = f"could not log in as {username}"
+        return report
+    if not open_feature(altdriver, "tasks", username, password, timeout=timeout):
+        report["note"] = "the Tasks screen did not open"
+        return report
+
+    report["counts_before"] = task_tab_counts(altdriver)
+    trail.shot(altdriver, "tasks-BEFORE", EVIDENCE_KEY)
+    open_before = _task_count(report["counts_before"].get("Open"))
+    sent_before = _task_count(report["counts_before"].get("Sent"))
+    logging.info(f"[Tasks] tabs before: {report['counts_before']}")
+
+    if find_any(altdriver, TASK_CARD_OPEN) is None:
+        report["note"] = ("there is no OPEN task on this account to solve "
+                          f"(tabs: {report['counts_before']})")
+        return report
+
+    # Open the first answerable card.
+    try:
+        card = altdriver.find_object(By.PATH, f"//{TASK_CARD_OPEN}[0]")
+        report["title"] = _text_of(altdriver.find_object(
+            By.PATH, f"//{TASK_CARD_OPEN}[0]//TaskText")) or ""
+        _press(card)
+    except Exception as e:                           # noqa: BLE001
+        report["note"] = f"the open task card could not be opened: {e}"
+        return report
+    if not wait_for_scene(altdriver, TASK_SCENE, timeout=timeout):
+        report["note"] = f"'{report['title']}' did not open into the task"
+        return report
+    trail.shot(altdriver, f"task-{_slugish(report['title'])}-opened", EVIDENCE_PROOF)
+
+    questions = task_questions(altdriver)
+    report["questions"] = len(questions)
+    if not questions:
+        report["note"] = "the task shows no questions"
+        return report
+    logging.info(f"[Tasks] '{report['title']}': {len(questions)} question(s)")
+
+    for index, question in enumerate(questions, start=1):
+        if not press_object(altdriver, question, settle=1.5):
+            report["problems"].append(f"question {index} could not be opened")
+            continue
+        wait_for_scene_ready(altdriver, timeout=6, stable_for=0.8, label=question)
+        answered, why = task_answer_question(altdriver)
+        if answered:
+            report["answered"] += 1
+        else:
+            # Said out loud: a task can also ask for TEXT or a RECORDING, and
+            # neither is automated here. Never passed over quietly.
+            report["unsupported"].append(f"question {index}: {why}")
+            logging.warning(f"[Tasks] question {index} not answered - {why}")
+
+    trail.shot(altdriver, f"answered-{report['answered']}-of-{report['questions']}",
+               EVIDENCE_PROOF)
+
+    if report["unsupported"]:
+        report["note"] = (f"{len(report['unsupported'])} of {report['questions']} "
+                          f"question(s) are not automatable, so the task was NOT "
+                          f"submitted: {report['unsupported'][:3]}")
+        return report                                # never send a half-done task
+
+    if not submit:
+        report["note"] = (f"answered {report['answered']}/{report['questions']}; "
+                          f"submit was not requested")
+        return report
+
+    if not press_object(altdriver, TASK_SUBMIT, settle=2.0):
+        report["problems"].append("Submit could not be pressed")
+        return report
+
+    # Submit only ASKS. It opens a YesNoPopup(Clone), and until Yes is pressed
+    # nothing is sent -- measured live: the run sat on TaskScene with the tab
+    # counts unmoved, having "submitted" a task that never left.
+    if wait_for_any(altdriver, (TASK_CONFIRM_POPUP, TASK_CONFIRM_YES), timeout=10):
+        trail.shot(altdriver, "submit-confirm", EVIDENCE_PROOF)
+        if not press_object(altdriver, TASK_CONFIRM_YES, settle=3.0):
+            report["problems"].append(
+                "the submit confirmation appeared but Yes could not be pressed")
+            return report
+        logging.info("[Tasks] confirmed the submit")
+    else:
+        logging.warning("[Tasks] no submit confirmation appeared")
+    report["submitted"] = True
+    wait_for_scene(altdriver, TASKS_SCENE, timeout=timeout)
+    if _current_scene(altdriver) != TASKS_SCENE:
+        return_to_start(altdriver)
+        open_feature(altdriver, "tasks", timeout=timeout)
+
+    report["counts_after"] = task_tab_counts(altdriver)
+    trail.shot(altdriver, "tasks-AFTER", EVIDENCE_KEY)
+    open_after = _task_count(report["counts_after"].get("Open"))
+    sent_after = _task_count(report["counts_after"].get("Sent"))
+    logging.info(f"[Tasks] tabs after: {report['counts_after']}")
+
+    # The point of the case: it left Open and arrived in Sent.
+    checked_before = _task_count(report["counts_before"].get("Checked"))
+    checked_after = _task_count(report["counts_after"].get("Checked"))
+    if None in (open_before, open_after):
+        report["problems"].append(
+            f"the tab counts could not be read ({report['counts_before']} -> "
+            f"{report['counts_after']})")
+    else:
+        # Leaving Open is the part that is always true.
+        if open_after != open_before - 1:
+            report["problems"].append(
+                f"Open went {open_before} -> {open_after}, expected "
+                f"{open_before - 1} after submitting one task")
+        # Where it LANDS depends on the task. Measured live: a multiple-choice
+        # task went straight to Checked (0 -> 2), not to Sent — the app scores
+        # what it can score itself, and only what a teacher must read waits in
+        # Sent. So either tab moving is correct; neither moving is not.
+        moved_on = ((sent_after or 0) > (sent_before or 0)
+                    or (checked_after or 0) > (checked_before or 0))
+        if not moved_on:
+            report["problems"].append(
+                f"the task left Open but arrived in neither Sent nor Checked "
+                f"(Sent {sent_before} -> {sent_after}, "
+                f"Checked {checked_before} -> {checked_after})")
+
+    report["ok"] = (report["submitted"] and not report["problems"]
+                    and report["answered"] == report["questions"])
+    report["note"] = report["note"] or (
+        f"Solved '{report['title']}': answered {report['answered']} of "
+        f"{report['questions']} question(s) and submitted it. "
+        f"Open {open_before} -> {open_after}, Sent {sent_before} -> {sent_after}, "
+        f"Checked {checked_before} -> {checked_after}."
+        + (f" Problems: {report['problems']}." if report["problems"] else ""))
+    logging.info(f"[Tasks] {report['note']}")
+    return report
+
+
+def _slugish(text, limit=24):
+    """A short, filename-safe version of a title."""
+    return re.sub(r"[^A-Za-z0-9]+", "-", str(text or "")).strip("-")[:limit] or "task"
+
+
 # --- Treasure Island: missions, islands, and the buildings on them ---------
 #
 # Surveyed live 2026-08-17. The whole feature is reachable BY OBJECT, which is
