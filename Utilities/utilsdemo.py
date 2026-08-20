@@ -2799,7 +2799,12 @@ def task_answer_question(altdriver, settle=1.2):
 # The id is the link that makes this usable: `parameters[].id` is exactly the
 # Data index in `Answer_Visual_<shown>_Data_<id>`, so "correct_answer: 1" means
 # press the answer whose name ends `_Data_1`, wherever it happens to be shown.
-VT_TASKS_API = "https://vtbe.vocatooki.com/data"
+# The environment the app under test talks to. `green` is where the task data
+# lives for the accounts these tests use; override with VT_TASKS_API when
+# pointing at another environment.
+_VT_TASKS_API_DEFAULT = "https://green.vocatooki.com/data"
+VT_TASKS_API = (__import__("os").getenv("VT_TASKS_API")
+                or _VT_TASKS_API_DEFAULT)
 
 
 def task_api_headers(token=None):
@@ -3136,10 +3141,17 @@ def _tasks_solve_one(altdriver, trail, class_id=None, user_id=None,
         logging.warning("[Tasks] no submit confirmation appeared")
     out["submitted"] = True
 
-    # Wait for the SERVER before touching the UI again. The app stays on the
-    # task while it uploads (measured: ~90s), and reading the answers straight
-    # after the press comes back empty -- indistinguishable from a submit that
-    # never happened. It is also what makes going on to the NEXT task safe.
+    # LEAVE the task before waiting for the server. The app shows its own
+    # checked screen straight after the confirm, but the answers do not reach
+    # the server until the task is exited -- measured: a run that sat on that
+    # screen polling for 120s never saw the record appear, while the same task
+    # submitted by code that navigated away first was stored within seconds.
+    if not wait_for_scene(altdriver, TASKS_SCENE, timeout=20):
+        return_to_start(altdriver)
+        open_feature(altdriver, "tasks", timeout=timeout)
+
+    # Only now is it worth asking the server. Waiting here is also what makes
+    # going on to the NEXT task safe.
     if user_id and out["task_id"]:
         stored = wait_for_task_recorded(user_id, out["task_id"],
                                         timeout=TASK_RECORD_TIMEOUT)
@@ -3157,7 +3169,16 @@ def _tasks_solve_one(altdriver, trail, class_id=None, user_id=None,
                          "status": stored.get("status"),
                          "answers": len(answers), "correct": right,
                          "incorrect": len(answers) - right}
-        if len(answers) != out["questions"]:
+        if not answers:
+            # Cost a whole investigation once: the id in the Rally case belonged
+            # to a DIFFERENT player, so the answers were looked for under
+            # somebody else and the run read as data loss.
+            out["problems"].append(
+                f"the server has no answers for '{out['title']}' under user "
+                f"{user_id}. The task WAS submitted, so check that the User ID "
+                f"in the Rally case is this account's — an id belonging to "
+                f"another player looks exactly like a submit that vanished.")
+        elif len(answers) != out["questions"]:
             out["problems"].append(
                 f"the server recorded {len(answers)} answer(s) for "
                 f"{out['questions']} question(s) of '{out['title']}'")
