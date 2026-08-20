@@ -2919,32 +2919,184 @@ def task_answer_by_data_id(altdriver, data_id, settle=1.2):
     return False
 
 
+def _tasks_answer_key_for(title, class_id, user_id):
+    """``(key, task_id)`` for the task with this title, or ``([], None)``."""
+    if not class_id and user_id:
+        class_id = user_class_id(user_id)
+        if class_id:
+            logging.info(f"[Tasks] class {class_id} discovered from user {user_id}")
+    if not class_id:
+        return [], None
+    wanted = (title or "").strip().lower()
+    for entry in class_tasks(class_id):
+        if str(entry.get("name", "")).strip().lower() == wanted:
+            return task_answer_key(entry.get("id")), entry.get("id")
+    return [], None
+
+
+def _tasks_solve_one(altdriver, trail, class_id=None, user_id=None,
+                     wrong_answers=0, submit=True, timeout=90):
+    """Open the first OPEN task, answer it, submit it. One task, never raises.
+
+    Returns a record of that task alone; ``tasks_check`` stitches the records
+    together. Split out so the run can go on to the NEXT task without the
+    login, the tab counts and the final verdict being redone each time.
+    """
+    out = {"title": "", "task_id": None, "questions": 0, "answered": 0,
+           "wrong": [], "unsupported": [], "submitted": False, "server": {},
+           "problems": [], "note": ""}
+
+    try:
+        card = altdriver.find_object(By.PATH, f"//{TASK_CARD_OPEN}[0]")
+        out["title"] = _text_of(altdriver.find_object(
+            By.PATH, f"//{TASK_CARD_OPEN}[0]//TaskText")) or ""
+        _press(card)
+    except Exception as e:                           # noqa: BLE001
+        out["note"] = f"the open task card could not be opened: {e}"
+        return out
+    if not wait_for_scene(altdriver, TASK_SCENE, timeout=timeout):
+        out["note"] = f"'{out['title']}' did not open into the task"
+        return out
+    trail.shot(altdriver, f"task-{_slugish(out['title'])}-opened", EVIDENCE_PROOF)
+
+    questions = task_questions(altdriver)
+    out["questions"] = len(questions)
+    if not questions:
+        out["note"] = f"'{out['title']}' shows no questions"
+        return out
+    logging.info(f"[Tasks] '{out['title']}': {len(questions)} question(s)")
+
+    key, out["task_id"] = _tasks_answer_key_for(out["title"], class_id, user_id)
+    if key:
+        logging.info(f"[Tasks] answer key for '{out['title']}': {len(key)} question(s)")
+    else:
+        # Without the key the answers would be arbitrary, and the task is
+        # SCORED -- a run must not post a bad score to a real teacher's task and
+        # call it a pass. Said out loud, and nothing is sent.
+        out["problems"].append(
+            f"no answer key for '{out['title']}': without it the answers would "
+            'be arbitrary on a task that is scored. Add "Class ID: <n>" to the '
+            "Rally case.")
+        submit = False
+
+    # Which questions to get WRONG on purpose: the last ones, so a correct
+    # answer is still exercised first.
+    deliberately_wrong = set()
+    if wrong_answers and key:
+        deliberately_wrong = {e["index"] for e in key[-int(wrong_answers):]}
+
+    for index, question in enumerate(questions, start=1):
+        if not press_object(altdriver, question, settle=1.5):
+            out["problems"].append(f"question {index} could not be opened")
+            continue
+        wait_for_scene_ready(altdriver, timeout=6, stable_for=0.8, label=question)
+
+        entry = next((e for e in key if e["index"] == index), None)
+        if entry is not None and entry.get("correct") is not None:
+            correct = int(entry["correct"])
+            if index in deliberately_wrong:
+                choice = next((i for i in entry["options"] if i != correct), correct)
+                out["wrong"].append(
+                    f"{out['title']} Q{index}: chose "
+                    f"{entry['options'].get(choice)!r} instead of "
+                    f"{entry['options'].get(correct)!r}")
+            else:
+                choice = correct
+            if task_answer_by_data_id(altdriver, choice):
+                out["answered"] += 1
+                continue
+            out["problems"].append(
+                f"question {index}: could not press the answer Data_{choice}")
+            continue
+
+        answered, why = task_answer_question(altdriver)
+        if answered:
+            out["answered"] += 1
+        else:
+            # A task can also ask for TEXT or a RECORDING, and neither is
+            # automated here. Never passed over quietly.
+            out["unsupported"].append(f"{out['title']} Q{index}: {why}")
+            logging.warning(f"[Tasks] question {index} not answered - {why}")
+
+    trail.shot(altdriver, f"{_slugish(out['title'])}-answered-"
+                          f"{out['answered']}-of-{out['questions']}", EVIDENCE_PROOF)
+
+    if out["unsupported"]:
+        out["note"] = (f"{len(out['unsupported'])} of {out['questions']} question(s) "
+                       f"are not automatable, so '{out['title']}' was NOT submitted")
+        return out                                   # never send a half-done task
+    if not submit:
+        out["note"] = (f"answered {out['answered']}/{out['questions']}; "
+                       f"'{out['title']}' was not submitted")
+        return out
+
+    if not press_object(altdriver, TASK_SUBMIT, settle=2.0):
+        out["problems"].append("Submit could not be pressed")
+        return out
+
+    # Submit only ASKS. It opens a YesNoPopup(Clone), and until Yes is pressed
+    # nothing is sent -- measured live: a run sat on TaskScene with the tab
+    # counts unmoved, having "submitted" a task that never left.
+    if wait_for_any(altdriver, (TASK_CONFIRM_POPUP, TASK_CONFIRM_YES), timeout=10):
+        trail.shot(altdriver, f"{_slugish(out['title'])}-submit-confirm", EVIDENCE_STEP)
+        if not press_object(altdriver, TASK_CONFIRM_YES, settle=3.0):
+            out["problems"].append(
+                "the submit confirmation appeared but Yes could not be pressed")
+            return out
+        logging.info("[Tasks] confirmed the submit")
+    else:
+        logging.warning("[Tasks] no submit confirmation appeared")
+    out["submitted"] = True
+
+    # Wait for the SERVER before touching the UI again. The app stays on the
+    # task while it uploads (measured: ~90s), and reading the answers straight
+    # after the press comes back empty -- indistinguishable from a submit that
+    # never happened. It is also what makes going on to the NEXT task safe.
+    if user_id and out["task_id"]:
+        stored = wait_for_task_recorded(user_id, out["task_id"],
+                                        timeout=TASK_RECORD_TIMEOUT)
+        answers = stored.get("answer") or []
+        right = sum(1 for a in answers
+                    if a.get("choosenAnswer") == a.get("correctAnswer"))
+        out["server"] = {"result": stored.get("result"),
+                         "status": stored.get("status"),
+                         "answers": len(answers), "correct": right,
+                         "incorrect": len(answers) - right}
+        if len(answers) != out["questions"]:
+            out["problems"].append(
+                f"the server recorded {len(answers)} answer(s) for "
+                f"{out['questions']} question(s) of '{out['title']}'")
+        expected_wrong = len(out["wrong"])
+        if key and (len(answers) - right) != expected_wrong:
+            out["problems"].append(
+                f"'{out['title']}': {len(answers) - right} answer(s) came back "
+                f"wrong, but {expected_wrong} were meant to be")
+    out["note"] = (f"'{out['title']}': answered {out['answered']}/{out['questions']}, "
+                   f"submitted, server result {out['server'].get('result')}")
+    logging.info(f"[Tasks] {out['note']}")
+    return out
+
+
 def tasks_check(altdriver, username=None, password=None, tc_id="",
                 submit=True, timeout=90, class_id=None, user_id=None,
-                wrong_answers=0):
-    """Solve one OPEN task and prove it was sent. Never raises.
+                wrong_answers=0, max_tasks=None):
+    """Solve the account's OPEN tasks and prove the server recorded them.
 
-    A task is NOT graded in the app -- submitting SENDS it to the teacher --
-    so the outcome verified here is that the task left Open and arrived in
-    Sent, never "the answers were correct".
+    Works through EVERY open task by default, going back to the Tasks screen
+    between them; ``max_tasks`` caps how many. A task is answered from the
+    backend ANSWER KEY, so it is answered CORRECTLY -- except for
+    ``wrong_answers`` questions per task chosen on purpose, which exercise the
+    wrong-answer path and show up in the score. Those are reported by name,
+    because a run that quietly answered badly and one that deliberately
+    answered badly must not look the same.
 
-    With ``class_id`` the answers come from the backend answer key, so the task
-    is answered CORRECTLY -- except for ``wrong_answers`` questions chosen on
-    purpose, which exercise the wrong-answer path and show up in the score. The
-    two are reported by number, because a run that quietly answered badly and a
-    run that deliberately answered badly must not look the same.
-
-    Without a key it falls back to pressing whatever selects, which answers the
-    task but scores arbitrarily.
-
-    Returns ``{"ok", "title", "questions", "answered", "unsupported", "wrong",
-    "counts_before", "counts_after", "submitted", "server", "problems",
-    "note"}``.
+    A task is scored by the app and lands in CHECKED; only what a teacher must
+    read waits in Sent. Never raises.
     """
-    report = {"ok": False, "title": "", "questions": 0, "answered": 0,
-              "unsupported": [], "wrong": [], "counts_before": {},
+    report = {"ok": False, "tasks": [], "solved": 0, "title": "", "questions": 0,
+              "answered": 0, "unsupported": [], "wrong": [], "counts_before": {},
               "counts_after": {}, "submitted": False, "server": {},
-              "problems": [], "note": ""}
+              "expected_incorrect": 0, "problems": [], "note": ""}
 
     reset_evidence_trail(tc_id)
     trail = evidence_trail(tc_id)
@@ -2959,7 +3111,6 @@ def tasks_check(altdriver, username=None, password=None, tc_id="",
     report["counts_before"] = task_tab_counts(altdriver)
     trail.shot(altdriver, "tasks-BEFORE", EVIDENCE_KEY)
     open_before = _task_count(report["counts_before"].get("Open"))
-    sent_before = _task_count(report["counts_before"].get("Sent"))
     logging.info(f"[Tasks] tabs before: {report['counts_before']}")
 
     if find_any(altdriver, TASK_CARD_OPEN) is None:
@@ -2967,212 +3118,94 @@ def tasks_check(altdriver, username=None, password=None, tc_id="",
                           f"(tabs: {report['counts_before']})")
         return report
 
-    # Open the first answerable card.
-    try:
-        card = altdriver.find_object(By.PATH, f"//{TASK_CARD_OPEN}[0]")
-        report["title"] = _text_of(altdriver.find_object(
-            By.PATH, f"//{TASK_CARD_OPEN}[0]//TaskText")) or ""
-        _press(card)
-    except Exception as e:                           # noqa: BLE001
-        report["note"] = f"the open task card could not be opened: {e}"
-        return report
-    if not wait_for_scene(altdriver, TASK_SCENE, timeout=timeout):
-        report["note"] = f"'{report['title']}' did not open into the task"
-        return report
-    trail.shot(altdriver, f"task-{_slugish(report['title'])}-opened", EVIDENCE_PROOF)
-
-    questions = task_questions(altdriver)
-    report["questions"] = len(questions)
-    if not questions:
-        report["note"] = "the task shows no questions"
-        return report
-    logging.info(f"[Tasks] '{report['title']}': {len(questions)} question(s)")
-
-    # The answer key, when the class is known. Matched to the task by NAME,
-    # which is what the card shows.
-    # The class need not be given: it falls out of the player id.
-    if not class_id and user_id:
-        class_id = user_class_id(user_id)
-        if class_id:
-            logging.info(f"[Tasks] class {class_id} discovered from user {user_id}")
-
-    key = []
-    if class_id:
-        wanted = (report["title"] or "").strip().lower()
-        for entry in class_tasks(class_id):
-            if str(entry.get("name", "")).strip().lower() == wanted:
-                key = task_answer_key(entry.get("id"))
-                report["task_id"] = entry.get("id")
+    limit = int(max_tasks) if max_tasks else 0        # 0 = every open task
+    seen_titles = []
+    while True:
+        if limit and len(report["tasks"]) >= limit:
+            break
+        # Back on the Tasks screen, is there still something to answer?
+        if _current_scene(altdriver) != TASKS_SCENE:
+            return_to_start(altdriver)
+            if not open_feature(altdriver, "tasks", timeout=timeout):
+                report["problems"].append(
+                    "could not get back to the Tasks screen for the next task")
                 break
-        if key:
-            logging.info(f"[Tasks] answer key for '{report['title']}': "
-                         f"{len(key)} question(s)")
-        else:
+        if find_any(altdriver, TASK_CARD_OPEN) is None:
+            break                                    # nothing open left
+
+        one = _tasks_solve_one(altdriver, trail, class_id=class_id, user_id=user_id,
+                               wrong_answers=wrong_answers, submit=submit,
+                               timeout=timeout)
+        report["tasks"].append(one)
+
+        # A task that could not be submitted would still be sitting in Open, so
+        # trying again would open the SAME card forever.
+        if not one["submitted"]:
+            report["problems"].extend(one["problems"] or [])
+            if one["note"]:
+                report["problems"].append(one["note"])
+            break
+        if one["title"] and one["title"] in seen_titles:
             report["problems"].append(
-                f"no answer key found for '{report['title']}' in class {class_id}")
-    if not key:
-        # Without the key the answers would be arbitrary, and the task is
-        # SCORED -- a run must not post a bad score to a real teacher's task and
-        # call it a pass. Said out loud instead.
-        report["problems"].append(
-            "no answer key: the class could not be determined (a brand-new "
-            "account has no task history to discover it from), so the answers "
-            'would be arbitrary. Add "Class ID: <n>" to the Rally case.')
-        submit = False
+                f"'{one['title']}' came round a second time - stopping rather "
+                f"than solving the same task twice")
+            break
+        seen_titles.append(one["title"])
 
-    # Which questions to get WRONG on purpose: the last ones, so the run still
-    # exercises a correct answer first.
-    deliberately_wrong = set()
-    if wrong_answers and key:
-        deliberately_wrong = {e["index"] for e in key[-int(wrong_answers):]}
+    # Stitch the per-task records into one picture.
+    for one in report["tasks"]:
+        report["questions"] += one["questions"]
+        report["answered"] += one["answered"]
+        report["wrong"].extend(one["wrong"])
+        report["unsupported"].extend(one["unsupported"])
+        report["problems"].extend(p for p in one["problems"]
+                                  if p not in report["problems"])
+    report["solved"] = sum(1 for o in report["tasks"] if o["submitted"])
+    report["title"] = ", ".join(o["title"] for o in report["tasks"] if o["title"])
+    report["submitted"] = bool(report["tasks"]) and all(
+        o["submitted"] for o in report["tasks"])
+    report["expected_incorrect"] = len(report["wrong"])
+    served = [o["server"] for o in report["tasks"] if o["server"]]
+    if served:
+        report["server"] = {
+            "answers": sum(s.get("answers", 0) for s in served),
+            "correct": sum(s.get("correct", 0) for s in served),
+            "incorrect": sum(s.get("incorrect", 0) for s in served),
+            "results": [s.get("result") for s in served],
+        }
 
-    for index, question in enumerate(questions, start=1):
-        if not press_object(altdriver, question, settle=1.5):
-            report["problems"].append(f"question {index} could not be opened")
-            continue
-        wait_for_scene_ready(altdriver, timeout=6, stable_for=0.8, label=question)
-
-        entry = next((e for e in key if e["index"] == index), None)
-        if entry is not None and entry.get("correct") is not None:
-            correct = int(entry["correct"])
-            if index in deliberately_wrong:
-                # ANY option that is not the right one.
-                choice = next((i for i in entry["options"] if i != correct), correct)
-                report["wrong"].append(
-                    f"Q{index}: chose {entry['options'].get(choice)!r} "
-                    f"instead of {entry['options'].get(correct)!r}")
-            else:
-                choice = correct
-            if task_answer_by_data_id(altdriver, choice):
-                report["answered"] += 1
-                continue
-            report["problems"].append(
-                f"question {index}: could not press the answer Data_{choice}")
-            continue
-
-        answered, why = task_answer_question(altdriver)
-        if answered:
-            report["answered"] += 1
-        else:
-            # Said out loud: a task can also ask for TEXT or a RECORDING, and
-            # neither is automated here. Never passed over quietly.
-            report["unsupported"].append(f"question {index}: {why}")
-            logging.warning(f"[Tasks] question {index} not answered - {why}")
-
-    trail.shot(altdriver, f"answered-{report['answered']}-of-{report['questions']}",
-               EVIDENCE_PROOF)
-
-    if report["unsupported"]:
-        report["note"] = (f"{len(report['unsupported'])} of {report['questions']} "
-                          f"question(s) are not automatable, so the task was NOT "
-                          f"submitted: {report['unsupported'][:3]}")
-        return report                                # never send a half-done task
-
-    if not submit:
-        report["note"] = (f"answered {report['answered']}/{report['questions']}; "
-                          f"submit was not requested")
-        return report
-
-    if not press_object(altdriver, TASK_SUBMIT, settle=2.0):
-        report["problems"].append("Submit could not be pressed")
-        return report
-
-    # Submit only ASKS. It opens a YesNoPopup(Clone), and until Yes is pressed
-    # nothing is sent -- measured live: the run sat on TaskScene with the tab
-    # counts unmoved, having "submitted" a task that never left.
-    if wait_for_any(altdriver, (TASK_CONFIRM_POPUP, TASK_CONFIRM_YES), timeout=10):
-        trail.shot(altdriver, "submit-confirm", EVIDENCE_PROOF)
-        if not press_object(altdriver, TASK_CONFIRM_YES, settle=3.0):
-            report["problems"].append(
-                "the submit confirmation appeared but Yes could not be pressed")
-            return report
-        logging.info("[Tasks] confirmed the submit")
-    else:
-        logging.warning("[Tasks] no submit confirmation appeared")
-    report["submitted"] = True
-
-    # Wait for the SERVER before touching the UI again. The app stays on the
-    # task while it uploads (measured: ~90s), and reading the answers straight
-    # after the press comes back empty -- which is indistinguishable from a
-    # submit that never happened, and is what failed a run that had in fact
-    # answered all 15 questions correctly.
-    if user_id and report.get("task_id"):
-        report["server_record"] = wait_for_task_recorded(
-            user_id, report["task_id"], timeout=TASK_RECORD_TIMEOUT)
-
-    wait_for_scene(altdriver, TASKS_SCENE, timeout=timeout)
     if _current_scene(altdriver) != TASKS_SCENE:
         return_to_start(altdriver)
         open_feature(altdriver, "tasks", timeout=timeout)
-
     report["counts_after"] = task_tab_counts(altdriver)
     trail.shot(altdriver, "tasks-AFTER", EVIDENCE_KEY)
     open_after = _task_count(report["counts_after"].get("Open"))
-    sent_after = _task_count(report["counts_after"].get("Sent"))
     logging.info(f"[Tasks] tabs after: {report['counts_after']}")
 
-    # The point of the case: it left Open and arrived in Sent.
-    checked_before = _task_count(report["counts_before"].get("Checked"))
-    checked_after = _task_count(report["counts_after"].get("Checked"))
-    if None in (open_before, open_after):
-        report["problems"].append(
-            f"the tab counts could not be read ({report['counts_before']} -> "
-            f"{report['counts_after']})")
-    else:
-        # Leaving Open is the part that is always true.
-        # A drop, not a drop of exactly one: submitting one task was measured
-        # moving TWO out of Open (3 -> 1, Checked 0 -> 2), because the app also
-        # settles whatever else it had already scored.
-        if open_after >= open_before:
+    if report["solved"]:
+        if None in (open_before, open_after):
+            report["problems"].append(
+                f"the tab counts could not be read ({report['counts_before']} -> "
+                f"{report['counts_after']})")
+        elif open_after >= open_before:
+            # A drop, not a drop of exactly one per task: submitting one task
+            # was measured moving TWO out of Open (3 -> 1, Checked 0 -> 2),
+            # because the app settles whatever else it had already scored.
             report["problems"].append(
                 f"Open went {open_before} -> {open_after}: submitting a task "
                 f"should take it out of Open")
-        # Where it LANDS depends on the task. Measured live: a multiple-choice
-        # task went straight to Checked (0 -> 2), not to Sent — the app scores
-        # what it can score itself, and only what a teacher must read waits in
-        # Sent. So either tab moving is correct; neither moving is not.
-        moved_on = ((sent_after or 0) > (sent_before or 0)
-                    or (checked_after or 0) > (checked_before or 0))
-        if not moved_on:
-            report["problems"].append(
-                f"the task left Open but arrived in neither Sent nor Checked "
-                f"(Sent {sent_before} -> {sent_after}, "
-                f"Checked {checked_before} -> {checked_after})")
 
-    # The honest proof: what the SERVER recorded. A tab count says a task moved;
-    # this says which answer was stored for every question and what it scored.
-    if user_id and report.get("task_id"):
-        stored = report.get("server_record") or task_submitted_answers(
-            user_id, report["task_id"])
-        answers = stored.get("answer") or []
-        right = sum(1 for a in answers
-                    if a.get("choosenAnswer") == a.get("correctAnswer"))
-        report["server"] = {
-            "result": stored.get("result"),
-            "status": stored.get("status"),
-            "answers": len(answers),
-            "correct": right,
-            "incorrect": len(answers) - right,
-        }
-        logging.info(f"[Tasks] server recorded {len(answers)} answer(s), "
-                     f"{right} correct, result={stored.get('result')}")
-        if len(answers) != report["questions"]:
-            report["problems"].append(
-                f"the server recorded {len(answers)} answer(s) for "
-                f"{report['questions']} question(s)")
-        expected_wrong = len(report["wrong"])
-        if key and (len(answers) - right) != expected_wrong:
-            report["problems"].append(
-                f"{len(answers) - right} answer(s) came back wrong, but "
-                f"{expected_wrong} were meant to be")
-
-    report["ok"] = (report["submitted"] and not report["problems"]
+    report["ok"] = (bool(report["solved"]) and report["submitted"]
+                    and not report["problems"]
                     and report["answered"] == report["questions"])
     report["note"] = report["note"] or (
-        f"Solved '{report['title']}': answered {report['answered']} of "
-        f"{report['questions']} question(s) and submitted it. "
-        f"Open {open_before} -> {open_after}, Sent {sent_before} -> {sent_after}, "
-        f"Checked {checked_before} -> {checked_after}."
+        f"Solved {report['solved']} task(s) ({report['title'] or 'none'}): "
+        f"answered {report['answered']} of {report['questions']} question(s), "
+        f"{report['expected_incorrect']} wrong on purpose. "
+        f"Open {open_before} -> {open_after}, "
+        f"Checked {report['counts_before'].get('Checked')} -> "
+        f"{report['counts_after'].get('Checked')}. "
+        f"Server: {report['server'] or 'not read'}."
         + (f" Problems: {report['problems']}." if report["problems"] else ""))
     logging.info(f"[Tasks] {report['note']}")
     return report

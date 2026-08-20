@@ -67,6 +67,8 @@ WRONG_ANSWERS = {wrong}
 
     assert result["questions"], (
         f"{{TC_ID}}: no task was opened to solve - {{result['note']}}")
+    assert result["solved"], (
+        f"{{TC_ID}}: no task was solved and submitted - {{result['note']}}")
     assert not result["unsupported"], (
         f"{{TC_ID}}: the task has questions this framework cannot answer (text "
         f"or recording), so it was not submitted: {{result['unsupported']}}")
@@ -84,9 +86,12 @@ WRONG_ANSWERS = {wrong}
     assert server["answers"] == result["questions"], (
         f"{{TC_ID}}: the server recorded {{server['answers']}} answer(s) for "
         f"{{result['questions']}} question(s). {{result['note']}}")
-    assert server["incorrect"] == WRONG_ANSWERS, (
+    # WRONG_ANSWERS is PER TASK, and a run solves every open one -- so the
+    # number to match is how many were deliberately answered wrong in total.
+    assert server["incorrect"] == result["expected_incorrect"], (
         f"{{TC_ID}}: {{server['incorrect']}} answer(s) were scored wrong, but "
-        f"{{WRONG_ANSWERS}} were meant to be. Deliberately wrong: {{result['wrong']}}")
+        f"{{result['expected_incorrect']}} were meant to be. "
+        f"Deliberately wrong: {{result['wrong']}}")
 
     assert not result["problems"], (
         f"{{TC_ID}}: solving the task hit problems: {{result['problems']}}. "
