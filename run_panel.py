@@ -740,7 +740,10 @@ def api_case_generate(tc_id):
         # Cheap TCP check first so an unreachable app fails fast instead of
         # blocking the request on the connect timeout.
         if manager._preflight(host, port, timeout=1.5):
-            from runner.live_skeleton import generate_from_live_app
+            import importlib
+            from runner import live_skeleton as _ls
+            importlib.reload(_ls)          # same reason as _fresh_generator
+            generate_from_live_app = _ls.generate_from_live_app
             try:
                 path, elements, source = generate_from_live_app(
                     tc_id, host=host, port=port,

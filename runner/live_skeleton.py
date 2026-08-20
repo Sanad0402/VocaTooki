@@ -17,7 +17,21 @@ import re
 from pathlib import Path
 
 from runner import suite as suite_mod
-from runner.test_generator import RallyTestGenerator
+
+
+def _generator(root=None):
+    """A generator built from the CODE ON DISK, every time.
+
+    NOT a module-level import of RallyTestGenerator: the panel serves without a
+    reloader, so a name bound at import time keeps whatever class the process
+    booted with -- and reloading `test_generator` elsewhere does not rebind it.
+    That is how a fixed generator kept producing the OLD stub message on the
+    live path long after the fix.
+    """
+    import importlib
+    from runner import test_generator as _tg
+    importlib.reload(_tg)
+    return _tg.RallyTestGenerator(str(root or suite_mod._ROOT))
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +143,7 @@ def generate_from_live_app(tc_id, host="127.0.0.1", port=13000, platform="Window
     if not tc:
         raise ValueError(f"Test case {tc_id} not found in the suite (data/rally_suite.json).")
 
-    gen = RallyTestGenerator(str(suite_mod._ROOT))
+    gen = _generator()
     nodeid = (tc.get("action") or {}).get("nodeid") or ""
     scene = gen._infer_activity_scene(tc.get("name", ""), tc.get("description", ""), nodeid)
     aliases = gen.activity_aliases(scene) if scene else []
@@ -170,7 +184,7 @@ def generate_skeletons_live(tc_ids, host="127.0.0.1", port=13000, platform="Wind
     """
     data = suite_mod.load()
     by_id = {c.get("id"): c for c in data["test_cases"]}
-    gen = RallyTestGenerator(str(suite_mod._ROOT))
+    gen = _generator()
 
     # One discovery pass for the whole batch. Activity titles are probed for
     # every selected activity case, so each of them can still be matched
