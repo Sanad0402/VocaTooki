@@ -3593,7 +3593,29 @@ def wordle(altdriver):
 
 
 
-def word_connect(altdriver, words=("HIT", "GET", "EIGHTY", "THEY", "EIGHT"),card_name="WordsConnectCard_4 Variant(Clone)",sleep_after_word=0.25):
+def word_connect(altdriver, words=None, card_name=None, sleep_after_word=0.25):
+    """Swipe the board's words. Reads BOTH the words and the card name from the
+    game unless they are passed in.
+
+    The defaults used to be a literal ("HIT", "GET", "EIGHTY", ...) taken from
+    whatever puzzle this was written against, so calling it directly -- from the
+    console, say -- tried to spell words the board could not spell, and failed
+    with "Missing letter 'H'" on a board dealing B I S T C U I. The words belong
+    to the puzzle, so they are asked of the puzzle.
+    """
+    if words is None or card_name is None:
+        from Utilities import utilsdemo as _u          # local: avoids a cycle
+        if card_name is None:
+            _cards, _letters, found = _u._word_connect_cards(altdriver)
+            card_name = found or "WordsConnectCard_4 Variant(Clone)"
+        if words is None:
+            words = _u.word_connect_words(altdriver)
+            if not words:
+                raise Exception(
+                    "[ERROR] word_connect: the board's words could not be read "
+                    "from the game, and none were given. Pass words=[...] or "
+                    "run it where WordConnect.WordsConnect is readable.")
+            print(f"[INFO] word_connect: words read from the game: {list(words)}")
 
     print("[INFO] word_connect: Fetching cards...")
     cards = altdriver.find_objects(By.NAME, card_name)
