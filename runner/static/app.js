@@ -343,7 +343,10 @@ function setSuite(tree) { SUITE = tree || { folders: [] }; renderSuiteTree(); }
 function implBadge(impl) {
   const map = {
     real:     { cls: "impl-real",     txt: "generated ✓",   title: "Test generated in the framework — runs against the app" },
-    stub:     { cls: "impl-stub",     txt: "not generated", title: "Only an auto-stub exists (skips). Select the case and click “Generate from live app”, or add the missing data in Rally and re-sync." },
+    // NOT "not generated": the file IS written on every generate. It skips,
+    // and saying otherwise sent people hunting a generator that was working.
+    // The reason it skips is in the message the generate button returns.
+    stub:     { cls: "impl-stub",     txt: "generated · skips", title: "The test was generated, but it SKIPS — something it needs is missing (usually a field in the Rally case; the generate message says which). Add it in Rally, re-sync and generate again." },
     unlinked: { cls: "impl-unlinked", txt: "no test",       title: "No pytest test linked — runs as SKIPPED" },
   };
   const b = map[impl] || map.unlinked;
@@ -353,6 +356,25 @@ function implBadge(impl) {
 // Per-case "generate". Live-first: the connection settings are sent so the
 // server reads the RUNNING app (AltTester) and wires the real element names
 // into the test; it only falls back to offline templates if the app is down.
+// Why a generated test cannot run yet — shown, not buried. The reason comes
+// from the test's own skip marker, so it names exactly what is missing.
+function showGenerateProblem(tcId, reason) {
+  const box = $("skeleton-msg");
+  if (box) {
+    box.classList.add("err");
+    box.classList.remove("ok", "warn", "info");
+  }
+  window.alert(
+    `${tcId} — generated, but the test will SKIP.
+
+` +
+    `${reason}
+
+` +
+    `Fix it in the Rally case, then Sync and generate again.`
+  );
+}
+
 async function generateCase(c, btn) {
   const cfg = gatherConfig(false);
   setSkeletonMsg(`${c.id}: reading the live app at ${cfg.host}:${cfg.port}…`, "info");
@@ -372,6 +394,12 @@ async function generateCase(c, btn) {
       setSkeletonMsg(data.message || `${c.id}: generated.`,
                      data.source === "offline" ? "warn" : "ok");
       if (data.suite) setSuite(data.suite);
+      // A generated test that SKIPS is the case people read as "generation did
+      // nothing". It always says why — usually a field missing from the Rally
+      // case — so say it out loud rather than only in a status line.
+      if (data.skip_reason) {
+        showGenerateProblem(c.id, data.skip_reason);
+      }
     } catch (e) {
       setSkeletonMsg("Generation failed: " + e, "err");
     }

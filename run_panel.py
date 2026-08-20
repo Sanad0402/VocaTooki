@@ -687,6 +687,24 @@ def api_report_html():
     return Response(manager.report_html, mimetype="text/html")
 
 
+def _skip_reason_in(path):
+    """The reason a generated test skips itself, or "".
+
+    A stub is not a mystery: the template writes WHY into its skip marker. The
+    panel used to report only "wrote a stub", which sent people looking at the
+    game being closed when the real answer was a missing field in the Rally
+    case -- so the reason is read back out and shown.
+    """
+    import re as _re
+    from pathlib import Path
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except Exception:                                # noqa: BLE001
+        return ""
+    m = _re.search(r'@pytest\.mark\.skip\(reason="(.*?)"\)', text, _re.S)
+    return (m.group(1).strip() if m else "")
+
+
 @app.route("/api/suite/case/<tc_id>/generate", methods=["POST"])
 def api_case_generate(tc_id):
     """Explicitly generate the pytest file for one Rally case.
@@ -758,7 +776,9 @@ def api_case_generate(tc_id):
         if activity:
             msg += f" Activity thumb confirmed on screen: “{activity}”."
         if impl != "real":
-            msg += (" Still a stub: the current scene didn't cover this case — "
+            why = _skip_reason_in(path)
+            msg += (f" Still a stub — {why}" if why else
+                    " Still a stub: the current scene didn't cover this case — "
                     "navigate the app to the screen it tests and generate again, "
                     "or finish the pre-wired TODOs.")
     else:
@@ -766,10 +786,21 @@ def api_case_generate(tc_id):
         if live_error:
             msg += f" Live generation skipped: {live_error}."
         if impl != "real":
-            msg += (" Wrote a stub — add credentials/level to the Rally description "
-                    "and re-sync, or start the game and generate again.")
+            why = _skip_reason_in(path)
+            if why:
+                # The template already said exactly what is missing. Repeating a
+                # generic "add credentials" on top of it only misleads.
+                msg += f" Wrote a stub — {why}"
+            else:
+                msg += (" Wrote a stub — add credentials/level to the Rally "
+                        "description and re-sync, or start the game and "
+                        "generate again.")
 
+    # The reason the generated test skips itself, as its own field: the panel
+    # shows it to the user instead of leaving them to wonder why pressing
+    # Generate appeared to do nothing.
     return jsonify({"ok": True, "impl": impl, "path": rel, "message": msg,
+                    "skip_reason": _skip_reason_in(path),
                     "source": source, "live_error": live_error,
                     "scene": elements.get("scene"),
                     "inputs": elements.get("inputs", []),
