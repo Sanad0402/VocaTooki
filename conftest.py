@@ -205,14 +205,21 @@ def pytest_runtest_makereport(item, call):
         except Exception as e:
             logging.warning(f"Failed to capture screenshot on failure: {e}")
         # Recovery: the failed test intentionally left the app on the broken
-        # screen. Walk back to the map so the NEXT chained test starts clean
-        # (a stuck TC otherwise cascades: the next one can't reach its level).
+        # screen. Walk back to the START SCREEN so the NEXT chained test starts
+        # clean (a stuck TC otherwise cascades).
+        #
+        # The start screen, not the map: it is the hub every flow begins from --
+        # open_feature, the tasks walk, the events walk and Treasure Island all
+        # return there first -- and a test that needs the map opens it from
+        # there anyway. Walking to the map instead cost a pointless GO-Map /
+        # BackButton dance at the end of every failed run, which on a Tasks
+        # failure looped eight steps and then gave up.
         if driver is not None:
             try:
                 from Utilities import utilsdemo
-                utilsdemo.return_to_map(driver)
+                utilsdemo.return_to_start(driver)
             except Exception as e:
-                logging.warning(f"Post-failure recovery to map failed: {e}")
+                logging.warning(f"Post-failure recovery to the start screen failed: {e}")
 
 
 # -----------------------------

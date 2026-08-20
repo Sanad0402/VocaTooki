@@ -87,11 +87,20 @@ WRONG_ANSWERS = {wrong}
         f"{{TC_ID}}: the server recorded {{server['answers']}} answer(s) for "
         f"{{result['questions']}} question(s). {{result['note']}}")
     # WRONG_ANSWERS is PER TASK, and a run solves every open one -- so the
-    # number to match is how many were deliberately answered wrong in total.
+    # number to match is the total EXPECTED wrong: the ones answered wrong on
+    # purpose, plus any question whose own data makes it impossible to answer
+    # correctly (reported separately as a content issue).
     assert server["incorrect"] == result["expected_incorrect"], (
         f"{{TC_ID}}: {{server['incorrect']}} answer(s) were scored wrong, but "
-        f"{{result['expected_incorrect']}} were meant to be. "
-        f"Deliberately wrong: {{result['wrong']}}")
+        f"{{result['expected_incorrect']}} were expected to be. "
+        f"Deliberately wrong: {{result['wrong']}}. "
+        f"Unanswerable in the task data: {{result['data_issues']}}")
+
+    # Defects in the task CONTENT are reported, never failed for: they are not
+    # faults in the automation, and a test should not go red for a broken
+    # question somebody else owns.
+    if result["data_issues"]:
+        print(f"{{TC_ID}} CONTENT ISSUES: {{result['data_issues']}}")
 
     assert not result["problems"], (
         f"{{TC_ID}}: solving the task hit problems: {{result['problems']}}. "

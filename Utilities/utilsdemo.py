@@ -3229,11 +3229,13 @@ def _tasks_solve_one(altdriver, trail, class_id=None, user_id=None,
             out["problems"].append(
                 f"the server recorded {len(answers)} answer(s) for "
                 f"{out['questions']} question(s) of '{out['title']}'")
-        expected_wrong = len(out["wrong"])
+        expected_wrong = len(out["wrong"]) + len(out["data_issues"])
         if key and (len(answers) - right) != expected_wrong:
             out["problems"].append(
                 f"'{out['title']}': {len(answers) - right} answer(s) came back "
-                f"wrong, but {expected_wrong} were meant to be")
+                f"wrong, but {expected_wrong} were expected to "
+                f"({len(out['wrong'])} answered wrong on purpose, "
+                f"{len(out['data_issues'])} unanswerable in the task data)")
     out["note"] = (f"'{out['title']}': answered {out['answered']}/{out['questions']}, "
                    f"submitted, {'checked' if out['checked'] else 'NOT yet checked'}, "
                    f"server result {out['server'].get('result')}")
@@ -3355,7 +3357,12 @@ def tasks_check(altdriver, username=None, password=None, tc_id="",
     report["title"] = ", ".join(o["title"] for o in report["tasks"] if o["title"])
     report["submitted"] = bool(report["tasks"]) and all(
         o["submitted"] for o in report["tasks"])
-    report["expected_incorrect"] = len(report["wrong"])
+    # What SHOULD come back wrong: the ones answered wrong on purpose, plus the
+    # ones that cannot be answered correctly at all. A question whose
+    # correct_answer is not among its options is guaranteed to score wrong
+    # however it is answered -- counting only the deliberate ones failed a run
+    # that had done everything right ('a/an' Q5 and Q8).
+    report["expected_incorrect"] = len(report["wrong"]) + len(report["data_issues"])
     served = [o["server"] for o in report["tasks"] if o["server"]]
     if served:
         report["server"] = {
@@ -3393,7 +3400,9 @@ def tasks_check(altdriver, username=None, password=None, tc_id="",
         f"Solved {report['solved']} task(s), {report['checked']} checked "
         f"({report['title'] or 'none'}): "
         f"answered {report['answered']} of {report['questions']} question(s), "
-        f"{report['expected_incorrect']} wrong on purpose. "
+        f"{report['expected_incorrect']} expected wrong "
+        f"({len(report['wrong'])} on purpose, "
+        f"{len(report['data_issues'])} unanswerable in the task data). "
         f"Open {open_before} -> {open_after}, "
         f"Checked {report['counts_before'].get('Checked')} -> "
         f"{report['counts_after'].get('Checked')}. "
