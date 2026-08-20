@@ -2698,6 +2698,11 @@ TASK_RECORD_TIMEOUT = 120
 # screen before opening the next one. A ceiling, not a sleep: the run goes on
 # as soon as the screen is there and has stopped changing.
 TASK_NEXT_TIMEOUT = 20
+# The task's own status on the server: 2 = the app has CHECKED (scored) it.
+TASK_STATUS_CHECKED = 2
+# How long to wait for a submitted task to be marked checked before going on
+# to the next one. A ceiling, not a sleep.
+TASK_CHECKED_TIMEOUT = 20
 
 
 def task_tab_counts(altdriver):
@@ -2938,6 +2943,32 @@ def _tasks_answer_key_for(title, class_id, user_id):
     return [], None
 
 
+def wait_for_task_checked(user_id, task_id, timeout=TASK_CHECKED_TIMEOUT, poll=3):
+    """Wait until the server marks this task CHECKED. Returns the record.
+
+    Recorded and checked are two different moments: the answers land first, and
+    the app scores them a beat later. Waiting for the score means the next task
+    starts from a settled account, and that the `result` read back is the real
+    one rather than whatever was there mid-scoring.
+
+    A ceiling, not a sleep -- and NOT a failure on its own if the status never
+    arrives: the answers are already stored, so the run says so and goes on.
+    """
+    end = time.time() + timeout
+    stored = {}
+    while True:
+        stored = task_submitted_answers(user_id, task_id)
+        if stored.get("status") == TASK_STATUS_CHECKED:
+            logging.info(f"[Tasks] task {task_id} is CHECKED "
+                         f"(result={stored.get('result')})")
+            return stored
+        if time.time() >= end:
+            logging.warning(f"[Tasks] task {task_id} was not marked checked within "
+                            f"{timeout}s (status={stored.get('status')})")
+            return stored
+        time.sleep(poll)
+
+
 def _tasks_settle_for_next(altdriver, timeout=TASK_NEXT_TIMEOUT):
     """Wait for the Tasks screen to come back and stop changing. Returns bool.
 
@@ -2969,8 +3000,8 @@ def _tasks_solve_one(altdriver, trail, class_id=None, user_id=None,
     login, the tab counts and the final verdict being redone each time.
     """
     out = {"title": "", "task_id": None, "questions": 0, "answered": 0,
-           "wrong": [], "unsupported": [], "submitted": False, "server": {},
-           "problems": [], "note": ""}
+           "wrong": [], "unsupported": [], "submitted": False, "checked": False,
+           "server": {}, "problems": [], "note": ""}
 
     try:
         card = altdriver.find_object(By.PATH, f"//{TASK_CARD_OPEN}[0]")
@@ -3081,6 +3112,13 @@ def _tasks_solve_one(altdriver, trail, class_id=None, user_id=None,
     if user_id and out["task_id"]:
         stored = wait_for_task_recorded(user_id, out["task_id"],
                                         timeout=TASK_RECORD_TIMEOUT)
+        # Then wait for it to be CHECKED, so the score read back is the settled
+        # one and the next task starts from a quiet account.
+        checked = wait_for_task_checked(user_id, out["task_id"],
+                                        timeout=TASK_CHECKED_TIMEOUT)
+        if checked.get("answer"):
+            stored = checked
+        out["checked"] = stored.get("status") == TASK_STATUS_CHECKED
         answers = stored.get("answer") or []
         right = sum(1 for a in answers
                     if a.get("choosenAnswer") == a.get("correctAnswer"))
@@ -3098,7 +3136,8 @@ def _tasks_solve_one(altdriver, trail, class_id=None, user_id=None,
                 f"'{out['title']}': {len(answers) - right} answer(s) came back "
                 f"wrong, but {expected_wrong} were meant to be")
     out["note"] = (f"'{out['title']}': answered {out['answered']}/{out['questions']}, "
-                   f"submitted, server result {out['server'].get('result')}")
+                   f"submitted, {'checked' if out['checked'] else 'NOT yet checked'}, "
+                   f"server result {out['server'].get('result')}")
     logging.info(f"[Tasks] {out['note']}")
     return out
 
@@ -3119,7 +3158,8 @@ def tasks_check(altdriver, username=None, password=None, tc_id="",
     A task is scored by the app and lands in CHECKED; only what a teacher must
     read waits in Sent. Never raises.
     """
-    report = {"ok": False, "tasks": [], "solved": 0, "title": "", "questions": 0,
+    report = {"ok": False, "tasks": [], "solved": 0, "checked": 0, "title": "",
+              "questions": 0,
               "answered": 0, "unsupported": [], "wrong": [], "counts_before": {},
               "counts_after": {}, "submitted": False, "server": {},
               "expected_incorrect": 0, "problems": [], "note": ""}
@@ -3193,6 +3233,7 @@ def tasks_check(altdriver, username=None, password=None, tc_id="",
         report["problems"].extend(p for p in one["problems"]
                                   if p not in report["problems"])
     report["solved"] = sum(1 for o in report["tasks"] if o["submitted"])
+    report["checked"] = sum(1 for o in report["tasks"] if o.get("checked"))
     report["title"] = ", ".join(o["title"] for o in report["tasks"] if o["title"])
     report["submitted"] = bool(report["tasks"]) and all(
         o["submitted"] for o in report["tasks"])
@@ -3231,7 +3272,8 @@ def tasks_check(altdriver, username=None, password=None, tc_id="",
                     and not report["problems"]
                     and report["answered"] == report["questions"])
     report["note"] = report["note"] or (
-        f"Solved {report['solved']} task(s) ({report['title'] or 'none'}): "
+        f"Solved {report['solved']} task(s), {report['checked']} checked "
+        f"({report['title'] or 'none'}): "
         f"answered {report['answered']} of {report['questions']} question(s), "
         f"{report['expected_incorrect']} wrong on purpose. "
         f"Open {open_before} -> {open_after}, "
