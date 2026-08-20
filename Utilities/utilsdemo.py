@@ -2807,6 +2807,53 @@ VT_TASKS_API = (__import__("os").getenv("VT_TASKS_API")
                 or _VT_TASKS_API_DEFAULT)
 
 
+# The login the APP itself uses. It answers with everything a task run needs to
+# know about the player -- their id, their class, and which backend their data
+# lives on -- so none of it has to be written into a Rally case, where it goes
+# stale the moment the case is pointed at another account. (That mismatch once
+# looked exactly like the app losing a student's answers.)
+VT_PLAYER_LOGIN_URL = "https://login.vocatooki.com/access/login"
+VT_PLAYER_EMAIL_DOMAIN = "@vocatooki.com"
+_PLAYER_CACHE = {}
+
+
+def vt_player(username, password):
+    """``{"user_id", "class_id", "backend"}`` for a player, or ``{}``.
+
+    The login wants the EMAIL form of the username: "vt233640" alone is refused,
+    "vt233640@vocatooki.com" is accepted.
+    """
+    if not username or not password:
+        return {}
+    cached = _PLAYER_CACHE.get((username, password))
+    if cached is not None:
+        return cached
+
+    email = username if "@" in str(username) else f"{username}{VT_PLAYER_EMAIL_DOMAIN}"
+    try:
+        # The payload the app itself sends: username AND email (both the email
+        # form -- the bare "vt233640" is refused), the password, and the game.
+        r = requests.post(VT_PLAYER_LOGIN_URL,
+                          json={"username": email, "email": email,
+                                "password": str(password), "game": VT_GAME},
+                          headers={"Content-Type": "application/json",
+                                   "Accept": "application/json"}, timeout=25)
+        r.raise_for_status()
+        data = r.json() or {}
+    except Exception as e:                           # noqa: BLE001
+        logging.error(f"[Tasks] could not look up '{username}': {e}")
+        _PLAYER_CACHE[(username, password)] = {}
+        return {}
+
+    who = {"user_id": data.get("id"), "class_id": data.get("class_id"),
+           "backend": (data.get("backend") or "").rstrip("/")}
+    if who["user_id"]:
+        logging.info(f"[Tasks] '{username}' is player {who['user_id']} "
+                     f"in class {who['class_id']} on {who['backend'] or 'the default backend'}")
+    _PLAYER_CACHE[(username, password)] = who
+    return who
+
+
 def task_api_headers(token=None):
     """Bearer headers for the task API, logging in once if needed."""
     return get_auth_headers(token=token)
@@ -3211,13 +3258,31 @@ def tasks_check(altdriver, username=None, password=None, tc_id="",
     read waits in Sent. Never raises.
     """
     report = {"ok": False, "tasks": [], "solved": 0, "checked": 0, "title": "",
-              "data_issues": [], "questions": 0,
+              "player": {}, "data_issues": [], "questions": 0,
               "answered": 0, "unsupported": [], "wrong": [], "counts_before": {},
               "counts_after": {}, "submitted": False, "server": {},
               "expected_incorrect": 0, "problems": [], "note": ""}
 
     reset_evidence_trail(tc_id)
     trail = evidence_trail(tc_id)
+
+    # Who is this player? Asked of the login the app itself uses, so the id, the
+    # class and the backend all come from the ACCOUNT rather than from numbers
+    # typed into a Rally case -- where they go stale the moment the case is
+    # pointed at somebody else, and a stale id looks exactly like the app losing
+    # a student's answers. Anything passed in explicitly still wins.
+    if username and password:
+        who = vt_player(username, password)
+        if who.get("user_id"):
+            user_id = user_id or who["user_id"]
+            class_id = class_id or who.get("class_id")
+            report["player"] = who
+            if who.get("backend"):
+                globals()["VT_TASKS_API"] = f"{who['backend']}/data"
+        elif not user_id:
+            report["note"] = (f"could not look up '{username}' - without the "
+                              f"player id the answers cannot be checked")
+            return report
 
     if username and not fresh_login(altdriver, username, password):
         report["note"] = f"could not log in as {username}"

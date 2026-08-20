@@ -1475,14 +1475,10 @@ PASSWORD = "{password}"
         missing = []
         if not username:
             missing.append("Username/password")
-        if user_id == "None":
-            missing.append('the player id ("User ID: 73356")')
-        # The class CAN be discovered from the player id, but only once that
-        # player has task history -- a brand-new account has none, and then the
-        # answers would be arbitrary on a task that is scored. So it is asked
-        # for, and discovery stays as the fallback.
-        if class_id == "None":
-            missing.append('the class id ("Class ID: 2336")')
+        # Neither the player id nor the class is asked for any more: both come
+        # from the account itself, via the same login the app uses. A number
+        # typed into a case goes stale the moment the case is pointed at another
+        # account, and a stale id looks exactly like a submit that vanished.
         if missing:
             reason = (f"{tc_id}: the Rally case is missing " + " and ".join(missing) +
                       ". Without it the task cannot be answered from the answer key "
