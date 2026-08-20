@@ -2920,10 +2920,15 @@ def task_answer_by_data_id(altdriver, data_id, settle=1.2):
     """
     wanted = f"_Data_{int(data_id)}"
     for name in task_answers(altdriver):
-        if name.endswith(wanted):
-            if press_object(altdriver, name, settle=settle):
-                return task_answer_selected(altdriver, name)
-            return False
+        if not name.endswith(wanted):
+            continue
+        # Already chosen (a re-opened task keeps its answers): pressing again
+        # would toggle it back OFF and read as a failure.
+        if task_answer_selected(altdriver, name):
+            return True
+        if press_object(altdriver, name, settle=settle):
+            return task_answer_selected(altdriver, name)
+        return False
     logging.error(f"[Tasks] no answer ending '{wanted}' on this question")
     return False
 
@@ -3001,7 +3006,7 @@ def _tasks_solve_one(altdriver, trail, class_id=None, user_id=None,
     """
     out = {"title": "", "task_id": None, "questions": 0, "answered": 0,
            "wrong": [], "unsupported": [], "submitted": False, "checked": False,
-           "server": {}, "problems": [], "note": ""}
+           "server": {}, "problems": [], "data_issues": [], "note": ""}
 
     try:
         card = altdriver.find_object(By.PATH, f"//{TASK_CARD_OPEN}[0]")
@@ -3051,6 +3056,21 @@ def _tasks_solve_one(altdriver, trail, class_id=None, user_id=None,
         entry = next((e for e in key if e["index"] == index), None)
         if entry is not None and entry.get("correct") is not None:
             correct = int(entry["correct"])
+            if entry["options"] and correct not in entry["options"]:
+                # The task's own data is wrong -- measured: 'a/an' Q5 and Q8 say
+                # correct_answer 3 while the options are only 0 and 1. Leaving
+                # the question blank would block the whole task, so an option is
+                # chosen and the bad data is reported.
+                fallback = sorted(entry["options"])[0]
+                # Reported, but NOT a problem with the run: the task's content
+                # is wrong, which the test should surface without failing for a
+                # defect outside its own subject.
+                out["data_issues"].append(
+                    f"'{out['title']}' Q{index}: the task data says the correct "
+                    f"answer is {correct}, which is not one of its options "
+                    f"{sorted(entry['options'])} - answered "
+                    f"{entry['options'][fallback]!r} instead")
+                correct = fallback
             if index in deliberately_wrong:
                 choice = next((i for i in entry["options"] if i != correct), correct)
                 out["wrong"].append(
@@ -3082,6 +3102,17 @@ def _tasks_solve_one(altdriver, trail, class_id=None, user_id=None,
         out["note"] = (f"{len(out['unsupported'])} of {out['questions']} question(s) "
                        f"are not automatable, so '{out['title']}' was NOT submitted")
         return out                                   # never send a half-done task
+    if out["answered"] != out["questions"]:
+        # The app refuses a part-answered task and records NOTHING, leaving it
+        # Open -- measured: submitting 18 of 20 stored 0 answers, and the run
+        # then met the same task again. Better to stop and say which questions
+        # were missed.
+        out["problems"].append(
+            f"'{out['title']}': only {out['answered']} of {out['questions']} "
+            f"question(s) could be answered, so it was NOT submitted")
+        out["note"] = out["problems"][-1]
+        return out
+
     if not submit:
         out["note"] = (f"answered {out['answered']}/{out['questions']}; "
                        f"'{out['title']}' was not submitted")
@@ -3159,7 +3190,7 @@ def tasks_check(altdriver, username=None, password=None, tc_id="",
     read waits in Sent. Never raises.
     """
     report = {"ok": False, "tasks": [], "solved": 0, "checked": 0, "title": "",
-              "questions": 0,
+              "data_issues": [], "questions": 0,
               "answered": 0, "unsupported": [], "wrong": [], "counts_before": {},
               "counts_after": {}, "submitted": False, "server": {},
               "expected_incorrect": 0, "problems": [], "note": ""}
@@ -3232,6 +3263,7 @@ def tasks_check(altdriver, username=None, password=None, tc_id="",
         report["unsupported"].extend(one["unsupported"])
         report["problems"].extend(p for p in one["problems"]
                                   if p not in report["problems"])
+        report["data_issues"].extend(one.get("data_issues") or [])
     report["solved"] = sum(1 for o in report["tasks"] if o["submitted"])
     report["checked"] = sum(1 for o in report["tasks"] if o.get("checked"))
     report["title"] = ", ".join(o["title"] for o in report["tasks"] if o["title"])
@@ -3280,6 +3312,8 @@ def tasks_check(altdriver, username=None, password=None, tc_id="",
         f"Checked {report['counts_before'].get('Checked')} -> "
         f"{report['counts_after'].get('Checked')}. "
         f"Server: {report['server'] or 'not read'}."
+        + (f" CONTENT ISSUES in the task data (not an automation fault): "
+           f"{report['data_issues']}." if report["data_issues"] else "")
         + (f" Problems: {report['problems']}." if report["problems"] else ""))
     logging.info(f"[Tasks] {report['note']}")
     return report
