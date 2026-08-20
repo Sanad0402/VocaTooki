@@ -2694,6 +2694,10 @@ TASK_CONFIRM_YES = "YesButton"
 # How long a submitted task is given to appear on the server. The app sits
 # on the task uploading it -- measured at about 90 seconds.
 TASK_RECORD_TIMEOUT = 120
+# After a task is sent, how long to let the app settle back onto the Tasks
+# screen before opening the next one. A ceiling, not a sleep: the run goes on
+# as soon as the screen is there and has stopped changing.
+TASK_NEXT_TIMEOUT = 20
 
 
 def task_tab_counts(altdriver):
@@ -2934,6 +2938,28 @@ def _tasks_answer_key_for(title, class_id, user_id):
     return [], None
 
 
+def _tasks_settle_for_next(altdriver, timeout=TASK_NEXT_TIMEOUT):
+    """Wait for the Tasks screen to come back and stop changing. Returns bool.
+
+    Between two tasks the app has to put the finished one away -- the tab
+    counts re-count and the card list rebuilds -- and a card pressed mid-rebuild
+    is a press that lands on nothing. A ceiling rather than a sleep: as soon as
+    the screen is there and settled, the run goes on.
+    """
+    end = time.time() + timeout
+    while time.time() < end:
+        if _current_scene(altdriver) == TASKS_SCENE:
+            left = max(1.0, end - time.time())
+            wait_for_scene_ready(altdriver, timeout=left, stable_for=1.0,
+                                 label="tasks list")
+            logging.info("[Tasks] the Tasks screen is settled; on to the next task")
+            return True
+        time.sleep(1.0)
+    logging.info(f"[Tasks] still on {_current_scene(altdriver)} after {timeout}s; "
+                 f"carrying on to the next task anyway")
+    return False
+
+
 def _tasks_solve_one(altdriver, trail, class_id=None, user_id=None,
                      wrong_answers=0, submit=True, timeout=90):
     """Open the first OPEN task, answer it, submit it. One task, never raises.
@@ -3137,6 +3163,12 @@ def tasks_check(altdriver, username=None, password=None, tc_id="",
                                wrong_answers=wrong_answers, submit=submit,
                                timeout=timeout)
         report["tasks"].append(one)
+
+        if one["submitted"]:
+            # Let the app finish putting the task away before the next one is
+            # opened: the tabs re-count and the card list rebuilds, and opening
+            # a card mid-rebuild is how a press lands on nothing.
+            _tasks_settle_for_next(altdriver, timeout=TASK_NEXT_TIMEOUT)
 
         # A task that could not be submitted would still be sitting in Open, so
         # trying again would open the SAME card forever.
