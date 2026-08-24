@@ -1500,33 +1500,166 @@ def ispy(altdriver):
 
     print("[INFO] Ispy activity complete")
 
+# --- CROSSWORD2 board reading -------------------------------------------------
+# Crossword words INTERSECT: a cell can already be filled by an earlier word.
+# The game fills the first cell whose text component is inactive --
+#
+#   for (; currentPos < TextLengthExcludingDiacritics(word); currentPos++)
+#       if (!wordCards[word][currentPos].GetComponentInChildren<RTLTextMeshPro>()
+#               .isActiveAndEnabled) break;
+#
+# -- so it skips crossing cells itself, but it still counts EVERY keypress and
+# stops accepting input at `collectedKeyboardString.Length >= word.Length`.
+# Pressing one key per letter therefore overflows on any word that crosses a
+# solved one, and the surplus press is written into the next cell as a wrong
+# letter. Confirmed live on Hebrew 'kniya' (two yods, one already on the board
+# from a crossing word): 5 presses for 4 empty cells and the word scored wrong.
+_CW_GENERATOR = "CrossWords.CrossWordsGenerator"
+_CW_CELL_COMPONENT = "RTLTMPro.RTLTextMeshPro"
+_CW_CELL_ASSEMBLY = "RTLTMPro"
+
+
+def _cw_selected_word(altdriver):
+    """The generator's own selected word, as (word, [(row, col), ...]).
+
+    Read `lastSelectedWord` rather than `RTLTMPWordPanel`: the panel reports RTL
+    words MIRRORED ('kniya' arrives reversed), which is what the old reverse-order
+    pass existed to undo. `lastSelectedWord.word` is always in logical order.
+    """
+    for canvas in altdriver.find_objects(By.NAME, "Canvas"):
+        try:
+            sel = canvas.get_component_property(
+                _CW_GENERATOR, "lastSelectedWord", "Assembly-CSharp", max_depth=2
+            )
+        except Exception:
+            continue
+        if isinstance(sel, dict) and sel.get("word"):
+            points = [
+                (int(p["x"]), int(p["y"]))
+                for p in (sel.get("wordPointsInMatrix") or [])
+                if isinstance(p, dict) and "x" in p and "y" in p
+            ]
+            return sel["word"], points
+    return None, None
+
+
+def _cw_cell_is_filled(cell):
+    """The game's own test for a filled cell.
+
+    NOT the cell's text: a cleared board keeps its old letters in `m_text` with
+    the component disabled, so reading text reports empty cells as full and the
+    solver then presses nothing at all.
+    """
+    try:
+        return bool(cell.get_component_property(
+            _CW_CELL_COMPONENT, "isActiveAndEnabled", _CW_CELL_ASSEMBLY))
+    except Exception:
+        return False  # unreadable -> treat as empty -> press it, as before
+
+
+def _cw_grid_shape(cells):
+    """(rows, cols) if `find_objects` returned the grid in row-major order, else None.
+
+    The generator indexes cells as (row, col); `find_objects` returns them in
+    instantiation order, which is that same row-major order -- verified live on a
+    169-cell board. Which screen corner holds (0, 0) depends on text direction
+    (col 0 sits on the right for Hebrew, the left for English), so only the ORDER
+    is relied on, never the geometry. This proves the order really is a grid, and
+    recovers its shape, before an index into it is trusted. Rows and columns are
+    counted separately so a non-square board still works.
+    """
+    xs = sorted({c.x for c in cells})
+    ys = sorted({c.y for c in cells})
+    rows, cols = len(ys), len(xs)
+    if rows * cols != len(cells):
+        return None
+    for x_axis in (xs, list(reversed(xs))):
+        for y_axis in (ys, list(reversed(ys))):
+            xi = {v: i for i, v in enumerate(x_axis)}
+            yi = {v: i for i, v in enumerate(y_axis)}
+            if all((i // cols, i % cols) == (yi[c.y], xi[c.x])
+                   for i, c in enumerate(cells)):
+                return rows, cols
+    return None
+
+
+def _cw_letters_to_press(altdriver, word, points):
+    """Letters whose cells are still empty, in press order.
+
+    Returns None when the board cannot be read confidently; the caller then
+    presses every letter, which is exactly the old behaviour, so a board this
+    cannot parse is never made worse.
+    """
+    if not word or not points or len(points) != len(word):
+        return None
+
+    cells = altdriver.find_objects(By.NAME, "Letter")
+    if not cells:
+        return None
+    shape = _cw_grid_shape(cells)
+    if shape is None:
+        print("[WARN] crossword: cell order is not a grid, pressing every letter")
+        return None
+    _rows, cols = shape
+
+    to_press = []
+    for ch, (row, col) in zip(word, points):
+        index = row * cols + col
+        if not (0 <= index < len(cells)):
+            return None
+        if not _cw_cell_is_filled(cells[index]):
+            to_press.append(ch)
+    return to_press
+
+
 def crosswords2(altdriver):
     """Solve all crossword items based on ProgressText."""
     progresstext = altdriver.find_object(By.NAME, "ProgressText").get_text()
     number_of_words = int(progresstext.split('/')[1])
     print(f"[INFO] Total words to solve: {number_of_words}")
 
-    # ✅ Step 1: Build the letters map once
+    # Build the letters map once - the keyboard holds one tile per letter.
     letters_map = {
         letter.get_component_property("TMPro.TextMeshProUGUI", "m_text", "Unity.TextMeshPro").lower(): letter
         for letter in altdriver.find_objects(By.NAME, 'FillLetter')
     }
     print(f"[DEBUG] Available letters : {list(letters_map.keys())}")
 
-    # ✅ Step 2: Iterate through each word
     for i in range(number_of_words):
         print(f"[INFO] Solving word {i + 1} of {number_of_words}")
         time.sleep(3)
 
-        # Get current target word
-        current_word_obj = altdriver.find_object(By.NAME, "RTLTMPWordPanel")
-        current_word_text = current_word_obj.get_component_property(
-            'TMProWordPanel', 'Word.word', 'Assembly-CSharp'
-        ).lower()
-        print(f"[DEBUG] Target word: {current_word_text}")
+        # Stop once the board is done. The loop is sized from ProgressText, but
+        # the activity can finish on an earlier pass; without this the last pass
+        # finds no selected word, falls back to the panel's MIRRORED text and
+        # presses junk into a completed board.
+        try:
+            solved = int(altdriver.find_object(By.NAME, "ProgressText").get_text().split('/')[0])
+        except Exception:
+            solved = None
+        if solved is not None and solved >= number_of_words:
+            print(f"[INFO] crossword: all {number_of_words} words solved, stopping")
+            break
 
-        # Step 3: Use cached letters_map
-        for letter in current_word_text:
+        word, points = _cw_selected_word(altdriver)
+        if word:
+            word = word.lower()
+            to_press = _cw_letters_to_press(altdriver, word, points)
+        else:
+            # No generator state: fall back to the panel exactly as before.
+            word = altdriver.find_object(By.NAME, "RTLTMPWordPanel").get_component_property(
+                'TMProWordPanel', 'Word.word', 'Assembly-CSharp'
+            ).lower()
+            to_press = None
+        print(f"[DEBUG] Target word: {word}")
+
+        if to_press is None:
+            to_press = list(word)
+        elif len(to_press) != len(word):
+            print(f"[INFO] crossword: {len(word) - len(to_press)} cell(s) already filled "
+                  f"by crossing words, pressing {len(to_press)}/{len(word)} letters")
+
+        for letter in to_press:
             if letter in letters_map:
                 letters_map[letter].click()
                 print(f"[ACTION] Clicked letter: {letter}")
@@ -1536,7 +1669,8 @@ def crosswords2(altdriver):
 
         # Wait for next round to load
 
-#def crosswords2(altdriver): KLLLLL
+
+def crosswords2_kl(altdriver):
     """Solve all crossword items based on ProgressText (click letters in reverse order)."""
     progresstext = altdriver.find_object(By.NAME, "ProgressText").get_text()
     number_of_words = int(progresstext.split('/')[1])
