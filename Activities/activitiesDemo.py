@@ -486,6 +486,25 @@ def exams_audio_to_meaning(altdriver, attempts=3):
     solve_match_exam(altdriver, read_board, "exams_audio_to_meaning", attempts=attempts)
 
 
+def _spelling_bare_letter(text):
+    """The base letter, with any combining marks removed.
+
+    `missingLetters` carries the word's diacritics (Hebrew 'mem + hiriq' is two
+    code points), but the on-screen keyboard offers only bare letters, so looking
+    a pointed letter up straight misses every time. Worse than missing: the game
+    fills the first empty slot whatever key is pressed, so the few letters that DO
+    match land in the leading slots and the word reads back reversed.
+
+    Pressing the bare letter is what the game expects -- IsWordCompleted() accepts
+    a slot matching either wordLetters[i] or RemoveDiacritics(word)[i]. Used only
+    as a FALLBACK after an exact match fails, so a keyboard that really does offer
+    accented tiles keeps working, and English (no combining marks) is untouched.
+    """
+    return "".join(
+        c for c in unicodedata.normalize("NFD", text) if not unicodedata.combining(c)
+    )
+
+
 def exam_spelling(altdriver):
     """Completes the spelling activity by clicking missing letters."""
     # ✅ Corrected missing_words fallback logic
@@ -527,8 +546,12 @@ def exam_spelling(altdriver):
             toggles[i].click()
             time.sleep(0.4)  # ✅ small delay for UI update
             for letter in letters:
-                if letter in letters_map:
-                    letters_map[letter].click()
+                tile = letters_map.get(letter)
+                if tile is None:
+                    bare = _spelling_bare_letter(letter).lower()
+                    tile = letters_map.get(bare)
+                if tile is not None:
+                    tile.click()
                     time.sleep(0.2)
                 else:
                     print(f"[WARN] Letter '{letter}' not found in map.")
