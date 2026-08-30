@@ -4710,6 +4710,14 @@ _LT_ASM = "Assembly-CSharp"
 _LT_PATH = "IndieStudio.EnglishTracingBook.Game.TracingPath"
 _LT_MANAGER = "com.kideo.learn.english.LettersTracingGameManager"
 
+# Floor for a stroke gesture, in seconds. Measured live: 0.10 tunnels past the
+# point colliders and the stroke does not register, 0.15 and 0.30 both land.
+_LT_MIN_SWIPE = 0.25
+
+# Extra samples held on the stroke's last point so the finger registers there
+# before it lifts. Without them a stroke ends on tracedPoints=1 of 2.
+_LT_END_DWELL = 6
+
 
 def _lt_read_board(altdriver):
     """Every stroke of the letter on screen, in drawing order.
@@ -4758,6 +4766,21 @@ def _lt_path_completed(path):
         return False
 
 
+def _lt_path_alive(path):
+    """False once the stroke's object is gone.
+
+    The letter shape is rebuilt at activity start and whenever the round flips,
+    which leaves the handles from an earlier board pointing at destroyed
+    objects. Retracing those coordinates draws nothing; the board has to be
+    read again instead.
+    """
+    try:
+        path["obj"].get_component_property(_LT_PATH, "completed", _LT_ASM)
+        return True
+    except Exception:
+        return False
+
+
 def _lt_active(board):
     """The stroke the game is waiting for, or None."""
     for path in board:
@@ -4785,58 +4808,103 @@ def _lt_round(altdriver):
         return None, None
 
 
-def _lt_wait_for_stroke(altdriver, timeout=30.0, poll=0.4, stable_reads=3):
-    """Wait until a stroke is live AND has stopped moving.
+def _lt_feedback_up(altdriver):
+    """True once the end-of-activity feedback is on screen."""
+    try:
+        return altdriver.find_object(By.NAME, _LT_FEEDBACK) is not None
+    except Exception:
+        return False
 
-    The letter animates in after every repetition, and again when the round
+
+def _lt_wait_for_letter(altdriver, timeout=30.0, poll=0.25, stable_reads=3):
+    """Every stroke of the next letter, once it is live AND has stopped moving.
+
+    Returns the WHOLE letter rather than one stroke: within a letter the shape
+    does not move, so reading it once and then drawing 1->2, 3->4, 5->6 in order
+    costs one board read instead of one per stroke. A board read is the most
+    expensive call in this solver (~0.35s over ~2800 objects), so this is where
+    most of the time went.
+
+    The letter still animates in after every repetition and again when the round
     flips to the small letter; dots grabbed mid-animation trace a path that is
-    no longer where the letter is. The tail of that animation eases out, so two
-    matching reads can still land on a letter that is drifting sub-pixel —
-    hence three in a row before the stroke is considered settled.
+    no longer where the letter is, and the ease-out tail means two matching
+    reads can still catch it drifting — hence three in a row before it counts as
+    settled.
     """
     deadline = time.time() + timeout
     previous, repeats = None, 0
     while time.time() < deadline:
-        active = _lt_active(_lt_read_board(altdriver))
-        if active is not None:
-            current = (active["name"], active["points"])
+        # The finished activity keeps a board on screen behind the feedback, so
+        # without this the solver traces the same letter over and over into a
+        # game that has already ended, then waits out the whole idle timeout.
+        if _lt_feedback_up(altdriver):
+            return None
+        board = _lt_read_board(altdriver)
+        if _lt_active(board) is not None:
+            current = [path["points"] for path in board]
             repeats = repeats + 1 if previous == current else 1
             previous = current
             if repeats >= stable_reads:
-                return active
+                return board
         else:
             previous, repeats = None, 0
         time.sleep(poll)
     return None
 
 
-def _lt_trace(altdriver, points):
-    """Draw one stroke with a single held finger.
+def _lt_trace(altdriver, points, height):
+    """Draw one stroke as a single gesture: press on the first point, glide
+    through the rest, release on the last one.
 
-    swipe() presses and lifts on every call, so a stroke built out of swipes is
-    really N separate taps and the game drops it. One begin/move/end with
-    densely interpolated moves is what registers as tracing.
+    `swipe()` presses and lifts on every call, so a stroke built out of swipes
+    is really N separate taps and the game drops it. A held begin/move/end
+    works but costs a round trip per sample — ~70 of them, 1.2s, for one
+    stroke. `multipoint_swipe` is the same gesture in ONE command.
+
+    Duration is what actually decides whether it registers, not the number of
+    samples: the engine walks the gesture over that many seconds of frames, and
+    measured live, 0.10s tunnels straight past the point colliders while 0.15s
+    and 0.30s both land. So the duration is scaled to the stroke's own length
+    with a floor well above the failing edge.
     """
-    _width, height = (float(v) for v in altdriver.get_application_screensize())
-    step = max(3.0, height * 0.006)      # sampling follows the screen, not a constant
-
+    step = max(4.0, height * 0.02)
     samples = [points[0]]
+    span = 0.0
     for start, end in zip(points, points[1:]):
-        span = math.hypot(end[0] - start[0], end[1] - start[1])
-        slices = max(1, int(span / step))
+        length = math.hypot(end[0] - start[0], end[1] - start[1])
+        span += length
+        slices = max(1, int(length / step))
         for i in range(1, slices + 1):
             ratio = i / slices
             samples.append((start[0] + (end[0] - start[0]) * ratio,
                             start[1] + (end[1] - start[1]) * ratio))
 
-    finger = altdriver.begin_touch(samples[0])
-    try:
-        time.sleep(0.15)
-        for sample in samples:
-            altdriver.move_touch(finger, sample)
-        time.sleep(0.15)
-    finally:
-        altdriver.end_touch(finger)
+    # Sit on the last point for a few frames before letting go, so the release
+    # is not simulated in the same instant the finger arrives.
+    #
+    # Honest note: this was added to cure the stroke that comes back
+    # tracedPoints=1 of 2, and it did NOT cure it -- that stumble still happens
+    # on the first stroke after a letter resets. It is kept because it costs six
+    # samples inside a gesture that is sent as one command, and ending a drag
+    # with a dwell is the safer shape either way. The real cause is still open.
+    samples.extend([samples[-1]] * _LT_END_DWELL)
+
+    duration = max(_LT_MIN_SWIPE, span / height * 0.6)
+    altdriver.multipoint_swipe([list(sample) for sample in samples], duration=duration)
+
+
+def _lt_wait_completed(path, timeout=1.0, poll=0.05):
+    """Poll the stroke's own `completed` flag instead of sleeping a fixed beat.
+
+    A completed stroke confirms in ~0.02s, so the old flat 0.6s wait after every
+    stroke was almost entirely dead time.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if _lt_path_completed(path):
+            return True
+        time.sleep(poll)
+    return False
 
 
 def _lt_dismiss_dialogs(altdriver):
@@ -4885,11 +4953,15 @@ def _lt_exit_feedback(altdriver, timeout=25.0, poll=1.0):
 def letters_tracing(altdriver, stroke_attempts=3, idle_timeout=30.0):
     """Trace every letter of the Magic Trace activity, capital round then small.
 
-    Purely state driven: it keeps asking the board which stroke is live and
-    draws that one, so it follows however many repetitions and rounds the
-    activity is configured for without being told the letter or the counts.
+    Reads the letter once, then draws its strokes in the order the letter is
+    written — 1 to 2, then 3 to 4, then 5 to 6 — each as one gesture that
+    releases on its final point. Still state driven: the letter, the number of
+    strokes, the repetitions and the rounds all come from the board, so it
+    follows however the activity is configured without being told any of them.
     """
     print("[INFO] LETTERS_TRACING: starting")
+
+    _width, height = (float(v) for v in altdriver.get_application_screensize())
 
     strokes = 0
     letters = 0
@@ -4903,8 +4975,8 @@ def letters_tracing(altdriver, stroke_attempts=3, idle_timeout=30.0):
     while True:
         _lt_dismiss_dialogs(altdriver)
 
-        stroke = _lt_wait_for_stroke(altdriver, timeout=idle_timeout)
-        if stroke is None:
+        board = _lt_wait_for_letter(altdriver, timeout=idle_timeout)
+        if board is None:
             print("[INFO] no stroke offered any more — activity finished")
             break
 
@@ -4917,23 +4989,36 @@ def letters_tracing(altdriver, stroke_attempts=3, idle_timeout=30.0):
                   f"({'capital' if letter_type == 0 else 'small'} letters)")
             last_round, last_type = name, letter_type
 
-        for attempt in range(1, stroke_attempts + 1):
-            _lt_trace(altdriver, stroke["points"])
-            time.sleep(0.6)
+        # Walk the strokes in writing order off the one board read.
+        for index in range(len(board)):
+            stroke = board[index]
             if _lt_path_completed(stroke):
-                strokes += 1
-                break
-            print(f"[WARN] {stroke['name']} did not register "
-                  f"(attempt {attempt}/{stroke_attempts}) — re-reading and retrying")
-            # The stroke may have been reset under us; take its live position again.
-            refreshed = _lt_wait_for_stroke(altdriver, timeout=8.0)
-            if refreshed is None:
-                break
-            stroke = refreshed
-        else:
-            raise AssertionError(
-                f"LETTERS_TRACING: stroke {stroke['name']} would not complete "
-                f"after {stroke_attempts} attempts")
+                continue                      # already drawn, e.g. after a retry
+
+            drawn = False
+            for attempt in range(1, stroke_attempts + 1):
+                _lt_trace(altdriver, stroke["points"], height)
+                if _lt_wait_completed(stroke):
+                    strokes += 1
+                    drawn = True
+                    break
+                stale = not _lt_path_alive(stroke)
+                print(f"[WARN] {stroke['name']} did not register "
+                      f"(attempt {attempt}/{stroke_attempts}) — "
+                      f"{'board went stale, re-reading' if stale else 'retrying'}")
+                # A settled letter is worth simply drawing again: one gesture,
+                # far cheaper than going back to the board. But a stale handle
+                # can only be fixed by re-reading, and retracing it would draw
+                # into nothing — so that case never waits for a second failure.
+                if stale or attempt >= 2:
+                    refreshed = _lt_wait_for_letter(altdriver, timeout=12.0)
+                    if refreshed is not None and index < len(refreshed):
+                        board = refreshed
+                        stroke = board[index]
+            if not drawn:
+                raise AssertionError(
+                    f"LETTERS_TRACING: stroke {stroke['name']} would not complete "
+                    f"after {stroke_attempts} attempts")
 
         done, total = _lt_progress(altdriver)
         if done is not None and done != letters:
