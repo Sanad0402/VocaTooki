@@ -484,6 +484,19 @@ def when_finish_activity(altdriver, retries=3, delay=1):
     except Exception as e:
         logging.warning(f"Result popup exit not available either - {e}")
 
+    # Having nothing left to exit is not a failure. A solver that closes its own
+    # result screen (the tracing activities do) leaves us back on the selection
+    # screen before this is called, and then neither "prev" nor the popup is
+    # there to click. Logging that as an ERROR puts a red line under an activity
+    # that passed, so say what actually happened instead.
+    try:
+        scene = altdriver.get_current_scene()
+    except Exception:
+        scene = None
+    if scene in ("ActivitySelectionScene", "MapScene"):
+        logging.info(f"Already out of the activity (on {scene}) — nothing to exit.")
+        return
+
     logging.error("Failed to exit activity after multiple retries.")
 
 
