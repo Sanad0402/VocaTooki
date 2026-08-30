@@ -47,3 +47,13 @@ panel.err.log
 
 # AltTester CLI scratch (scene snapshots written by every MCP/CLI command)
 .alttester-cli/
+
+# Live-run debris at the repo root. Anchored with a leading slash so a file that
+# legitimately shares one of these names deeper in the tree is still tracked —
+# /screenshot.png in particular is scratch, NOT the per-run evidence shots the
+# panel writes (those live under screenshots/ and reports/).
+/err.txt
+/se.txt
+/out.json
+/s.json
+/screenshot.png
