@@ -163,9 +163,51 @@ class RallyAPIClient:
                 return folder
         return None
 
+    def create_test_folder(self, project_id: str, name: str,
+                           parent_formatted_id: str = "",
+                           description: str = "") -> Optional[Dict[str, Any]]:
+        """Create a TestFolder in Rally. Returns the created object, or None.
+
+        ``parent_formatted_id`` nests the new folder under an existing one
+        ("TF181"); omit it for a folder at the root of the project.
+        """
+        payload: Dict[str, Any] = {
+            "TestFolder": {
+                "Name": name,
+                "Project": self._project_ref(project_id),
+            }
+        }
+        folder = payload["TestFolder"]
+        if description:
+            folder["Description"] = description
+        if parent_formatted_id:
+            parent = self.find_test_folder(project_id, parent_formatted_id)
+            if not parent:
+                logger.error(f"Parent folder {parent_formatted_id} not found — "
+                             f"refusing to create {name!r} at the root instead")
+                return None
+            folder["Parent"] = parent.get("_ref")
+
+        try:
+            response = self.session.post(f"{self.wsapi}/testfolder/create",
+                                         json=payload, timeout=30)
+            response.raise_for_status()
+            body = (response.json() or {}).get("CreateResult") or {}
+            errors = body.get("Errors") or []
+            if errors:
+                logger.error(f"Rally rejected the test folder: {errors}")
+                return None
+            obj = body.get("Object") or {}
+            logger.info(f"Created folder {obj.get('FormattedID')} — {obj.get('Name')}")
+            return obj
+        except Exception as e:                       # noqa: BLE001
+            logger.error(f"create_test_folder failed: {e}")
+            return None
+
     def create_test_case(self, project_id: str, name: str, description: str = "",
                          validation_input: str = "", validation_expected: str = "",
-                         folder_formatted_id: str = "", method: str = "Automated",
+                         folder_formatted_id: str = "", folder_ref: str = "",
+                         method: str = "Automated",
                          type_: str = "Functional", priority: str = "",
                          objective: str = "") -> Optional[Dict[str, Any]]:
         """Create a TestCase in Rally. Returns the created object, or None.
@@ -192,7 +234,12 @@ class RallyAPIClient:
             case["Objective"] = objective
         if priority:
             case["Priority"] = priority
-        if folder_formatted_id:
+        if folder_ref:
+            # The caller already resolved the folder. Skip the lookup —
+            # find_test_folder refetches every folder in the project, which is
+            # wasted work when creating a batch into one known folder.
+            case["TestFolder"] = folder_ref
+        elif folder_formatted_id:
             folder = self.find_test_folder(project_id, folder_formatted_id)
             if not folder:
                 logger.error(f"Test folder {folder_formatted_id} not found — "
@@ -216,6 +263,34 @@ class RallyAPIClient:
             return obj
         except Exception as e:                       # noqa: BLE001
             logger.error(f"create_test_case failed: {e}")
+            return None
+
+    def create_test_step(self, tc_ref: str, step_index: int, input_text: str,
+                         expected_result: str = "") -> Optional[Dict[str, Any]]:
+        """Append a TestCaseStep to a TestCase. Returns the object, or None.
+
+        ``step_index`` is 1-based and is what Rally orders the steps by.
+        """
+        payload = {
+            "TestCaseStep": {
+                "TestCase": tc_ref,
+                "StepIndex": step_index,
+                "Input": input_text,
+                "ExpectedResult": expected_result,
+            }
+        }
+        try:
+            response = self.session.post(f"{self.wsapi}/testcasestep/create",
+                                         json=payload, timeout=30)
+            response.raise_for_status()
+            body = (response.json() or {}).get("CreateResult") or {}
+            errors = body.get("Errors") or []
+            if errors:
+                logger.error(f"Rally rejected step {step_index}: {errors}")
+                return None
+            return body.get("Object") or {}
+        except Exception as e:                       # noqa: BLE001
+            logger.error(f"create_test_step failed: {e}")
             return None
 
     def update_test_case(self, tc_ref: str, **fields: Any) -> Optional[Dict[str, Any]]:
