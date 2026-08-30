@@ -25,6 +25,7 @@ from Pages.StartScreen import StartScreen
 from Pages.map_page import MapPage
 from .modes import MODES, DEFAULT_MODE
 from . import suite
+from . import guest
 from . import emailer
 from . import screenshots
 
@@ -299,6 +300,9 @@ class RunManager:
         if self.is_running():
             return False, {"error": "A run is already in progress."}
 
+        if cfg.get("run_type") == "guest":
+            return self._start_guest(cfg)
+
         if cfg.get("run_type") in ("test_folder", "test_case"):
             return self._start_suite(cfg)
 
@@ -329,6 +333,50 @@ class RunManager:
         self._thread = threading.Thread(target=self._run, args=(cfg,), daemon=True)
         self._thread.start()
         return True, {"steps": plan, "dry_run": False}
+
+    # ---- guest runs -----------------------------------------------------
+    def _start_guest(self, cfg):
+        """Turn the ticked language/level pairs into guest cases and run them.
+
+        No new execution path: the guest cases are ordinary linked pytest cases,
+        so this resolves the selection to TC ids and hands them to the suite
+        runner exactly as the Test Case tab does.
+        """
+        errors = guest.validate(cfg)
+        if errors:
+            return False, {"error": " ".join(errors)}
+
+        ids, warnings = guest.resolve(cfg.get("guest_languages"),
+                                      cfg.get("guest_levels"))
+        if not ids:
+            return False, {"error": warnings[0] if warnings else
+                           "Nothing to run for that selection."}
+
+        # A guest registration only means anything on a freshly cleared app, and
+        # clearing data is a device-level reset a test cannot perform (see the
+        # clear-data handoff rule). Running a second case straight after the
+        # first would register it INTO the first guest's live session and
+        # measure the wrong thing, so a batch is refused rather than run wrongly.
+        # Dry-run still shows the whole selection.
+        if len(ids) > 1 and not cfg.get("dry_run"):
+            return False, {"error": (
+                f"That is {len(ids)} guest registrations ({', '.join(ids)}). "
+                f"Each one needs the app's data cleared and the app restarted "
+                f"first, so they cannot run back to back — tick one language "
+                f"and one English level per run. Dry-run lists the whole "
+                f"selection without running it.")}
+
+        suite_cfg = dict(cfg)
+        suite_cfg["run_type"] = "test_case"
+        suite_cfg["test_cases"] = ids
+
+        ok, payload = self._start_suite(suite_cfg)
+        if ok:
+            # After _start_suite, so reset() cannot wipe these lines.
+            for warning in warnings:
+                self._log(f"[WARN] {warning}")
+            self._log("[INFO] " + guest.options()["reset_note"])
+        return ok, payload
 
     # ---- suite (Test Folder / Test Case) runs ---------------------------
     def _start_suite(self, cfg):

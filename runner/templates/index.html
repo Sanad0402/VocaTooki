@@ -84,6 +84,29 @@
         </div>
       </div>
 
+      <!-- Guest mode: no account, no lesson range -->
+      <div id="guest-config" class="card hidden">
+        <div class="head">
+          <h2>Guest registrations</h2>
+          <span id="guest-count" class="rally-last"></span>
+        </div>
+        <div class="body">
+          <p class="hint" style="margin:0 0 6px">
+            A guest has no account and no lesson range — pick the native language it
+            registers with, and the English level it picks.
+          </p>
+          <div class="field">
+            <label>Native language <button type="button" class="small guest-all" data-group="lang">all / none</button></label>
+            <div id="guest-langs" class="guest-grid"></div>
+          </div>
+          <div class="field">
+            <label>English level <button type="button" class="small guest-all" data-group="level">all / none</button></label>
+            <div id="guest-levels" class="guest-grid"></div>
+          </div>
+          <p id="guest-note" class="hint"></p>
+        </div>
+      </div>
+
       <!-- Test Folder / Test Case modes -->
       <div id="suite-config" class="card hidden">
         <div class="head">

@@ -46,6 +46,7 @@ from flask import Flask, request, jsonify, render_template, Response, send_file,
 
 from runner.core import manager, REPORTS_DIR
 from runner.modes import mode_list, DEFAULT_MODE
+from runner import guest as guest_runs
 from runner import suite
 from data.test_users import TEST_USERS, DEFAULT_CLASS_ID
 
@@ -224,8 +225,10 @@ def api_config():
             {"key": "lesson_range", "label": "Lesson Range (users)"},
             {"key": "test_folder", "label": "Test Folder"},
             {"key": "test_case", "label": "Test Case(s)"},
+            {"key": "guest", "label": "Guest (no login)"},
         ],
         "suite": suite.tree(),
+        "guest": guest_runs.options(),
         "rally": rally_config,
         "defaults": {
             "run_type": "lesson_range",
@@ -621,10 +624,18 @@ def api_run_preview():
     """
     cfg = request.get_json(force=True, silent=True) or {}
     rt = cfg.get("run_type")
-    if rt not in ("test_folder", "test_case"):
+    if rt == "guest":
+        # Guest runs are ordinary linked cases underneath, so the dialog can be
+        # answered with the same resolve() once the ticks become TC ids.
+        ids, warnings = guest_runs.resolve(cfg.get("guest_languages"),
+                                           cfg.get("guest_levels"))
+        cases, more = suite.resolve("test_case", ids)
+        warnings = warnings + more
+    elif rt not in ("test_folder", "test_case"):
         return jsonify({"run_type": rt, "cases": []})
-    selection = cfg.get("test_folders") if rt == "test_folder" else cfg.get("test_cases")
-    cases, warnings = suite.resolve(rt, selection or [])
+    else:
+        selection = cfg.get("test_folders") if rt == "test_folder" else cfg.get("test_cases")
+        cases, warnings = suite.resolve(rt, selection or [])
     return jsonify({
         "run_type": rt,
         "warnings": warnings,

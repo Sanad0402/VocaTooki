@@ -501,3 +501,24 @@ body.rs-page { max-width: 980px; margin: 0 auto; padding: 22px 18px; }
   padding: 1px 7px; border-radius: 999px; white-space: nowrap;
   color: #7a4b00; background: #ffe9c2; border: 1px solid #f0c169;
 }
+
+/* Guest run type: the two checkbox groups (native language / English level). */
+.guest-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+.guest-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 1px solid var(--line, #d7dbe0);
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.guest-opt:hover { border-color: var(--accent, #4a7dff); }
+.guest-all { margin-left: 8px; }

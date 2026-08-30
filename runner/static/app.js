@@ -52,6 +52,21 @@ async function init() {
   $("btn-add-user").addEventListener("click", () => { addCustomUserRow(); saveCustomRows(); });
   $("custom-users").addEventListener("input", saveCustomRows);
   $("custom-users").addEventListener("change", saveCustomRows);
+
+  // "all / none" per checkbox group: fill it if anything is unticked, else clear.
+  document.querySelectorAll(".guest-all").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const g = guestCfg();
+      const isLang = btn.dataset.group === "lang";
+      const all = isLang ? (g.languages || []) : (g.levels || []);
+      const sel = isLang ? SEL_LANGS : SEL_LEVELS;
+      const fill = sel.size < all.length;
+      sel.clear();
+      if (fill) all.forEach((v) => sel.add(v));
+      renderGuestGrid();
+      saveCfg();
+    });
+  });
   $("custom-users").addEventListener("click", (e) => {
     if (e.target.classList && e.target.classList.contains("cu-remove")) saveCustomRows();
   });
@@ -280,13 +295,68 @@ function updateModeDesc() {
   $("mode-desc").textContent = m ? m.description : "";
 }
 
+let SEL_LANGS = new Set();
+let SEL_LEVELS = new Set();
+
+function guestCfg() { return (CONFIG.guest || {}); }
+
+function renderGuestGrid() {
+  const g = guestCfg();
+  if (!g.languages) return;
+  if (!SEL_LANGS.size && !SEL_LEVELS.size) {
+    SEL_LANGS = new Set(g.default_languages || []);
+    SEL_LEVELS = new Set(g.default_levels || []);
+  }
+  const draw = (elId, items, sel) => {
+    const box = $(elId);
+    if (!box) return;
+    box.innerHTML = "";
+    items.forEach((name) => {
+      const lab = document.createElement("label");
+      lab.className = "guest-opt";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = sel.has(name);
+      cb.addEventListener("change", () => {
+        cb.checked ? sel.add(name) : sel.delete(name);
+        updateGuestCount();
+        saveCfg();
+      });
+      lab.appendChild(cb);
+      lab.appendChild(document.createTextNode(" " + name));
+      box.appendChild(lab);
+    });
+  };
+  draw("guest-langs", g.languages, SEL_LANGS);
+  draw("guest-levels", g.levels, SEL_LEVELS);
+  updateGuestCount();
+}
+
+function updateGuestCount() {
+  const n = SEL_LANGS.size * SEL_LEVELS.size;
+  const el = $("guest-count");
+  if (el) el.textContent = n ? `${n} guest registration${n === 1 ? "" : "s"}` : "nothing selected";
+  const note = $("guest-note");
+  if (note) {
+    // The clear-data rule is why a batch cannot run unattended; say so BEFORE
+    // the user ticks half the grid and presses Run.
+    note.textContent = n > 1
+      ? `${guestCfg().reset_note || ""} Dry-run lists all ${n}; a real run takes one pair at a time.`
+      : (guestCfg().reset_note || "");
+  }
+}
+
 function currentRunType() { return $("run_type").value; }
 
 function onRunTypeChange() {
   const rt = currentRunType();
   const suiteMode = rt === "test_folder" || rt === "test_case";
-  $("lesson-config").classList.toggle("hidden", suiteMode);
+  const guestMode = rt === "guest";
+  // A guest has no account and no lesson range, so those inputs go away.
+  $("lesson-config").classList.toggle("hidden", suiteMode || guestMode);
   $("suite-config").classList.toggle("hidden", !suiteMode);
+  if ($("guest-config")) $("guest-config").classList.toggle("hidden", !guestMode);
+  if (guestMode) renderGuestGrid();
   if (suiteMode) {
     $("suite-label").textContent = rt === "test_folder" ? "Test Folders" : "Test Cases";
     $("suite-hint").textContent = rt === "test_folder"
@@ -716,6 +786,9 @@ function gatherConfig(dryRun) {
   };
   if (rt === "test_folder") return { ...base, test_folders: [...SEL_FOLDERS] };
   if (rt === "test_case") return { ...base, test_cases: [...SEL_CASES] };
+  if (rt === "guest") {
+    return { ...base, guest_languages: [...SEL_LANGS], guest_levels: [...SEL_LEVELS] };
+  }
   return {
     ...base, users: getCustomUsersForRun(),
     lesson_from: parseInt($("lesson_from").value, 10),
@@ -728,6 +801,7 @@ function saveCfg() {
   try {
     localStorage.setItem(LS_KEY, JSON.stringify({
       ...gatherConfig(false), sel_folders: [...SEL_FOLDERS], sel_cases: [...SEL_CASES],
+      sel_langs: [...SEL_LANGS], sel_levels: [...SEL_LEVELS],
     }));
   } catch (e) {}
 }
@@ -745,6 +819,8 @@ function restoreConfig() {
   if (s.mode && MODES.some((m) => m.key === s.mode)) $("mode").value = s.mode;
   if (Array.isArray(s.sel_folders)) SEL_FOLDERS = new Set(s.sel_folders);
   if (Array.isArray(s.sel_cases)) SEL_CASES = new Set(s.sel_cases);
+  if (Array.isArray(s.sel_langs)) SEL_LANGS = new Set(s.sel_langs);
+  if (Array.isArray(s.sel_levels)) SEL_LEVELS = new Set(s.sel_levels);
 }
 
 // ---------------------------------------------------------------- run
@@ -752,6 +828,10 @@ function clientValidate(cfg) {
   if (cfg.run_type === "test_folder" && !(cfg.test_folders || []).length) return "Select at least one test folder.";
   if (cfg.run_type === "test_case" && !(cfg.test_cases || []).length) return "Select at least one test case.";
   if (cfg.run_type === "lesson_range" && !(cfg.users || []).length) return "Add at least one user.";
+  if (cfg.run_type === "guest") {
+    if (!(cfg.guest_languages || []).length) return "Pick at least one native language.";
+    if (!(cfg.guest_levels || []).length) return "Pick at least one English level.";
+  }
   return null;
 }
 
