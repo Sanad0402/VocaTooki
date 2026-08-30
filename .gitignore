@@ -57,3 +57,10 @@ panel.err.log
 /out.json
 /s.json
 /screenshot.png
+
+# QA checklists kept at the repo root. Root-anchored on purpose: these are
+# working copies that get a new file per release (VocaTooki_4.6.0_QA_...), so a
+# name-by-name rule would need editing every version, while an unanchored
+# *.xlsx would also swallow a spreadsheet someone deliberately versions inside
+# the tree.
+/*.xlsx
