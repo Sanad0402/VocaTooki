@@ -93,6 +93,14 @@
         "source": "run",
         "note": ""
       }
+    },
+    "TC1192": {
+      "web": {
+        "verdict": "passed",
+        "at": "2026-08-20T09:16:08.671953+00:00",
+        "source": "run",
+        "note": ""
+      }
     }
   }
 }
