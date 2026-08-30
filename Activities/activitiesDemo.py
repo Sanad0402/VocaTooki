@@ -1003,96 +1003,6 @@ def moles(altdriver):
     print("[INFO] Moles activity complete")
 
 
-def magic_trace(altdriver):
-    """Traces letters by swiping from FirstNumber to SecondNumber."""
-    total = 8
-
-    for i in range(total):
-        time.sleep(6)
-
-        # Find all FirstNumber and SecondNumber objects
-        first_numbers = altdriver.find_objects(By.NAME, "FirstNumber")
-        second_numbers = altdriver.find_objects(By.NAME, "SecondNumber")
-
-        num_paths = len(first_numbers)
-        print(f"[INFO] Found {num_paths} paths")
-
-        # Find all Curve objects (may be less than num_paths)
-        curves = altdriver.find_objects(By.NAME, "Curve")
-        print(f"[INFO] Found {len(curves)} curves")
-
-        curve_index = 0  # Track which curve we're using
-
-        # Process each path (FirstNumber[i] to SecondNumber[i])
-        for path_idx in range(num_paths):
-            print(f"[INFO] Tracing from FirstNumber[{path_idx}] to SecondNumber[{path_idx}]")
-
-            first_pos = first_numbers[path_idx].get_screen_position()
-            second_pos = second_numbers[path_idx].get_screen_position()
-
-            # Check if there's a curve available for this path
-            # We need to determine if this path has a curve or is just a straight line
-            # For now, let's check if a curve exists
-            if curve_index < len(curves):
-                # Try to use the curve
-                curve = curves[curve_index]
-
-                try:
-                    # Get bezier points from the curve
-                    bezier_points = curve.get_component_property(
-                        'IndieStudio.EnglishTracingBook.Game.Curve',
-                        'bezierPoints',
-                        'Assembly-CSharp'
-                    )
-
-                    if bezier_points and len(bezier_points) > 0:
-                        print(f"[INFO] Path {path_idx} has curve with {len(bezier_points)} bezier points")
-
-                        # Get the curve's screen position and world position for conversion
-                        curve_screen_x, curve_screen_y = curve.get_screen_position()
-                        curve_world_x = curve.worldX
-                        curve_world_y = curve.worldY
-
-                        # Calculate screen positions for bezier points
-                        screen_points = []
-                        for point in bezier_points:
-                            offset_x = point['x'] - curve_world_x
-                            offset_y = point['y'] - curve_world_y
-                            scale = 200
-                            screen_x = curve_screen_x + (offset_x * scale)
-                            screen_y = curve_screen_y + (offset_y * scale)
-                            screen_points.append((screen_x, screen_y))
-
-                        # Swipe point by point through the curve
-                        for j in range(len(screen_points) - 1):
-                            altdriver.swipe(screen_points[j], screen_points[j + 1], duration=0.05)
-
-                        curve_index += 1  # Move to next curve
-                    else:
-                        # No bezier points, do straight line
-                        print(f"[INFO] Path {path_idx} is a straight line (no bezier points)")
-                        altdriver.swipe(first_pos, second_pos, duration=1)
-
-                except Exception as e:
-                    print(f"[INFO] Path {path_idx} is a straight line (no curve): {e}")
-                    altdriver.swipe(first_pos, second_pos, duration=1)
-            else:
-                # No more curves available, do straight line
-                print(f"[INFO] Path {path_idx} is a straight line (no curve available)")
-                altdriver.swipe(first_pos, second_pos, duration=1)
-
-            # Click at the end position (SecondNumber position) to lift finger
-            altdriver.click(second_pos)
-
-            print(f"[INFO] Completed path {path_idx}, finger lifted")
-
-            # Wait 3 seconds before next path
-            time.sleep(5)
-
-        print(f"[INFO] Traced letter {i + 1}/{total}")
-
-    print("[INFO] magic_trace activity complete")
-
 def _signs_entry(altdriver, max_rounds=12, round_timeout=25):
     """Letters Sorting ("signs"): solve whichever round is currently open.
 
@@ -1214,6 +1124,24 @@ def _signs_entry(altdriver, max_rounds=12, round_timeout=25):
         time.sleep(0.8)
         return True
 
+    def activity_open():
+        """Is the Letters Sorting board still on screen?
+
+        This used to compare the scene name against "LettersSorting", which is
+        the VOCA TOOKI scene. Kideo Land runs the very same activity inside
+        `KideoLandOldActivityScene`, so the check failed on the first pass and
+        the solver returned "0 boards played" without ever reading a board --
+        every object it needs was present and correct.
+
+        Asking whether the board itself is there works for both apps and for any
+        future scene name. `WordPanel` is the target panel this solver already
+        depends on in `target()`, so if it is gone the activity is gone.
+        """
+        try:
+            return bool(altdriver.find_objects(By.NAME, "WordPanel"))
+        except Exception:
+            return True      # unreadable -> assume open; the timeout still bounds the wait
+
     def wait_for_round(timeout=30):
         """Wait for a round to be ready.
 
@@ -1231,11 +1159,8 @@ def _signs_entry(altdriver, max_rounds=12, round_timeout=25):
         """
         deadline = time.time() + timeout
         while time.time() < deadline:
-            try:
-                if altdriver.get_current_scene() != "LettersSorting":
-                    return None                     # activity closed
-            except Exception:
-                pass
+            if not activity_open():
+                return None                         # activity closed
             letter, word_ids = target()
             done, total = read_activity_progress(altdriver)
             if letter and total and done < total:
@@ -2136,121 +2061,6 @@ def solve_puzzles(altdriver):
 # solve_puzzles(alt_driver)
 
 
-# ----------------------------------------------------------------
-# Helper: swipe in an arc path for curved strokes
-# ----------------------------------------------------------------
-def swipe_arc(altdriver, start, end, center=None, steps=14, clockwise=True, duration=0.25):
-    """Helper to trace an arc path when a stroke is curved."""
-    if center is None:
-        # default center roughly above midpoint
-        center = ((start[0] + end[0]) // 2,
-                  (start[1] + end[1]) // 2 - 120)
-
-    def angle(p):
-        return math.degrees(math.atan2(p[1] - center[1], p[0] - center[0]))
-
-    start_angle = angle(start)
-    end_angle   = angle(end)
-
-    # Normalise rotation direction
-    if clockwise and end_angle > start_angle:
-        end_angle -= 360
-    if not clockwise and end_angle < start_angle:
-        end_angle += 360
-
-    points = []
-    for i in range(steps + 1):
-        t = i / steps
-        ang = math.radians(start_angle + (end_angle - start_angle) * t)
-        x = center[0] + math.cos(ang) * abs(start[0] - center[0])
-        y = center[1] + math.sin(ang) * abs(start[1] - center[1])
-        points.append((x, y))
-
-    for i in range(len(points) - 1):
-        altdriver.swipe(points[i], points[i + 1], duration=duration)
-        time.sleep(0.05)
-
-
-# ----------------------------------------------------------------
-# Inner routine: traces **one single letter** currently on screen
-# ----------------------------------------------------------------
-def trace_letter(altdriver, use_arc_for_index=None, arc_center=None):
-    """
-    Traces all strokes for the current letter already visible on screen.
-    After each stroke it taps the SecondNumber to confirm/fill.
-    """
-
-    first_numbers = altdriver.find_objects(By.NAME, "FirstNumber")
-    second_numbers = altdriver.find_objects(By.NAME, "SecondNumber")
-
-    print(f"[INFO] Found {len(first_numbers)} FirstNumber and {len(second_numbers)} SecondNumber")
-
-    total = min(len(first_numbers), len(second_numbers))
-
-    for i in range(total):
-        start_obj = first_numbers[i]
-        end_obj   = second_numbers[i]
-
-        start = start_obj.get_screen_position()
-        end   = end_obj.get_screen_position()
-
-        print(f"  Stroke {i+1}: {start_obj.name}[{i}] -> {end_obj.name}[{i}]")
-
-        if use_arc_for_index is not None and i in use_arc_for_index:
-            print("    Using arc swipe for this stroke.")
-            swipe_arc(altdriver, start, end, center=arc_center, steps=16)
-        else:
-            print("    Using straight swipe.")
-            altdriver.swipe(start, end, duration=1.0)
-
-        time.sleep(0.3)
-
-        print("    Clicking on second number to fill.")
-        altdriver.tap(end)
-        time.sleep(0.3)
-
-    print("✅ Letter tracing finished.")
-
-
-# ----------------------------------------------------------------
-# Outer routine: handles the **whole Magic Trace activity**
-#   e.g. 4 × 'N' (capital) then 4 × 'n' (small)
-# ----------------------------------------------------------------
-def magic_trace(altdriver):
-    print("[INFO] Starting Magic Trace activity…")
-
-    # read total rounds from ProgressText
-    progress_obj = altdriver.find_object(By.NAME, "ProgressText")
-    total_rounds = int(progress_obj.get_text().split("/")[1]) if progress_obj else 1
-    print(f"[INFO] Total rounds to do: {total_rounds}")
-
-    previous_letter = None
-
-    for round_idx in range(total_rounds):
-        # wait for next letter to appear
-        time.sleep(8)
-
-        # read which letter is now displayed (if available)
-        try:
-            current_letter = altdriver.find_object(By.NAME, "CurrentLetter").get_text()
-        except:
-            current_letter = "?"
-        print(f"\n=== Round {round_idx+1}/{total_rounds}: Letter '{current_letter}' ===")
-
-        # pause 5 s if we changed from capital to small or to a new letter
-        if previous_letter and current_letter != previous_letter:
-            print("[INFO] Detected letter change → waiting 5 sec for transition")
-            time.sleep(10)
-        previous_letter = current_letter
-
-        # trace the strokes of this letter
-        trace_letter(altdriver)
-
-        print(f"[INFO] Finished round {round_idx+1}/{total_rounds}")
-        time.sleep(1.0)   # short pause before next round
-
-    print("\n✅ Magic Trace activity complete.")
-
 def exams_image_to_audio(altdriver, attempts=3):
     """Match audio shapes to their word labels by swiping, verifying each one."""
     time.sleep(1)
@@ -2308,6 +2118,24 @@ def exams_image_for_voices(altdriver):
 
 import re
 import time
+
+def _bare_letters(text):
+    """`text` with any combining marks removed; identity when there are none.
+
+    Hebrew arrives pointed from both sides of the RINGS match and the points are
+    NOT letters: a cover named `CoverHolder-<ayin><tsere><final-tsadi>` is three
+    code points for a two-letter word, so the path finder hunts the vowel point
+    across the board as though it were a letter and never completes a ring.
+    Measured live on a Kideo Land board: 0 of 6 rings found before normalising
+    both sides, 6 of 6 after.
+
+    English has no combining marks, so this returns the text unchanged and the
+    comparisons it feeds are bit-identical to before -- Voca Tooki is unaffected.
+    """
+    return "".join(
+        c for c in unicodedata.normalize("NFD", text) if not unicodedata.combining(c)
+    )
+
 
 def rings(altdriver):
     """Solves RINGS: drag each structure onto the ring of letters it spells.
@@ -2508,14 +2336,15 @@ def rings(altdriver):
                 if i != j and ((a[0]-b[0])**2 + (a[1]-b[1])**2) ** 0.5 <= ADJ:
                     nbr[i].append(j)
 
-        def find(word):
-            w = "".join(word.split()).lower()
+        exact_letters = [c[2] for c in cells]
+        bare_letters = [_bare_letters(t) for t in exact_letters]
 
+        def walk(letters, w):
             def dfs(idx, pos, used):
                 if pos == len(w):
                     return list(used)
                 for k in nbr[idx]:
-                    if k in used or k in blocked or cells[k][2] != w[pos]:
+                    if k in used or k in blocked or letters[k] != w[pos]:
                         continue
                     used.append(k)
                     r = dfs(k, pos+1, used)
@@ -2524,13 +2353,40 @@ def rings(altdriver):
                     used.pop()
                 return None
 
-            for i, c in enumerate(cells):
-                if i in blocked or c[2] != w[0]:
+            for i in range(len(cells)):
+                if i in blocked or letters[i] != w[0]:
                     continue
                 r = dfs(i, 1, [i])
                 if r:
                     return r
             return None
+
+        def find(word):
+            """Match on exact letters first; only then retry ignoring marks.
+
+            Hebrew (and Arabic) arrive POINTED on both sides and the points are
+            not letters, so an exact walk can never complete a ring -- measured
+            live, 0 of 6. Stripping marks fixes that.
+
+            But the app also targets pt, es, de and tr, where a marked character
+            IS its own letter: Spanish 'ano' and 'anno-with-tilde' are different
+            words, Turkish dotless i is not i, German umlauts are distinct. There
+            the board carries the accented tile itself, so a stripped match could
+            walk a wrong-but-similar path.
+
+            Trying exact first means those languages resolve on pass one and never
+            reach the fallback, while pointed scripts still get solved. The
+            fallback is skipped entirely when stripping changes nothing.
+            """
+            w_exact = "".join(word.split()).lower()
+            found = walk(exact_letters, w_exact)
+            if found:
+                return found
+
+            w_bare = _bare_letters(w_exact)
+            if w_bare == w_exact and bare_letters == exact_letters:
+                return None  # nothing to strip; the retry would be identical
+            return walk(bare_letters, w_bare)
 
         return find
 
@@ -4824,3 +4680,271 @@ def _reenter_signs(altdriver, timeout=40):
             when_finish_activity(altdriver)
         time.sleep(5)
     return False
+
+
+# ----------------------------------------------------------------
+# LETTERS_TRACING — "Magic Trace"
+#
+# The board is the IndieStudio EnglishTracingBook rig:
+#
+#   <X>-letter-shape            [Shape]        completed = whole letter done
+#     Content/Paths
+#       Path-1-2                [TracingPath]  completed / tracedPoints
+#         Curve                 [Curve]        ENABLED only while this stroke
+#           Point0..PointN                     is the one to draw next
+#       Path-2-3 ... Path-N-M
+#       FirstNumber / SecondNumber (the numbered circles, one pair per path)
+#
+# The strokes are ordered and the game hands them out one at a time: the only
+# stroke you may draw is the one whose Curve is enabled. Its Point children are
+# the collider dots the finger has to cross, and AltTester reports their live
+# screen position — so the solver reads every coordinate off a named object and
+# never assumes a resolution or a letter shape. A curved stroke simply carries
+# more Points, and tracing through them in order follows the curve.
+#
+# A letter is drawn 4 times (ProgressText "n/4"); the same shape object is reset
+# between repetitions rather than replaced. When the capital round is done the
+# game switches to the lower round and the same loop draws the small letter.
+# ----------------------------------------------------------------
+_LT_ASM = "Assembly-CSharp"
+_LT_PATH = "IndieStudio.EnglishTracingBook.Game.TracingPath"
+_LT_MANAGER = "com.kideo.learn.english.LettersTracingGameManager"
+
+
+def _lt_read_board(altdriver):
+    """Every stroke of the letter on screen, in drawing order.
+
+    Points are read with enabled=False too: the game disables the dots of every
+    stroke but the current one, and we still want their positions so a stroke
+    can be recognised before it goes live.
+    """
+    try:
+        elements = altdriver.get_all_elements(enabled=False)
+    except Exception:
+        # The board is torn down the moment the activity ends; a read that
+        # lands mid-teardown is "no strokes left", not a failure.
+        return []
+    children = {}
+    for obj in elements:
+        children.setdefault(obj.transformParentId, []).append(obj)
+
+    paths_nodes = [o for o in elements if o.name == "Paths" and o.enabled]
+    if not paths_nodes:
+        return []
+
+    def path_order(obj):
+        return [int(n) for n in re.findall(r"\d+", obj.name)]
+
+    def point_order(obj):
+        return int(re.sub(r"\D", "", obj.name) or 0)
+
+    board = []
+    for path in sorted([c for c in children.get(paths_nodes[0].transformId, [])
+                        if c.name.startswith("Path-")], key=path_order):
+        points, live = [], False
+        for curve in [c for c in children.get(path.transformId, []) if c.name == "Curve"]:
+            live = live or curve.enabled
+            for dot in sorted([d for d in children.get(curve.transformId, [])
+                               if d.name.startswith("Point")], key=point_order):
+                points.append((float(dot.x), float(dot.y)))
+        board.append({"obj": path, "name": path.name, "live": live, "points": points})
+    return board
+
+
+def _lt_path_completed(path):
+    try:
+        return bool(path["obj"].get_component_property(_LT_PATH, "completed", _LT_ASM))
+    except Exception:
+        return False
+
+
+def _lt_active(board):
+    """The stroke the game is waiting for, or None."""
+    for path in board:
+        if path["live"] and len(path["points"]) >= 2 and not _lt_path_completed(path):
+            return path
+    return None
+
+
+def _lt_progress(altdriver):
+    """(done, total) off ProgressText, or (None, None) while it is missing."""
+    try:
+        done, total = altdriver.find_object(By.NAME, "ProgressText").get_text().split("/")
+        return int(done), int(total)
+    except Exception:
+        return None, None
+
+
+def _lt_round(altdriver):
+    """Name + letterType (0 = capital, 1 = small) of the round being played."""
+    try:
+        manager = altdriver.find_object(By.NAME, "LettersTracingGameManager")
+        current = manager.get_component_property(_LT_MANAGER, "currentRound", _LT_ASM, max_depth=1)
+        return current.get("name"), current.get("letterType")
+    except Exception:
+        return None, None
+
+
+def _lt_wait_for_stroke(altdriver, timeout=30.0, poll=0.4, stable_reads=3):
+    """Wait until a stroke is live AND has stopped moving.
+
+    The letter animates in after every repetition, and again when the round
+    flips to the small letter; dots grabbed mid-animation trace a path that is
+    no longer where the letter is. The tail of that animation eases out, so two
+    matching reads can still land on a letter that is drifting sub-pixel —
+    hence three in a row before the stroke is considered settled.
+    """
+    deadline = time.time() + timeout
+    previous, repeats = None, 0
+    while time.time() < deadline:
+        active = _lt_active(_lt_read_board(altdriver))
+        if active is not None:
+            current = (active["name"], active["points"])
+            repeats = repeats + 1 if previous == current else 1
+            previous = current
+            if repeats >= stable_reads:
+                return active
+        else:
+            previous, repeats = None, 0
+        time.sleep(poll)
+    return None
+
+
+def _lt_trace(altdriver, points):
+    """Draw one stroke with a single held finger.
+
+    swipe() presses and lifts on every call, so a stroke built out of swipes is
+    really N separate taps and the game drops it. One begin/move/end with
+    densely interpolated moves is what registers as tracing.
+    """
+    _width, height = (float(v) for v in altdriver.get_application_screensize())
+    step = max(3.0, height * 0.006)      # sampling follows the screen, not a constant
+
+    samples = [points[0]]
+    for start, end in zip(points, points[1:]):
+        span = math.hypot(end[0] - start[0], end[1] - start[1])
+        slices = max(1, int(span / step))
+        for i in range(1, slices + 1):
+            ratio = i / slices
+            samples.append((start[0] + (end[0] - start[0]) * ratio,
+                            start[1] + (end[1] - start[1]) * ratio))
+
+    finger = altdriver.begin_touch(samples[0])
+    try:
+        time.sleep(0.15)
+        for sample in samples:
+            altdriver.move_touch(finger, sample)
+        time.sleep(0.15)
+    finally:
+        altdriver.end_touch(finger)
+
+
+def _lt_dismiss_dialogs(altdriver):
+    """Clear the confirm/booster popups that swallow touches while they are open."""
+    for dialog, button in (("ResetShapeConfirmDialog", "NoButton"),
+                           ("RenewHelpBoosterDialog", "NoButton")):
+        try:
+            popup = altdriver.find_object(By.NAME, dialog)
+            if not popup.get_component_property("UnityEngine.GameObject", "activeInHierarchy",
+                                                "UnityEngine.CoreModule"):
+                continue
+        except Exception:
+            continue
+        try:
+            popup.find_object_from_object(By.NAME, button).click()
+            print(f"[INFO] dismissed {dialog}")
+            time.sleep(0.5)
+        except Exception as e:
+            print(f"[WARN] could not dismiss {dialog}: {e}")
+
+
+_LT_FEEDBACK = "FeedbackPopup(Clone)"
+
+
+def _lt_exit_feedback(altdriver, timeout=25.0, poll=1.0):
+    """Close the end-of-activity feedback so the app returns to activity selection.
+
+    The run ends on FeedbackPopup(Clone); until its ExitButton is clicked the
+    app sits in LETTERS_TRACING behind the popup and whatever runs next opens
+    on top of it. Nothing on this screen is read or graded — it is only closed.
+    The button is clicked as an object, never at a coordinate.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            popup = altdriver.find_object(By.NAME, _LT_FEEDBACK)
+            popup.find_object_from_object(By.NAME, "ExitButton").click()
+            print("[INFO] closed the final feedback popup")
+            return True
+        except Exception:
+            time.sleep(poll)
+    print("[WARN] final feedback popup never appeared — nothing to close")
+    return False
+
+
+def letters_tracing(altdriver, stroke_attempts=3, idle_timeout=30.0):
+    """Trace every letter of the Magic Trace activity, capital round then small.
+
+    Purely state driven: it keeps asking the board which stroke is live and
+    draws that one, so it follows however many repetitions and rounds the
+    activity is configured for without being told the letter or the counts.
+    """
+    print("[INFO] LETTERS_TRACING: starting")
+
+    strokes = 0
+    letters = 0
+    rounds_seen = []
+    last_round, last_type = _lt_round(altdriver)
+    if last_round:
+        rounds_seen.append(last_round)
+        print(f"[INFO] round '{last_round}' "
+              f"({'capital' if last_type == 0 else 'small'} letters)")
+
+    while True:
+        _lt_dismiss_dialogs(altdriver)
+
+        stroke = _lt_wait_for_stroke(altdriver, timeout=idle_timeout)
+        if stroke is None:
+            print("[INFO] no stroke offered any more — activity finished")
+            break
+
+        # A new round means the small-letter half started; say so, it is the
+        # part of this activity that is easiest to silently skip.
+        name, letter_type = _lt_round(altdriver)
+        if name and name != last_round:
+            rounds_seen.append(name)
+            print(f"[INFO] round changed to '{name}' "
+                  f"({'capital' if letter_type == 0 else 'small'} letters)")
+            last_round, last_type = name, letter_type
+
+        for attempt in range(1, stroke_attempts + 1):
+            _lt_trace(altdriver, stroke["points"])
+            time.sleep(0.6)
+            if _lt_path_completed(stroke):
+                strokes += 1
+                break
+            print(f"[WARN] {stroke['name']} did not register "
+                  f"(attempt {attempt}/{stroke_attempts}) — re-reading and retrying")
+            # The stroke may have been reset under us; take its live position again.
+            refreshed = _lt_wait_for_stroke(altdriver, timeout=8.0)
+            if refreshed is None:
+                break
+            stroke = refreshed
+        else:
+            raise AssertionError(
+                f"LETTERS_TRACING: stroke {stroke['name']} would not complete "
+                f"after {stroke_attempts} attempts")
+
+        done, total = _lt_progress(altdriver)
+        if done is not None and done != letters:
+            letters = done
+            print(f"[INFO] letter traced — progress {done}/{total} in '{last_round}'")
+
+    done, total = _lt_progress(altdriver)
+    closed = _lt_exit_feedback(altdriver)
+
+    print(f"LETTERS_TRACING RESULT: {strokes} strokes drawn across rounds "
+          f"{rounds_seen or ['unknown']}; final progress {done}/{total}; "
+          f"final feedback {'closed' if closed else 'not seen'}. "
+          f"Traced with real finger drags over the game's own stroke points; "
+          f"the score and stars on the feedback screen are not asserted.")

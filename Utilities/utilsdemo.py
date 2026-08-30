@@ -320,7 +320,8 @@ def run_activity(altdriver, activity):
         'PIPES':A.pipes,
         'RINGS':A.rings,
         'PARASHOOT':A.parashoot,
-        'TETRIS':A.tetris
+        'TETRIS':A.tetris,
+        'LETTERS_TRACING':A.letters_tracing
     }
 
     if scene not in activity_map:
