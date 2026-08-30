@@ -321,7 +321,8 @@ def run_activity(altdriver, activity):
         'RINGS':A.rings,
         'PARASHOOT':A.parashoot,
         'TETRIS':A.tetris,
-        'LETTERS_TRACING':A.letters_tracing
+        'LETTERS_TRACING':A.letters_tracing,
+        'LETTERS_SLIDER_TRACING':A.letters_slider_tracing
     }
 
     if scene not in activity_map:
@@ -469,6 +470,19 @@ def when_finish_activity(altdriver, retries=3, delay=1):
         except Exception as e:
             logging.warning(f"Attempt {attempt}: Failed to click ExitButton - {e}")
             time.sleep(delay)
+
+    # Fallback, reached only when "prev" was never found. Some activities
+    # (LETTERS_TRACING) put their result screen up as FeedbackPopup(Clone) and
+    # the SideToolbar holding "prev" is gone behind it, so the loop above can
+    # never succeed. The popup carries its own exit. When "prev" IS found the
+    # behaviour above is unchanged and this never runs.
+    try:
+        popup = altdriver.find_object(By.NAME, "FeedbackPopup(Clone)")
+        popup.find_object_from_object(By.NAME, "ExitButton").click()
+        logging.info("Exit via the result popup's ExitButton.")
+        return
+    except Exception as e:
+        logging.warning(f"Result popup exit not available either - {e}")
 
     logging.error("Failed to exit activity after multiple retries.")
 
@@ -628,6 +642,8 @@ def get_activity_solver_map():
         'RINGS': A.rings,
         'PARASHOOT': A.parashoot,
         'TETRIS': A.tetris,
+        'LETTERS_TRACING': A.letters_tracing,
+        'LETTERS_SLIDER_TRACING': A.letters_slider_tracing,
     }
 
 
