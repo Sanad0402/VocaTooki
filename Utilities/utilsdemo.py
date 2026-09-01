@@ -11,6 +11,20 @@ import time
 FAILED_ACTIVITIES = set()
 activity_report = []
 # Generic Method Invoker
+# The backend the data endpoints talk to. It MOVED from vtbe to green: on
+# 2026-09-01 get-class-map answered 404 with "Error 1A001F01A32" on vtbe for
+# every class and every map id, while green returned the map. That 404 was
+# silent all the way up -- get_level returned -1, enter_to_level returned False,
+# and a whole lesson run reported ten lessons "FAILED, 0s".
+#
+# Kept as ONE overridable name rather than a host repeated per call, which is
+# how half the file ended up on green (VT_TASKS_API) and half still on vtbe.
+_VT_DATA_API_DEFAULT = "https://green.vocatooki.com/data"
+# `os` is imported far below, so read the override the same way VT_TASKS_API
+# does rather than moving an import and disturbing the module's load order.
+VT_DATA_API = __import__("os").getenv("VT_DATA_API") or _VT_DATA_API_DEFAULT
+
+
 def call_method(altdriver, component_name, method_name, parameters=None, parameter_types=None,
                 game_object=None, game_object_name="AltTesterPrefab", assembly="Assembly-CSharp"):
     """
@@ -107,7 +121,7 @@ def get_user_state(user_id, avatar_version, awards_version, lessons_version, add
         "add_is_complete": add_is_complete
     }
     try:
-        response = requests.post("http://vtbe.vocatooki.com/data/get-user-state", json=payload)
+        response = requests.post(f"{VT_DATA_API}/get-user-state", json=payload)
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
@@ -512,7 +526,7 @@ def get_class_map(class_id, map_id):
     Returns:
         dict: Map data as JSON, or an empty dict on failure.
     """
-    url = f"https://vtbe.vocatooki.com/data/get-class-map/{class_id}/{map_id}"
+    url = f"{VT_DATA_API}/get-class-map/{class_id}/{map_id}"
     logging.info(f"[get_class_map] Fetching map for class_id={class_id}, map_id={map_id}")
 
     try:
@@ -582,22 +596,15 @@ def enter_to_level(altdriver, class_id, lesson_number, type="lesson", difficulty
         return False
 
     try:
-        # --- Try standard map path first ---
-        level_objs = altdriver.find_objects(By.PATH, "/MainMap(Clone)/Map Backgrounds/Levels/level_icons/*")
+        # Anchored search, so a new map prefab needs no code change. Every map so
+        # far (MainMap, 5thMap, Map_4, ...) puts its icons under the same
+        # Levels/level_icons node, and _find_level_icons keeps the rooted paths
+        # as fallbacks. Hunting prefab by prefab is what made Map_4 a code edit.
+        level_objs = _find_level_icons(altdriver)
 
-        # --- If no icons found, fallback to 5thMap path ---
-        if not level_objs or len(level_objs) == 0:
-            logging.warning("[Map Navigation] No levels found under MainMap(Clone). Trying 5thMap(Clone)...")
-            level_objs = altdriver.find_objects(By.PATH, "/5thMap(Clone)/Map Backgrounds/Levels/level_icons/*")
-
-        # --- If no icons found, fallback to 5thMap path ---
-        if not level_objs or len(level_objs) == 0:
-            logging.warning("[Map Navigation] No levels found under MainMap(Clone). Trying 5thMap(Clone)...")
-            level_objs = altdriver.find_objects(By.PATH, "/Map_4(Clone)/Map Backgrounds/Levels/level_icons/*")
-
-        # --- Validate result ---
-        if not level_objs or len(level_objs) == 0:
-            logging.error("[Map Navigation] No level icons found in either MainMap or 5thMap.")
+        if not level_objs:
+            logging.error(f"[Map Navigation] No level icons on the current map "
+                          f"(scene: {_current_scene(altdriver)})")
             return False
 
         if level_num >= len(level_objs):
@@ -673,7 +680,8 @@ def _find_level_icons(altdriver):
     """
     for path in ("//Levels/level_icons/*",
                  "/MainMap(Clone)/Map Backgrounds/Levels/level_icons/*",
-                 "/5thMap(Clone)/Map Backgrounds/Levels/level_icons/*"):
+                 "/5thMap(Clone)/Map Backgrounds/Levels/level_icons/*",
+                 "/Map_4(Clone)/Map Backgrounds/Levels/level_icons/*"):
         try:
             objs = altdriver.find_objects(By.PATH, path)
             if objs:
@@ -6265,12 +6273,12 @@ def get_auth_headers(token=None, username=None, password=None, force_refresh=Fal
 def get_user_exam_by_userid_examid(userid_examid, class_id=2336, token=None, username=None, password=None):
     """
     Calls:
-    GET https://vtbe.vocatooki.com/data/get-user-exams/{user_id}/{class_id}
+    GET {VT_DATA_API}/get-user-exams/{user_id}/{class_id}
 
     Returns only the matching record for userid_examid.
     """
     user_id = extract_user_id_from_userid_examid(userid_examid)
-    url = f"https://vtbe.vocatooki.com/data/get-user-exams/{user_id}/{class_id}"
+    url = f"{VT_DATA_API}/get-user-exams/{user_id}/{class_id}"
 
     headers = get_auth_headers(token=token, username=username, password=password)
 
