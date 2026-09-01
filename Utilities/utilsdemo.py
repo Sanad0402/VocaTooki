@@ -1151,6 +1151,14 @@ def open_feature(altdriver, feature, username=None, password=None, timeout=40,
     retried = False
     while time.time() < deadline:
         here = _current_scene(altdriver)
+        # The placement pretest is a KNOWN destination, not a slow load. Sitting
+        # out the whole timeout before noticing it cost 40s of every gated
+        # login (measured end to end at 59.7s, nearly all of it here), so leave
+        # at once and let the handler after this loop deal with it.
+        if here == PRETEST_SCENE:
+            logging.info(f"[Feature] landed on {PRETEST_SCENE} — not waiting "
+                         f"the rest of the timeout out")
+            break
         # Still sitting on the hub well after the press means the press went
         # nowhere -- on a NEW account Voca's introduction bubble covers the hub
         # and swallows it. Waiting the full timeout just turns that into a slow
