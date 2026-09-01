@@ -267,9 +267,30 @@ ACTIVITY_INTRO_TIMEOUT = 20
 # can scale up a beat AFTER the blocker goes, so "nothing right now" is not the
 # same as "nothing coming".
 ACTIVITY_INTRO_QUIET = 1.5
+# How long an activity is given to fetch its lesson files and build its board.
+ACTIVITY_LOAD_TIMEOUT = 60
 
 
-def clear_activity_intro(altdriver, timeout=ACTIVITY_INTRO_TIMEOUT,
+def wait_for_activity_board(altdriver, scene="", timeout=ACTIVITY_LOAD_TIMEOUT):
+    """Wait until the activity's OWN board exists, not just its scene name.
+
+    An activity reports its scene about a second after it is opened and then
+    sits on a loading screen -- "טוען... מוריד קבצי שיעור" with a download size,
+    measured live entering SEARCH -- while it fetches the lesson files. Nothing
+    of the activity is on screen yet, so anything that asks "is the parrot up?"
+    in that window is answered "no" about a screen that has not been built, and
+    the intro then arrives AFTER the check has passed.
+
+    The activity's own distinctive objects are the honest signal. An activity
+    with no entry in ACTIVITY_UI_MARKERS falls back to the scene settling.
+    """
+    markers = ACTIVITY_UI_MARKERS.get(scene or "")
+    if markers and wait_for_any(altdriver, markers, timeout=timeout):
+        return True
+    return wait_for_scene_ready(altdriver, label=scene or "activity")
+
+
+def clear_activity_intro(altdriver, scene="", timeout=ACTIVITY_INTRO_TIMEOUT,
                          quiet_for=ACTIVITY_INTRO_QUIET, poll=0.3):
     """Get the instructions parrot off the board BEFORE a solver touches it.
 
@@ -280,9 +301,14 @@ def clear_activity_intro(altdriver, timeout=ACTIVITY_INTRO_TIMEOUT,
     still on it -- every press lands on the intro and the activity scores
     nothing, which reads exactly like a solver that cannot play.
 
-    So this keeps clearing until BOTH have stayed away for `quiet_for` seconds.
+    Waits for the BOARD first (see wait_for_activity_board): declaring the intro
+    over while the activity is still downloading is the same mistake in a
+    different coat.
+
+    Then keeps clearing until BOTH have stayed away for `quiet_for` seconds.
     Returns True when it had to clear something.
     """
+    wait_for_activity_board(altdriver, scene)
     deadline = time.time() + timeout
     acted, quiet_since = False, None
     while time.time() < deadline:
@@ -463,7 +489,7 @@ def run_activity(altdriver, activity):
     # an activity opens; until it is clicked away every press lands on it.
     # Wait the parrot OUT, do not just knock once: the bubble can arrive after
     # the blocker leaves, and a solver that starts under it scores nothing.
-    clear_activity_intro(altdriver)
+    clear_activity_intro(altdriver, scene)
     activity_frame(altdriver, scene, ACTIVITY_FRAMES[0])      # the board as it opened
 
     try:
