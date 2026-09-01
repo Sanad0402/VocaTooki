@@ -831,7 +831,18 @@ class RunManager:
                     start_screen = StartScreen(driver, utilsdemo=utilsdemo)
                     map_page = MapPage(driver)
                     start_screen.login(username, user["password"])
-                    start_screen.go_to_map()
+                    # open_feature, NOT start_screen.go_to_map(): go_to_map taps
+                    # GO-Map and asserts nothing, so a press the hub swallowed
+                    # counted as success and every lesson then "ran" against the
+                    # hub, recording nothing in 0s. open_feature proves the map
+                    # is really showing (Levels / level_icons / CountersPanel)
+                    # and names the placement pretest when that is what is in
+                    # the way, so navigation fails HERE, loudly, once.
+                    if not utilsdemo.open_feature(driver, "map"):
+                        raise AssertionError(
+                            f"the map did not open for {username} — see the "
+                            f"[Feature] line above for why (a swallowed press, "
+                            f"or the placement pretest gating this account)")
                     self._sleep(6)
                     self._shoot(f"map-{username}")
                 except Exception as e:

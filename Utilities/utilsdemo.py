@@ -590,6 +590,11 @@ def enter_to_level(altdriver, class_id, lesson_number, type="lesson", difficulty
             logging.warning("[Map Navigation] No levels found under MainMap(Clone). Trying 5thMap(Clone)...")
             level_objs = altdriver.find_objects(By.PATH, "/5thMap(Clone)/Map Backgrounds/Levels/level_icons/*")
 
+        # --- If no icons found, fallback to 5thMap path ---
+        if not level_objs or len(level_objs) == 0:
+            logging.warning("[Map Navigation] No levels found under MainMap(Clone). Trying 5thMap(Clone)...")
+            level_objs = altdriver.find_objects(By.PATH, "/Map_4(Clone)/Map Backgrounds/Levels/level_icons/*")
+
         # --- Validate result ---
         if not level_objs or len(level_objs) == 0:
             logging.error("[Map Navigation] No level icons found in either MainMap or 5thMap.")
@@ -934,6 +939,11 @@ def daily_game_won(altdriver, timeout=20):
 # declared to be missing it.
 FEATURE_BUTTON_TIMEOUT = 20
 
+# How long to let a feature press work before deciding it was swallowed and
+# pressing again. Long enough that a slow scene load is never mistaken for a
+# dead press.
+FEATURE_PRESS_RETRY_AFTER = 10
+
 
 def open_feature(altdriver, feature, username=None, password=None, timeout=40):
     """Open a start-screen feature by name ("events", "tasks", ...).
@@ -963,11 +973,29 @@ def open_feature(altdriver, feature, username=None, password=None, timeout=40):
         logging.error(f"[Feature] '{spec['button']}' is not on the start screen "
                       f"after {FEATURE_BUTTON_TIMEOUT}s (scene: {_current_scene(altdriver)})")
         return False
+    # A first-run greeting can sit over the hub and eat the press. Clear any
+    # blocker we know about before pressing, so the common case needs no retry.
+    dismiss_screen_blocker(altdriver)
     click_by_name(altdriver, spec["button"])
 
     deadline = time.time() + timeout
+    swallowed_deadline = time.time() + FEATURE_PRESS_RETRY_AFTER
+    retried = False
     while time.time() < deadline:
         here = _current_scene(altdriver)
+        # Still sitting on the hub well after the press means the press went
+        # nowhere -- on a NEW account Voca's introduction bubble covers the hub
+        # and swallows it. Waiting the full timeout just turns that into a slow
+        # failure, so press once more with the blocker cleared. Guarded on being
+        # on the START scene so this can never double-fire mid-navigation.
+        if (not retried and here == START_SCENE
+                and time.time() > swallowed_deadline):
+            logging.info(f"[Feature] still on {START_SCENE} — the press was "
+                         f"swallowed; clearing blockers and pressing "
+                         f"'{spec['button']}' again")
+            dismiss_screen_blocker(altdriver)
+            click_by_name(altdriver, spec["button"])
+            retried = True
         if spec["scene"] and here == spec["scene"]:
             # Opened is not the same as ready — let it finish building before
             # anything presses into a half-built screen.
