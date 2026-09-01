@@ -1112,7 +1112,8 @@ FEATURE_BUTTON_TIMEOUT = 20
 FEATURE_PRESS_RETRY_AFTER = 10
 
 
-def open_feature(altdriver, feature, username=None, password=None, timeout=40):
+def open_feature(altdriver, feature, username=None, password=None, timeout=40,
+                 skip_pretest=True):
     """Open a start-screen feature by name ("events", "tasks", ...).
 
     Goes back to the start screen first (from wherever the app is), clicks the
@@ -1183,10 +1184,22 @@ def open_feature(altdriver, feature, username=None, password=None, timeout=40):
 
     here = _current_scene(altdriver)
     if here == PRETEST_SCENE:
-        # The account's class is configured for a pretest in the CRM, and the
-        # map is behind it. Named explicitly so the failure says WHY: nothing is
-        # broken and no wait will fix it. Depends on the class config, not on
-        # the account being new — so another account may not hit this at all.
+        # The account's class is configured for a pretest in the CRM and the map
+        # is behind it. It does NOT have to be sat: five node entries make a Skip
+        # appear, and taking it lands on the map (user, 2026-09-01).
+        if skip_pretest:
+            logging.info(f"[Feature] '{feature}' is behind the placement "
+                         f"PRETEST — skipping it")
+            if pretest_skip(altdriver) and _current_scene(altdriver) == MAP_SCENE:
+                wait_for_scene_ready(altdriver, label=MAP_SCENE)
+                logging.info(f"[Feature] pretest skipped — '{feature}' reached")
+                return feature == "map"
+            logging.error(f"[Feature] could not get past the placement pretest "
+                          f"(scene: {_current_scene(altdriver)})")
+            return False
+        # Named explicitly so the failure says WHY: nothing is broken and no
+        # wait will fix it. Depends on the class config, not on the account
+        # being new — another account may not hit this at all.
         logging.error(f"[Feature] '{feature}' is behind the placement PRETEST: "
                       f"this account's class is configured for a pretest in the "
                       f"CRM and it has not been taken, so the map cannot be "
