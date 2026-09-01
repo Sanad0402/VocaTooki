@@ -259,6 +259,45 @@ def capture_failure_screenshot(altdriver, label):
         return ""
 
 
+
+# The three frames every solved activity leaves behind: the board as it opened,
+# the board once the solver finished with it, and the result screen. Three is
+# enough to see WHAT was played and that the game accepted it, and few enough
+# that a ten-lesson run does not bury the report.
+ACTIVITY_FRAMES = ("1-opened", "2-solved", "3-feedback")
+
+# What proves the game itself accepted the activity. FeedbackPopup(Clone) is the
+# shared result screen; "prev" is the older marker and is kept as a fallback,
+# though it is weak -- the side toolbar carries one during play too.
+ACTIVITY_RESULT_MARKERS = ("FeedbackPopup(Clone)", "ResultPanel", "WinDialog")
+
+
+def activity_frame(altdriver, scene, phase):
+    """Save one numbered frame for an activity. Never raises, never blocks."""
+    try:
+        from runner import screenshots as _screenshots   # local: runner imports us
+        return _screenshots.evidence(altdriver, phase, tc_id=scene)
+    except Exception as e:                              # noqa: BLE001
+        logging.debug(f"[shots] frame '{phase}' for {scene} not taken: {e}")
+        return None
+
+
+def wait_for_activity_result(altdriver, timeout=25, poll=1.0):
+    """True once the activity's result screen is up.
+
+    The solver returning only says the SOLVER finished; this says the GAME
+    accepted it. An activity that never reaches its result screen is not a pass
+    (see the never-pass-without-verifying rule).
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        for marker in ACTIVITY_RESULT_MARKERS:
+            if find_any(altdriver, marker) is not None:
+                return True
+        time.sleep(poll)
+    return False
+
+
 def run_activity(altdriver, activity):
     import time
     from datetime import datetime
@@ -380,6 +419,7 @@ def run_activity(altdriver, activity):
     # The instructions parrot covers the board with BlockScreenWithoutClick when
     # an activity opens; until it is clicked away every press lands on it.
     dismiss_screen_blocker(altdriver)
+    activity_frame(altdriver, scene, ACTIVITY_FRAMES[0])      # the board as it opened
 
     try:
         if scene == 'CROSSWORD2':
@@ -402,6 +442,18 @@ def run_activity(altdriver, activity):
                 if attempt == 3:
                     raise
                 time.sleep(2)
+
+        activity_frame(altdriver, scene, ACTIVITY_FRAMES[1])  # the finished board
+
+        # The solver finishing is not the same as the game accepting it. Without
+        # this an activity that was "solved" into a screen the game ignored is
+        # reported PASSED, which is the exact false green the project forbids.
+        if not wait_for_activity_result(altdriver):
+            raise AssertionError(
+                f"{scene}: the solver finished but no result screen appeared "
+                f"(looked for {', '.join(ACTIVITY_RESULT_MARKERS)}) — the game "
+                f"did not accept this as a completed activity")
+        activity_frame(altdriver, scene, ACTIVITY_FRAMES[2])   # the result screen
 
         end_time = datetime.now()
         activity_report.append({
@@ -1943,20 +1995,67 @@ def is_on_screen(altdriver, target, margin=0.0):
     return True
 
 
-def dismiss_help_popup(altdriver, settle=0.4):
+# The parrot's bubble, whichever side it is on. It is HIDDEN BY SCALING TO ZERO,
+# not by going inactive: activeInHierarchy, enabled, position and findability are
+# identical either way, so localScale is the only honest reading.
+PARROT_BUBBLES = ("left_bubble", "right_bubble")
+
+
+def parrot_bubble_shown(altdriver):
+    """True/False when the bubble can be read, None when it cannot be.
+
+    Measured live (PuzzleScene, 2026-09-01): shown = localScale 5.0 on every
+    axis, hidden = 0.0. None means no bubble object was readable at all, which
+    is a different thing from "hidden" and is why the caller keeps its old
+    behaviour in that case rather than assuming a clean screen.
+    """
+    readable = False
+    for name in PARROT_BUBBLES:
+        obj = find_any(altdriver, name)
+        if obj is None:
+            continue
+        try:
+            scale = obj.get_component_property(
+                "UnityEngine.Transform", "localScale", "UnityEngine.CoreModule")
+        except Exception:                            # noqa: BLE001
+            continue
+        readable = True
+        if any(abs(float(scale.get(axis) or 0.0)) > 0.01 for axis in ("x", "y", "z")):
+            return True
+    return False if readable else None
+
+
+def dismiss_help_popup(altdriver, settle=0.4, verify_timeout=3.0):
     """Close the parrot's instruction bubble. Returns True when it acted.
 
-    Every exam page opens with one ("All you have to do is drag the ...") and it
-    TYPES ITSELF OUT, so waiting for it to finish costs seconds on every page —
-    the solver can start the moment it is gone. 'HelpButton' is the app's own
-    control for that bubble; tapping an empty point is the fallback.
+    'HelpButton' is the app's own control for that bubble -- the instructions
+    icon -- but it TOGGLES. Pressing it blind on a screen where the bubble is
+    already down OPENS one over the controls; measured live on PuzzleScene, a
+    blind press took localScale from 0.0 to 5.0. So the bubble is read first and
+    the icon is pressed only when it is really showing.
 
-    Call this only where the popup is actually expected (entering a page): the
-    button toggles the bubble, so pressing it on a clean screen would OPEN one.
+    Every exam page opens with a bubble ("All you have to do is drag the ...")
+    that TYPES ITSELF OUT, so waiting for it to finish costs seconds on every
+    page -- the solver can start the moment it is gone.
     """
+    shown = parrot_bubble_shown(altdriver)
+    if shown is False:
+        logging.debug("[Help] no instruction bubble on screen — leaving "
+                      "'HelpButton' alone (pressing it would OPEN one)")
+        return False
+
     obj = find_any(altdriver, "HelpButton")
     if obj is not None and _press(obj):
-        logging.info("[Help] closed the instruction popup via 'HelpButton'")
+        deadline = time.time() + verify_timeout
+        while time.time() < deadline:
+            if parrot_bubble_shown(altdriver) is False:
+                logging.info("[Help] closed the instruction bubble via 'HelpButton'")
+                return True
+            time.sleep(0.3)
+        # Unreadable bubbles cannot be confirmed either way; the press still
+        # happened, and this is the path the old unconditional code always took.
+        logging.info("[Help] pressed 'HelpButton'"
+                     + ("" if shown is None else " but the bubble is still up"))
         time.sleep(settle)
         return True
     return tap_empty_area(altdriver)
