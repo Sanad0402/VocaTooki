@@ -260,6 +260,49 @@ def capture_failure_screenshot(altdriver, label):
 
 
 
+
+# How long to keep clearing an activity's intro before giving up on it.
+ACTIVITY_INTRO_TIMEOUT = 20
+# How long nothing may need clearing before the intro counts as over. The bubble
+# can scale up a beat AFTER the blocker goes, so "nothing right now" is not the
+# same as "nothing coming".
+ACTIVITY_INTRO_QUIET = 1.5
+
+
+def clear_activity_intro(altdriver, timeout=ACTIVITY_INTRO_TIMEOUT,
+                         quiet_for=ACTIVITY_INTRO_QUIET, poll=0.3):
+    """Get the instructions parrot off the board BEFORE a solver touches it.
+
+    Two separate things arrive with an opening activity and they do NOT arrive
+    together: the full-screen `BlockScreenWithoutClick`, and the parrot's own
+    bubble, which can scale up a second or two after the blocker has gone.
+    Clearing once on entry therefore hands the solver a board with the parrot
+    still on it -- every press lands on the intro and the activity scores
+    nothing, which reads exactly like a solver that cannot play.
+
+    So this keeps clearing until BOTH have stayed away for `quiet_for` seconds.
+    Returns True when it had to clear something.
+    """
+    deadline = time.time() + timeout
+    acted, quiet_since = False, None
+    while time.time() < deadline:
+        busy = bool(dismiss_screen_blocker(altdriver))
+        if parrot_bubble_shown(altdriver) is True:
+            dismiss_help_popup(altdriver)
+            busy = True
+        if busy:
+            acted, quiet_since = True, None
+        else:
+            quiet_since = quiet_since or time.time()
+            if time.time() - quiet_since >= quiet_for:
+                if acted:
+                    logging.info("[Activity] intro cleared — the board is free")
+                return acted
+        time.sleep(poll)
+    logging.warning(f"[Activity] the intro was still appearing after {timeout}s; "
+                    f"solving anyway")
+    return acted
+
 # The three frames every solved activity leaves behind: the board as it opened,
 # the board once the solver finished with it, and the result screen. Three is
 # enough to see WHAT was played and that the game accepted it, and few enough
@@ -418,7 +461,9 @@ def run_activity(altdriver, activity):
 
     # The instructions parrot covers the board with BlockScreenWithoutClick when
     # an activity opens; until it is clicked away every press lands on it.
-    dismiss_screen_blocker(altdriver)
+    # Wait the parrot OUT, do not just knock once: the bubble can arrive after
+    # the blocker leaves, and a solver that starts under it scores nothing.
+    clear_activity_intro(altdriver)
     activity_frame(altdriver, scene, ACTIVITY_FRAMES[0])      # the board as it opened
 
     try:
@@ -2028,11 +2073,12 @@ def parrot_bubble_shown(altdriver):
 def dismiss_help_popup(altdriver, settle=0.4, verify_timeout=3.0):
     """Close the parrot's instruction bubble. Returns True when it acted.
 
-    'HelpButton' is the app's own control for that bubble -- the instructions
-    icon -- but it TOGGLES. Pressing it blind on a screen where the bubble is
-    already down OPENS one over the controls; measured live on PuzzleScene, a
-    blind press took localScale from 0.0 to 5.0. So the bubble is read first and
-    the icon is pressed only when it is really showing.
+    Dismissed by CLICKING ELSEWHERE, which is how the app itself closes it and
+    the only way that cannot backfire. 'HelpButton' -- the instructions icon --
+    is kept as a fallback, but it TOGGLES: pressing it blind on a screen where
+    the bubble is already down OPENS one over the controls (measured live on
+    PuzzleScene, a blind press took localScale from 0.0 to 5.0). So the bubble
+    is read first, and the icon is only ever pressed when it is really up.
 
     Every exam page opens with a bubble ("All you have to do is drag the ...")
     that TYPES ITSELF OUT, so waiting for it to finish costs seconds on every
@@ -2040,25 +2086,38 @@ def dismiss_help_popup(altdriver, settle=0.4, verify_timeout=3.0):
     """
     shown = parrot_bubble_shown(altdriver)
     if shown is False:
-        logging.debug("[Help] no instruction bubble on screen — leaving "
-                      "'HelpButton' alone (pressing it would OPEN one)")
+        logging.debug("[Help] no instruction bubble on screen — nothing to "
+                      "dismiss (pressing 'HelpButton' here would OPEN one)")
         return False
 
-    obj = find_any(altdriver, "HelpButton")
-    if obj is not None and _press(obj):
+    def gone():
         deadline = time.time() + verify_timeout
         while time.time() < deadline:
             if parrot_bubble_shown(altdriver) is False:
-                logging.info("[Help] closed the instruction bubble via 'HelpButton'")
                 return True
             time.sleep(0.3)
-        # Unreadable bubbles cannot be confirmed either way; the press still
-        # happened, and this is the path the old unconditional code always took.
+        return False
+
+    # Click ELSEWHERE first -- that is how the app itself dismisses the bubble,
+    # and it cannot backfire. tap_empty_area only taps a point the app reports
+    # as holding no object, so no control is pressed by accident.
+    if tap_empty_area(altdriver) and gone():
+        logging.info("[Help] dismissed the instruction bubble by tapping an "
+                     "empty point")
+        return True
+
+    # Fallback: the instructions icon. It TOGGLES, so it is only safe here,
+    # where the bubble is known to be up.
+    obj = find_any(altdriver, "HelpButton")
+    if obj is not None and _press(obj):
+        if gone():
+            logging.info("[Help] closed the instruction bubble via 'HelpButton'")
+            return True
         logging.info("[Help] pressed 'HelpButton'"
                      + ("" if shown is None else " but the bubble is still up"))
         time.sleep(settle)
         return True
-    return tap_empty_area(altdriver)
+    return False
 
 
 ACTIVITY_EXITS = ("prev", "BackButton", "X", "CloseButton", "Close")
