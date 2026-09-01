@@ -261,6 +261,35 @@ def capture_failure_screenshot(altdriver, label):
 
 
 
+
+# The text node inside the parrot's bubble. The parrot SPEAKS its instructions
+# and the bubble then goes away on its own, so a board is only really free once
+# there are no instruction words left on it.
+PARROT_TEXT_NODE = "Text - RTLTMP"
+
+
+def parrot_instructions_text(altdriver):
+    """The instruction words on screen right now, or '' when there are none.
+
+    Only counts while the bubble is actually SHOWN: the string can linger in a
+    hidden (scaled-to-zero) bubble, and words nobody can see are not in the
+    solver's way -- treating those as "still talking" would hang every entry.
+    """
+    if parrot_bubble_shown(altdriver) is not True:
+        return ""
+    for name in PARROT_BUBBLES:
+        bubble = find_any(altdriver, name)
+        if bubble is None:
+            continue
+        try:
+            text = (bubble.find_object_from_object(
+                By.NAME, PARROT_TEXT_NODE).get_text() or "").strip()
+        except Exception:                            # noqa: BLE001
+            continue
+        if text:
+            return text
+    return ""
+
 # How long to keep clearing an activity's intro before giving up on it.
 ACTIVITY_INTRO_TIMEOUT = 20
 # How long nothing may need clearing before the intro counts as over. The bubble
@@ -305,7 +334,10 @@ def clear_activity_intro(altdriver, scene="", timeout=ACTIVITY_INTRO_TIMEOUT,
     over while the activity is still downloading is the same mistake in a
     different coat.
 
-    Then keeps clearing until BOTH have stayed away for `quiet_for` seconds.
+    Then keeps clearing until the blocker, the bubble AND the instruction WORDS
+    have all stayed away for `quiet_for` seconds -- the parrot speaks its
+    instructions and only then goes, so a solver must not start while there is
+    still text on the board (user, 2026-09-01).
     Returns True when it had to clear something.
     """
     wait_for_activity_board(altdriver, scene)
@@ -313,7 +345,11 @@ def clear_activity_intro(altdriver, scene="", timeout=ACTIVITY_INTRO_TIMEOUT,
     acted, quiet_since = False, None
     while time.time() < deadline:
         busy = bool(dismiss_screen_blocker(altdriver))
-        if parrot_bubble_shown(altdriver) is True:
+        words = parrot_instructions_text(altdriver)
+        if words:
+            logging.info(f"[Activity] the parrot is still saying "
+                         f"{words[:60]!r} — waiting it out")
+        if words or parrot_bubble_shown(altdriver) is True:
             dismiss_help_popup(altdriver)
             busy = True
         if busy:
@@ -2099,9 +2135,8 @@ def parrot_bubble_shown(altdriver):
 def dismiss_help_popup(altdriver, settle=0.4, verify_timeout=3.0):
     """Close the parrot's instruction bubble. Returns True when it acted.
 
-    Dismissed by CLICKING ELSEWHERE, which is how the app itself closes it and
-    the only way that cannot backfire. 'HelpButton' -- the instructions icon --
-    is kept as a fallback, but it TOGGLES: pressing it blind on a screen where
+    Closed with 'HelpButton', the instructions icon -- the control the app gives
+    for this bubble. It TOGGLES: pressing it blind on a screen where
     the bubble is already down OPENS one over the controls (measured live on
     PuzzleScene, a blind press took localScale from 0.0 to 5.0). So the bubble
     is read first, and the icon is only ever pressed when it is really up.
@@ -2124,16 +2159,11 @@ def dismiss_help_popup(altdriver, settle=0.4, verify_timeout=3.0):
             time.sleep(0.3)
         return False
 
-    # Click ELSEWHERE first -- that is how the app itself dismisses the bubble,
-    # and it cannot backfire. tap_empty_area only taps a point the app reports
-    # as holding no object, so no control is pressed by accident.
-    if tap_empty_area(altdriver) and gone():
-        logging.info("[Help] dismissed the instruction bubble by tapping an "
-                     "empty point")
-        return True
-
-    # Fallback: the instructions icon. It TOGGLES, so it is only safe here,
-    # where the bubble is known to be up.
+    # 'HelpButton' is the control the app gives for this bubble and is what
+    # closes it (user, 2026-09-01). It TOGGLES, which is why it is only reached
+    # here, where the bubble is known to be up. Tapping elsewhere is kept only
+    # as a fallback: a full board has no empty point to tap, measured live on
+    # BEE_CAREFUL ("found no empty point to tap").
     obj = find_any(altdriver, "HelpButton")
     if obj is not None and _press(obj):
         if gone():
@@ -2142,6 +2172,11 @@ def dismiss_help_popup(altdriver, settle=0.4, verify_timeout=3.0):
         logging.info("[Help] pressed 'HelpButton'"
                      + ("" if shown is None else " but the bubble is still up"))
         time.sleep(settle)
+        return True
+
+    if tap_empty_area(altdriver) and gone():
+        logging.info("[Help] dismissed the instruction bubble by tapping an "
+                     "empty point (no 'HelpButton' on this screen)")
         return True
     return False
 
