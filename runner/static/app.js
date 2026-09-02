@@ -1258,6 +1258,12 @@ function renderResults(groups) {
         err += `<details><summary>📷 screenshot (where it got stuck)</summary>
           <a href="${url}" target="_blank"><img src="${url}" style="max-width:420px"></a></details>`;
       }
+      // The per-activity evidence frames (1-opened / 2-solved / 3-feedback).
+      // Keyed by the activity NAME, which is exactly the label screenshots.py
+      // files them under. Without this a lesson run only ever showed the
+      // failure shot, so a PASSED activity's evidence was written to disk and
+      // never surfaced.
+      err += shotsHtml(e.activity);
       return `<tr><td>${escapeHtml(e.activity || "")}</td>
         <td class="st-${escapeHtml(e.status || "")}">${escapeHtml(e.status || "")}</td>
         <td>${escapeHtml(e.duration || "")}</td><td>${err}</td></tr>`;
