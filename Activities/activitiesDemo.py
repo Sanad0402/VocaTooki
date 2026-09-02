@@ -3422,6 +3422,24 @@ def turtle_island(altdriver):
             return 999999
         return min(abs(pos - a) for a in allowed)
 
+    def press_point(turtle):
+        """Where to GRAB a turtle for a drag.
+
+        Not its transform. The transform sits at the BOTTOM EDGE of the turtle's
+        collider -- BoxCollider2D.offset.y = +1.08 with size.y = 2.17 -- so a
+        drag begun there is never picked up. Measured live 2026-09-02: dragging
+        transform -> transform did nothing across swipe/multipoint/held-drag at
+        every duration tried, while dragging the `shield` child (the body
+        centre, about 58px higher) swapped the letters on the first attempt.
+
+        `shield` is a child of the turtle, so this stays object-derived and does
+        not assume a resolution.
+        """
+        try:
+            return turtle.find_object_from_object(By.NAME, "shield").get_screen_position()
+        except Exception:
+            return turtle.get_screen_position()
+
     print("[info] starting turtle island activity...")
 
     # get total words
@@ -3565,9 +3583,9 @@ def turtle_island(altdriver):
 
             # perform swap
             try:
-                start = wrong["obj"].get_screen_position()
-                end = best["obj"].get_screen_position()
-                altdriver.swipe(start, end, 0.7)
+                start = press_point(wrong["obj"])
+                end = press_point(best["obj"])
+                altdriver.swipe(start, end, 1.0)
                 time.sleep(1.5)
             except Exception as e:
                 print(f"[error] swap failed: {e}")
