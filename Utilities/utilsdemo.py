@@ -483,7 +483,8 @@ def run_activity(altdriver, activity):
         'PARASHOOT':A.parashoot,
         'TETRIS':A.tetris,
         'LETTERS_TRACING':A.letters_tracing,
-        'LETTERS_SLIDER_TRACING':A.letters_slider_tracing
+        'LETTERS_SLIDER_TRACING':A.letters_slider_tracing,
+        'SHARKS':A.sharks
     }
 
     if scene not in activity_map:
@@ -843,6 +844,7 @@ def get_activity_solver_map():
         'TETRIS': A.tetris,
         'LETTERS_TRACING': A.letters_tracing,
         'LETTERS_SLIDER_TRACING': A.letters_slider_tracing,
+        'SHARKS': A.sharks,
     }
 
 
