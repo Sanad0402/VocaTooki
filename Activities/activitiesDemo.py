@@ -4242,6 +4242,26 @@ def tetris(altdriver):
     print("[warn] tetris: time budget exhausted at %d/%d." % (a, b))
 
 
+def _exam_prefab_name(altdriver, *candidates):
+    """The name a shared exam prefab actually has in the game that is running.
+
+    Voca Tooki and Kideo Land ship the SAME exam pages -- same scripts, same
+    fields, same `com.kideo.learn.english.*` components -- but Kideo Land
+    prefixes the prefab names: `SwapWord(Clone)` there is `KL_SwapWord(Clone)`.
+    A solver that hardcodes one name finds nothing in the other game, and
+    "found nothing" quietly reads as "nothing left to do".
+
+    Returns the first candidate that is on screen, or None.
+    """
+    for name in candidates:
+        try:
+            if altdriver.find_objects(By.NAME, name):
+                return name
+        except Exception:
+            continue
+    return None
+
+
 def exam_swap_letters(altdriver, max_swaps_per_word=40, row_attempts=3):
     """Solve the "swap letters" exam page.
 
@@ -4267,12 +4287,18 @@ def exam_swap_letters(altdriver, max_swaps_per_word=40, row_attempts=3):
     so a drag that does not register is caught immediately rather than leaving
     the page unsolvable (the page refuses to advance while any row is wrong).
     """
+    row_name = _exam_prefab_name(altdriver, "SwapWord(Clone)", "KL_SwapWord(Clone)")
+    if row_name is None:
+        raise AssertionError(
+            "swap-letters exam: no word rows on the page — looked for "
+            "SwapWord(Clone) and KL_SwapWord(Clone). Nothing was solved.")
+
     def rows_count():
-        return len(altdriver.find_objects(By.NAME, "SwapWord(Clone)"))
+        return len(altdriver.find_objects(By.NAME, row_name))
 
     def row_word(i):
         try:
-            row = altdriver.find_object(By.PATH, f"//SwapWord(Clone)[{i}]")
+            row = altdriver.find_object(By.PATH, f"//{row_name}[{i}]")
             return row.get_component_property(
                 "com.kideo.learn.english.SwapTestWord", "word", "Assembly-CSharp")
         except Exception:
@@ -4281,7 +4307,7 @@ def exam_swap_letters(altdriver, max_swaps_per_word=40, row_attempts=3):
     def row_letters(i):
         """The letter objects of row i only — by hierarchy, so never mismatched."""
         try:
-            return altdriver.find_objects(By.PATH, f"//SwapWord(Clone)[{i}]/LettersContainer/*")
+            return altdriver.find_objects(By.PATH, f"//{row_name}[{i}]/LettersContainer/*")
         except Exception:
             return []
 
@@ -4367,9 +4393,11 @@ def exam_swap_letters(altdriver, max_swaps_per_word=40, row_attempts=3):
             unsolved.append(word)
 
     if unsolved:
-        print(f"[WARN] rows still unsolved: {unsolved}")
-    else:
-        print("[INFO] all rows solved")
+        raise AssertionError(
+            f"swap-letters exam: {len(unsolved)} of {total} row(s) still wrong: {unsolved}")
+    print(f"EXAM_SWAP_LETTERS RESULT: {total} word(s) put in order — {words}. "
+          f"Each row was read back from the game after its swaps; the page's own "
+          f"score screen is not asserted.")
 
 
 def exam_shuffled_context(altdriver, question_attempts=3):
