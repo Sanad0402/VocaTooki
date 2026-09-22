@@ -79,8 +79,10 @@ def test_solvers_still_get_what_they_star_import():
 
 
 def _package_modules():
+    """Every module in the package, sub-packages included (e.g. solvers.third_grade.letters_search)."""
     root = pathlib.Path(__file__).parents[2] / "vocatooki"
-    return sorted(p.stem for p in root.glob("*.py") if p.stem != "__init__")
+    return sorted(".".join(p.relative_to(root).with_suffix("").parts)
+                  for p in root.rglob("*.py") if p.stem != "__init__")
 
 
 @pytest.mark.parametrize("module", _package_modules())

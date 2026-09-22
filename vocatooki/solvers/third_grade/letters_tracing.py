@@ -1,4 +1,4 @@
-"""LETTERS_TRACING and LETTERS_SLIDER_TRACING: stroke tracing, then the slide puzzle.
+"""3rd grade - LETTERS_TRACING and LETTERS_SLIDER_TRACING: trace the strokes, then solve the slide puzzle.
 
 Moved out of Activities/activitiesDemo.py unchanged (2026-09-22); every name is
 still reachable as activitiesDemo.<name>.

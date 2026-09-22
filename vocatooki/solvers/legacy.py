@@ -1,5 +1,4 @@
-"""Solvers and helpers nothing calls today. Kept (not deleted) so no caller can break;
-remove one only after checking it is truly unused.
+"""Solvers and helpers nothing calls today. Kept (not deleted) so no caller can break; remove one only after checking it is truly unused.
 
 Moved out of Activities/activitiesDemo.py unchanged (2026-09-22); every name is
 still reachable as activitiesDemo.<name>.

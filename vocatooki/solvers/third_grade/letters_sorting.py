@@ -1,4 +1,4 @@
-"""LETTERS_SORTING (signs).
+"""3rd grade - LETTERS_SORTING (signs): sort the letters onto their signs.
 
 Moved out of Activities/activitiesDemo.py unchanged (2026-09-22); every name is
 still reachable as activitiesDemo.<name>.

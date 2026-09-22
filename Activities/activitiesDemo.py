@@ -31,16 +31,36 @@ from vocatooki.solvers.text_utils import (  # noqa: F401
     base_arabic_mapping, is_rtl, normalize_text,
 )
 
-from vocatooki.solvers.quizzes import (  # noqa: F401
-    echo_order, fill_in, gap_guru, lexi_match, moving, spiders, translation_wiz, type_it_right,
+from vocatooki.solvers.search import (  # noqa: F401
+    search,
 )
 
-from vocatooki.solvers.word_finding import (  # noqa: F401
-    find_matching_pairs, hang_words, ispy, megaphone, memory, radar, search, search_3rd,
+from vocatooki.solvers.memory_cards import (  # noqa: F401
+    find_matching_pairs, memory,
 )
 
-from vocatooki.solvers.bubbles import (  # noqa: F401
-    bubbels, bubbels_activity_3rd,
+from vocatooki.solvers.sentence_completion import (  # noqa: F401
+    fill_in,
+)
+
+from vocatooki.solvers.missing_bubble import (  # noqa: F401
+    bubbels,
+)
+
+from vocatooki.solvers.sentence_translation import (  # noqa: F401
+    spiders,
+)
+
+from vocatooki.solvers.listen_find import (  # noqa: F401
+    megaphone,
+)
+
+from vocatooki.solvers.echo_order import (  # noqa: F401
+    echo_order,
+)
+
+from vocatooki.solvers.translation_wiz import (  # noqa: F401
+    translation_wiz,
 )
 
 from vocatooki.solvers.frogger import (  # noqa: F401
@@ -48,8 +68,36 @@ from vocatooki.solvers.frogger import (  # noqa: F401
     _frogger_has_empty_blank, _frogger_tiles,
 )
 
+from vocatooki.solvers.gap_guru import (  # noqa: F401
+    gap_guru,
+)
+
 from vocatooki.solvers.bee_careful import (  # noqa: F401
     bee,
+)
+
+from vocatooki.solvers.radar import (  # noqa: F401
+    radar,
+)
+
+from vocatooki.solvers.type_it_right import (  # noqa: F401
+    type_it_right,
+)
+
+from vocatooki.solvers.hang_words import (  # noqa: F401
+    hang_words,
+)
+
+from vocatooki.solvers.words_matching import (  # noqa: F401
+    moving,
+)
+
+from vocatooki.solvers.unscramble import (  # noqa: F401
+    lexi_match,
+)
+
+from vocatooki.solvers.ispy import (  # noqa: F401
+    ispy,
 )
 
 from vocatooki.solvers.crosswords import (  # noqa: F401
@@ -85,11 +133,25 @@ from vocatooki.solvers.tetris import (  # noqa: F401
     tetris,
 )
 
-from vocatooki.solvers.letter_sorting import (  # noqa: F401
+from vocatooki.solvers.sharks import (  # noqa: F401
+    sharks, _SHARKS_ASM, _sharks_board, _sharks_dodge, _sharks_hazards, _sharks_hearts,
+    _sharks_islands, _SHARKS_LEAD, _sharks_offshore, _sharks_pick, _sharks_pixels_per_unit,
+    _sharks_progress, _SHARKS_RAFT, _sharks_route, _sharks_sail_to, _sharks_take_retry,
+)
+
+from vocatooki.solvers.third_grade.letters_search import (  # noqa: F401
+    search_3rd,
+)
+
+from vocatooki.solvers.third_grade.letters_bubbles import (  # noqa: F401
+    bubbels_activity_3rd,
+)
+
+from vocatooki.solvers.third_grade.letters_sorting import (  # noqa: F401
     _reenter_signs, signs, _signs_entry,
 )
 
-from vocatooki.solvers.letters_tracing import (  # noqa: F401
+from vocatooki.solvers.third_grade.letters_tracing import (  # noqa: F401
     letters_slider_tracing, letters_tracing, _LST_GOAL, _lst_grid, _lst_order_pieces,
     _lst_read_tiles, _lst_solve, _lst_tap, _LST_TILE, _lst_trace_round, _lst_wait_for_grid,
     _lst_wait_for_letters, _lt_active, _LT_ASM, _lt_curve_polyline, _lt_dismiss_dialogs,
@@ -97,12 +159,6 @@ from vocatooki.solvers.letters_tracing import (  # noqa: F401
     _LT_MIN_SWIPE, _LT_OVERSHOOT, _LT_PATH, _lt_path_alive, _lt_path_completed, _lt_progress,
     _lt_read_board, _lt_round, _lt_trace, _lt_wait_completed, _lt_wait_for_letter,
     _lt_writing_order,
-)
-
-from vocatooki.solvers.sharks import (  # noqa: F401
-    sharks, _SHARKS_ASM, _sharks_board, _sharks_dodge, _sharks_hazards, _sharks_hearts,
-    _sharks_islands, _SHARKS_LEAD, _sharks_offshore, _sharks_pick, _sharks_pixels_per_unit,
-    _sharks_progress, _SHARKS_RAFT, _sharks_route, _sharks_sail_to, _sharks_take_retry,
 )
 
 from vocatooki.solvers.exam_pages import (  # noqa: F401
