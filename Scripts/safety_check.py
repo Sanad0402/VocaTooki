@@ -59,8 +59,9 @@ def run(cmd):
 
 def check_unit():
     step("2/3 unit (offline contract + behaviour)")
+    # -o addopts= : pytest.ini says --maxfail=1; a safety check must list EVERY failure.
     r = run([sys.executable, "-m", "pytest", "Tests/unit", "--noconftest", "-q",
-             "-p", "no:cacheprovider"])
+             "-p", "no:cacheprovider", "-o", "addopts="])
     tail = [l for l in r.stdout.splitlines() if l.strip()][-3:]
     print("  " + "\n  ".join(tail))
     return r.returncode == 0

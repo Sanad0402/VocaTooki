@@ -13,6 +13,14 @@ import time
 from alttester import By
 
 from Utilities.utils_audio import say, init_audio  # or wherever you placed it
+from Utilities import utilsdemo as _utilsdemo
+
+
+def __getattr__(name):
+    """Run-time values (the chosen API) that `import *` cannot copy: read live."""
+    if name in _utilsdemo._LIVE_NAMES:
+        return getattr(_utilsdemo, name)
+    raise AttributeError(f"module 'Activities.activitiesDemo' has no attribute {name!r}")
 
 
 def search(altdriver):
