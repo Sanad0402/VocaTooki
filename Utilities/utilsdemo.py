@@ -11,18 +11,131 @@ import time
 FAILED_ACTIVITIES = set()
 activity_report = []
 # Generic Method Invoker
-# The backend the data endpoints talk to. It MOVED from vtbe to green: on
-# 2026-09-01 get-class-map answered 404 with "Error 1A001F01A32" on vtbe for
-# every class and every map id, while green returned the map. That 404 was
-# silent all the way up -- get_level returned -1, enter_to_level returned False,
-# and a whole lesson run reported ten lessons "FAILED, 0s".
+# The backend the data endpoints talk to. No single host has every class. On
+# 2026-09-01 get-class-map answered 404 ("Error 1A001F01A32") on vtbe for every
+# class while green returned the map, so everything moved to green. On
+# 2026-09-12 class 35 turned out to live on vtbetest, which green 404s
+# ("Error 1A039D6F790") -- while green still holds 2336/651/2335/2337, which
+# vtbetest 404s. The hosts are two class sets, not two versions of one.
 #
-# Kept as ONE overridable name rather than a host repeated per call, which is
-# how half the file ended up on green (VT_TASKS_API) and half still on vtbe.
+# A miss is silent the whole way up -- get_class_map -> {} -> get_level -> -1 ->
+# enter_to_level -> False -> nothing recorded -> a lesson reporting "FAILED,
+# 0s". So get_class_map ASKS EACH host in turn and takes the first that really
+# holds the class, instead of trusting whichever host was right last month.
+# See _vt_data_bases().
 _VT_DATA_API_DEFAULT = "https://green.vocatooki.com/data"
 # `os` is imported far below, so read the override the same way VT_TASKS_API
 # does rather than moving an import and disturbing the module's load order.
 VT_DATA_API = __import__("os").getenv("VT_DATA_API") or _VT_DATA_API_DEFAULT
+
+# The hosts a class map is looked for on, in order. They hold DIFFERENT class
+# sets -- none is "the" backend (get-class-map probed 2026-09-22):
+#
+#   green     2336 (55 lessons), 651 (45)   <- the classes the suite runs
+#   vtbetest  35 (55), 1 (45)
+#   vtbe2027  651 (45), 35 (55), 1 (45)
+#   vtbe      answers, but held none of 2336/651/35/1 -- not in the auto chain
+#
+# green leads so the classes the tests use cost no wasted round-trip; the
+# others follow for the classes only they have. All are asked before anything
+# is called missing.
+_VT_DATA_API_HOSTS_DEFAULT = (
+    "https://green.vocatooki.com/data",
+    "https://vtbetest.vocatooki.com/data",
+    "https://vtbe2027.vocatooki.com/data",
+)
+
+# The backends a run can be POINTED at, by the names the team uses. The runner
+# panel asks for one before every run (user, 2026-09-22) and hands it over as
+# VT_BACKEND; "auto" keeps the ask-each-host chain above.
+VT_BACKEND_AUTO = "auto"
+VT_BACKENDS = {
+    "green": "https://green.vocatooki.com/data",
+    "vtbe": "https://vtbe.vocatooki.com/data",
+    "vtbetest": "https://vtbetest.vocatooki.com/data",
+    "vtbe2027": "https://vtbe2027.vocatooki.com/data",
+}
+_VT_BACKEND = VT_BACKEND_AUTO
+# What the environment said before any backend was chosen, so "auto" can put
+# it back instead of wiping an override someone set in their own shell.
+_VT_ENV_AT_IMPORT = {k: __import__("os").environ.get(k)
+                     for k in ("VT_DATA_API", "VT_DATA_API_HOSTS", "VT_TASKS_API")}
+
+
+def current_backend():
+    """The backend this process was pointed at: a VT_BACKENDS key, or 'auto'."""
+    return _VT_BACKEND
+
+
+def backend_pinned():
+    """True when a run named its backend — nothing may then quietly switch it."""
+    return _VT_BACKEND != VT_BACKEND_AUTO
+
+
+def set_backend(name):
+    """Point EVERY data call at one backend, or back to the auto chain.
+
+    Covers get-class-map (pinned, no fallback), get-user-state, get-user-exams
+    and the task endpoints. Takes effect at once — module globals are rewritten,
+    not just the environment, because VT_DATA_API / VT_TASKS_API are read at
+    import time. Also clears the per-class host memo, or a class resolved under
+    the previous backend would keep its old host. Returns the name applied.
+    """
+    global _VT_BACKEND, VT_DATA_API, VT_TASKS_API
+    _os = __import__("os")
+    key = (name or VT_BACKEND_AUTO).strip().lower()
+    if key != VT_BACKEND_AUTO and key not in VT_BACKENDS:
+        raise ValueError(f"unknown backend '{name}' — choose one of "
+                         f"{[VT_BACKEND_AUTO] + list(VT_BACKENDS)}")
+
+    if key == VT_BACKEND_AUTO:
+        for env_key, value in _VT_ENV_AT_IMPORT.items():
+            if value is None:
+                _os.environ.pop(env_key, None)
+            else:
+                _os.environ[env_key] = value
+        VT_DATA_API = _VT_ENV_AT_IMPORT["VT_DATA_API"] or _VT_DATA_API_DEFAULT
+        VT_TASKS_API = _VT_ENV_AT_IMPORT["VT_TASKS_API"] or _VT_TASKS_API_DEFAULT
+    else:
+        base = VT_BACKENDS[key]
+        _os.environ["VT_DATA_API"] = base          # _vt_data_bases(): pin, no fallback
+        _os.environ.pop("VT_DATA_API_HOSTS", None)
+        _os.environ["VT_TASKS_API"] = base
+        VT_DATA_API = VT_TASKS_API = base
+    _os.environ["VT_BACKEND"] = key
+    _CLASS_MAP_HOST.clear()
+    _VT_BACKEND = key
+    logging.info(f"[Backend] {key}" + ("" if key == VT_BACKEND_AUTO
+                                       else f" -> {VT_BACKENDS[key]}"))
+    return key
+
+
+def _vt_data_bases():
+    """The data hosts to ask for a class map, in order, without duplicates.
+
+    VT_DATA_API_HOSTS (comma-separated) replaces the list outright. A bare
+    VT_DATA_API instead PINS the lookup to that single host: someone who names
+    an environment wants THAT environment's data, and a quiet fallback to a
+    different one is exactly the half-here-half-there mismatch this file has
+    already been bitten by.
+    """
+    _os = __import__("os")
+    listed = _os.getenv("VT_DATA_API_HOSTS")
+    pinned = _os.getenv("VT_DATA_API")
+    if listed:
+        bases = [b.strip() for b in listed.split(",") if b.strip()]
+    elif pinned:
+        bases = [pinned]
+    else:
+        bases = list(_VT_DATA_API_HOSTS_DEFAULT)
+
+    ordered, seen = [], set()
+    for base in bases:
+        base = base.rstrip("/")
+        if base and base not in seen:
+            seen.add(base)
+            ordered.append(base)
+    return ordered
 
 
 def call_method(altdriver, component_name, method_name, parameters=None, parameter_types=None,
@@ -369,7 +482,40 @@ def clear_activity_intro(altdriver, scene="", timeout=ACTIVITY_INTRO_TIMEOUT,
 # the board once the solver finished with it, and the result screen. Three is
 # enough to see WHAT was played and that the game accepted it, and few enough
 # that a ten-lesson run does not bury the report.
-ACTIVITY_FRAMES = ("1-opened", "2-solved", "3-feedback")
+ACTIVITY_FRAMES = ("1-start", "2-mid", "3-feedback")
+
+# The MID frame is taken while the solver plays, not after it: before every
+# click/tap (parrot_guard.ACTION_HOOKS) the progress counter is read, at most
+# once a second, and the first time it reaches HALF (4/8) the frame is shot.
+# An activity with no counter gets it 15s into the solve instead. (User,
+# 2026-09-22: frames 2 and 3 used to be taken seconds apart at the end.)
+MID_FRAME_FALLBACK_SECONDS = 15.0
+_MID = {"driver": None, "scene": "", "taken": False, "checked": 0.0, "since": 0.0}
+
+
+def _mid_activity_frame(driver):
+    """ACTION_HOOK: shoot the mid frame once the activity is half done."""
+    st = _MID
+    if st["taken"] or st["driver"] is None or st["driver"] is not driver:
+        return
+    now = time.time()
+    if now - st["checked"] < 1.0:
+        return
+    st["checked"] = now
+    done, total = read_activity_progress(driver)
+    halfway = bool(total) and done >= max(1, total // 2)
+    no_counter_late = not total and now - st["since"] >= MID_FRAME_FALLBACK_SECONDS
+    if halfway or no_counter_late:
+        st["taken"] = True
+        activity_frame(driver, st["scene"], ACTIVITY_FRAMES[1])
+        logging.info(f"[shots] mid frame for {st['scene']}"
+                     + (f" at {done}/{total}" if total else " (no counter, 15s in)"))
+
+
+def _watch_mid_frame(driver, scene):
+    """Arm (scene given) or disarm (scene None) the mid-frame hook."""
+    _MID.update(driver=driver if scene else None, scene=scene or "",
+                taken=False, checked=0.0, since=time.time())
 
 # What proves the game itself accepted the activity. FeedbackPopup(Clone) is the
 # shared result screen; "prev" is the older marker and is kept as a fallback,
@@ -531,6 +677,7 @@ def run_activity(altdriver, activity):
     # the blocker leaves, and a solver that starts under it scores nothing.
     clear_activity_intro(altdriver, scene)
     activity_frame(altdriver, scene, ACTIVITY_FRAMES[0])      # the board as it opened
+    _watch_mid_frame(altdriver, scene)                        # frame 2 is shot mid-solve
 
     try:
         if scene == 'CROSSWORD2':
@@ -542,20 +689,38 @@ def run_activity(altdriver, activity):
         # second run finishes what a lost drag left behind instead of failing
         # the whole lesson (and burning the activity into FAILED_ACTIVITIES,
         # which makes every later lesson skip it).
+        #
+        # A lesson run must play the activity TO THE END (user, 2026-09-22):
+        # FROGGER was reported PASSED after 2:06 with blanks still empty,
+        # because "the solver returned" was all that was checked. So after each
+        # attempt the game itself is asked whether it finished; an unfinished
+        # activity is played again, and after three it FAILS with the reason.
         for attempt in range(1, 4):
             try:
                 activity_map[scene](altdriver)
-                if attempt > 1:
-                    print(f"[INFO] {scene} solved on attempt {attempt}/3")
-                break
             except Exception as solver_error:
                 print(f"[WARN] {scene} failed on attempt {attempt}/3: {solver_error}")
                 if attempt == 3:
                     raise
                 time.sleep(2)
+                continue
 
-        activity_frame(altdriver, scene, ACTIVITY_FRAMES[1])  # the finished board
+            finished, note = activity_finished(altdriver)
+            if finished is not False:            # True, or no counter to judge by
+                if attempt > 1:
+                    print(f"[INFO] {scene} solved on attempt {attempt}/3")
+                if finished is None:
+                    logging.warning(f"[Activity] {scene}: {note} — cannot prove it "
+                                    f"was played to the end; not counted as a failure")
+                break
+            print(f"[WARN] {scene} not finished on attempt {attempt}/3: {note}")
+            if attempt == 3:
+                raise AssertionError(f"{scene} was not played to the end: {note}")
+            retry_lost_activity(altdriver)
+            time.sleep(2)
 
+
+        _watch_mid_frame(altdriver, None)                     # solving is over
         # OBSERVED, NOT ENFORCED -- and that was a hard-won distinction.
         #
         # Requiring a result screen here looked right ("the solver finishing is
@@ -576,7 +741,7 @@ def run_activity(altdriver, activity):
                 f"{', '.join(ACTIVITY_RESULT_MARKERS)}). The solver finished, so "
                 f"this is NOT counted as a failure — but nothing here proves the "
                 f"game accepted it.")
-        activity_frame(altdriver, scene, ACTIVITY_FRAMES[2])   # the end screen
+        activity_frame(altdriver, scene, ACTIVITY_FRAMES[2])   # the final feedback
 
         end_time = datetime.now()
         activity_report.append({
@@ -589,6 +754,7 @@ def run_activity(altdriver, activity):
 
     except Exception as e:
         error_msg = traceback.format_exc()
+        _watch_mid_frame(altdriver, None)
         print(f"[EXCEPTION] Activity {scene} failed: {e}")
         FAILED_ACTIVITIES.add(scene)
 
@@ -690,9 +856,20 @@ def when_finish_activity(altdriver, retries=3, delay=1):
 
 
 
+# Which host last served a given class, so a run that resolves ten lessons pays
+# the losing host's 404 once instead of ten times.
+_CLASS_MAP_HOST = {}
+
+
 def get_class_map(class_id, map_id):
     """
     Fetches the class map configuration from the backend.
+
+    Asks each host in _vt_data_bases() in turn and returns the first that
+    actually holds the map, so a class that has moved environments is still
+    found. On total failure it logs what EVERY host said, because an unread
+    class map makes get_level return -1 and only surfaces much later, as a
+    lesson that "FAILED, 0s".
 
     Args:
         class_id (int): ID of the class.
@@ -701,27 +878,54 @@ def get_class_map(class_id, map_id):
     Returns:
         dict: Map data as JSON, or an empty dict on failure.
     """
-    url = f"{VT_DATA_API}/get-class-map/{class_id}/{map_id}"
+    bases = _vt_data_bases()
+    # Ask whichever host answered for this class last time first.
+    known = _CLASS_MAP_HOST.get(str(class_id))
+    if known in bases:
+        bases = [known] + [b for b in bases if b != known]
+
     logging.info(f"[get_class_map] Fetching map for class_id={class_id}, map_id={map_id}")
+    tried = []
 
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()
+    for base in bases:
+        url = f"{base}/get-class-map/{class_id}/{map_id}"
+        try:
+            response = requests.get(url, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+        except requests.exceptions.HTTPError as e:
+            code = getattr(getattr(e, "response", None), "status_code", "?")
+            tried.append(f"{base} -> HTTP {code}")
+            continue
+        except requests.exceptions.RequestException as e:
+            tried.append(f"{base} -> {type(e).__name__}")
+            continue
+        except ValueError:
+            tried.append(f"{base} -> unparseable JSON")
+            continue
 
-        if "map" not in data:
-            logging.warning("[get_class_map] Missing 'map' key in response")
-            return {}
+        # What makes an answer usable is levels: get_level indexes straight
+        # into map["levels"], so a 200 carrying an empty map is no more use
+        # than a 404. Either way the host is saying "not mine" -- keep asking.
+        #
+        # Do NOT check data["class_id"] against class_id to decide: it is not
+        # the class that was asked for. Asking vtbetest for class 1 answers
+        # class_id 5, and green for 999 answers 85 -- it names the curriculum
+        # behind the class, so matching on it would throw away good maps.
+        levels = data.get("map", {}).get("levels") if isinstance(data.get("map"), dict) else None
+        if not levels:
+            tried.append(f"{base} -> 200 but no usable map.levels")
+            continue
 
+        _CLASS_MAP_HOST[str(class_id)] = base
+        logging.info(f"[get_class_map] class_id={class_id} served by {base} "
+                     f"({len(levels)} lessons)")
         return data
 
-    except requests.exceptions.HTTPError as e:
-        logging.error(f"[get_class_map] HTTP error: {e}")
-    except requests.exceptions.RequestException as e:
-        logging.error(f"[get_class_map] Connection error: {e}")
-    except ValueError:
-        logging.error("[get_class_map] Failed to parse JSON response")
-
+    logging.error(
+        f"[get_class_map] no host holds class_id={class_id} map_id={map_id}: "
+        + "; ".join(tried)
+    )
     return {}
 
 
@@ -1308,14 +1512,34 @@ GUEST_ENTRY = {
     "prev":         "Button_1",
     "gender_popup": "GenderSelectPopup(Clone)",
 }
+# The parrot's question at the top of every wizard screen ("Choose your native
+# language"). It changes on every step, which makes it the proof Next advanced.
+GUEST_PROMPT = "TookiCloudText"
 # Objects that prove the logged-out welcome screen is up.
 GUEST_WELCOME_MARKERS = ("Free Trial", "SignUpButton")
 # The wizard's option rows are Toggle, Toggle_1, Toggle_2, ... in screen order.
 GUEST_TOGGLE_PREFIX = "Toggle"
-# Onboarding ends by dropping the guest into avatar customisation.
-AVATAR_SCENE = "AvatarBuilderScene"
-# Gender labels, so a case asking for "Male" is understood on both screens.
+# Onboarding ends by dropping the guest into avatar customisation. 4.6.0 renamed
+# the scene with the 3D avatar (measured live 2026-09-14); the old name is kept
+# so an older build still matches.
+AVATAR_SCENE = ("Avatar3DBuilderScene", "AvatarBuilderScene")
+# The hub popup's gender BUTTONS are still named Male/Female.
 GUEST_GENDERS = ("Male", "Female")
+# How the wizard PRINTS each gender. 4.6.0 asks "Hello <name>, you are a:" and
+# offers "Boy" / "Girl" (measured live 2026-09-14); earlier builds printed
+# "Male" / "Female". A case keeps saying "Male" and is understood on either.
+GUEST_GENDER_LABELS = {"male": ("Male", "Boy"), "female": ("Female", "Girl")}
+
+
+def _option_labels(label):
+    """Every printed spelling a case's option can take on a wizard screen."""
+    label = (label or "").strip()
+    return GUEST_GENDER_LABELS.get(label.lower(), (label,) if label else ())
+
+
+def _norm_label(text):
+    """A printed label reduced for comparison: no rich-text tags, one space, lower."""
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", text or "")).strip().lower()
 
 
 def find_any(altdriver, name, enabled=True):
@@ -1534,16 +1758,25 @@ def wait_for_scene(altdriver, scene, timeout=40, poll=0.5, ready=True):
     entry waits for the scene to stop growing as well (``ready=False`` to skip
     it, e.g. when only the name is being checked).
 
+    ``scene`` may also be a tuple of names — any one of them counts (a scene a
+    build renamed, e.g. the avatar builder).
+
     Returns bool, never raises.
     """
+    wanted = (scene,) if isinstance(scene, str) else tuple(scene)
     end = time.time() + timeout
     while True:
-        if _current_scene(altdriver) == scene:
+        here = _current_scene(altdriver)
+        if here in wanted:
             if ready:
-                wait_for_scene_ready(altdriver, label=scene)
+                wait_for_scene_ready(altdriver, label=here)
+                # A scene that has just been entered is where the parrot's intro
+                # plays: clear it now, before the caller's first press.
+                from Utilities import parrot_guard
+                parrot_guard.on_scene_entered(altdriver, here, built=True)
             return True
         if time.time() >= end:
-            logging.error(f"[Guest] scene '{scene}' not reached "
+            logging.error(f"[Guest] scene {' / '.join(wanted)} not reached "
                           f"(still '{_current_scene(altdriver)}')")
             return False
         time.sleep(poll)
@@ -1646,14 +1879,49 @@ def logout_via_ui(altdriver, timeout=45):
 
 
 def _guest_toggles(altdriver, limit=12):
-    """The option toggles on the current wizard screen, in screen order."""
+    """The option toggles VISIBLE on the current wizard screen, in screen order.
+
+    Every name is looked up in full and only on-screen matches are kept: the
+    start scene has other active objects called "Toggle" (the welcome carousel's
+    page dots), and a first-match lookup can hand back one of those instead.
+    """
     found = []
     for i in range(limit):
         name = GUEST_TOGGLE_PREFIX if i == 0 else f"{GUEST_TOGGLE_PREFIX}_{i}"
-        obj = find_any(altdriver, name)
-        if obj is not None:
-            found.append((name, obj))
+        try:
+            objs = altdriver.find_objects(By.NAME, name)
+        except Exception:                            # noqa: BLE001
+            objs = []
+        for obj in objs:
+            if is_on_screen(altdriver, obj):
+                found.append((name, obj))
+                break
     return found
+
+
+def _toggle_is_on(toggle_obj):
+    """True/False from the toggle's own ``isOn``, or None when it cannot be read."""
+    try:
+        value = toggle_obj.get_component_property("UnityEngine.UI.Toggle", "isOn",
+                                                  "UnityEngine.UI")
+    except Exception:                                # noqa: BLE001
+        return None
+    if isinstance(value, str):
+        return value.strip().lower() == "true"
+    return bool(value)
+
+
+def _visible_text_object(altdriver, label):
+    """An ON-SCREEN object printing ``label``, or None. Hidden panels print too."""
+    for variant in _text_variants(label):
+        try:
+            objs = altdriver.find_objects(By.TEXT, variant)
+        except Exception:                            # noqa: BLE001
+            continue
+        for obj in objs:
+            if is_on_screen(altdriver, obj):
+                return obj
+    return None
 
 
 def toggle_label(altdriver, toggle_obj):
@@ -1807,19 +2075,64 @@ def _select_visible_option(altdriver, label, settle=1.0):
     that cannot have selected anything.
     """
     if picker_band(altdriver) is not None:
+        # The picker is the native-language list. A gender or an English level
+        # is never one of its rows, and trying one would drag the list towards
+        # a label printed on some other (hidden) panel.
+        low = (label or "").strip().lower()
+        if low in GUEST_GENDER_LABELS or low.endswith(("literacy", "proficiency")):
+            return False
         return scroll_option_into_band(altdriver, label)
 
-    if press_label(altdriver, label, timeout=1.5, settle=settle):
-        return True
-    want = (label or "").strip().lower()
-    for name, obj in _guest_toggles(altdriver):
-        text = toggle_label(altdriver, obj).lower()
-        if text and want and (want in text or text in want):
-            logging.info(f"[Guest] option '{label}' -> {name} ('{text}')")
-            if _press(obj):
-                time.sleep(settle)
-                return True
-    return False
+    # A toggle screen (gender, English level). NOT done by pressing a label
+    # found by text: every wizard panel stays alive in the hierarchy, so on the
+    # gender screen "Hebrew" and "Beginning Literacy" both answer a find, the
+    # press "succeeds" on a row nobody can see, and the wizard moves on with no
+    # gender chosen — how TC1174 and TC1172 drifted off the wizard on 4.6.0
+    # (2026-09-13/14). Only a visible toggle whose label matches EXACTLY is
+    # pressed ("male" is inside "female"), and it must then read isOn.
+    wants = {_norm_label(w) for w in _option_labels(label)}
+    toggles = _guest_toggles(altdriver)
+    if not wants or not toggles:
+        return False
+
+    target = next(((n, o) for n, o in toggles
+                   if _norm_label(toggle_label(altdriver, o)) in wants), None)
+    if target is None:
+        # The label is printed BESIDE its toggle rather than inside it (the
+        # 4.6.0 gender screen): take the toggle nearest the visible label.
+        for spelling in _option_labels(label):
+            text_obj = _visible_text_object(altdriver, spelling)
+            if text_obj is not None:
+                target = min(toggles, key=lambda t: (float(t[1].x) - float(text_obj.x)) ** 2
+                             + (float(t[1].y) - float(text_obj.y)) ** 2)
+                break
+    if target is None:
+        return False
+
+    name, obj = target
+    if not _press(obj):
+        return False
+    time.sleep(settle)
+    on = _toggle_is_on(obj)
+    if on is not True:
+        logging.error(f"[Guest] pressed {name} for '{label}' but it is "
+                      + ("not on" if on is False else "unreadable (isOn)"))
+        return False
+    logging.info(f"[Guest] option '{label}' -> {name} (on)")
+    return True
+
+
+def _guest_screen_offers(altdriver):
+    """What the current wizard screen asks and offers, for a failure message."""
+    prompt = ""
+    obj = find_any(altdriver, GUEST_PROMPT)
+    if obj is not None:
+        try:
+            prompt = re.sub(r"<[^>]+>", "", obj.get_text() or "").strip()
+        except Exception:                            # noqa: BLE001
+            prompt = ""
+    labels = [toggle_label(altdriver, o) for _n, o in _guest_toggles(altdriver)]
+    return prompt, [l for l in labels if l]
 
 
 def select_guest_option(altdriver, label, settle=1.0, retries=2):
@@ -1982,14 +2295,37 @@ def enter_guest_mode(altdriver, first_name="", last_name="", options=(),
                     chosen = label
                     break
 
+        prompt, offered = _guest_screen_offers(altdriver)
         if chosen:
             wanted.remove(chosen)
             picked.append(chosen)
             trace.append(f"picked '{chosen}'")
+        elif offered or picker_band(altdriver) is not None:
+            # An option screen that offers none of this case's answers. Pressing
+            # Next anyway is what sent 4.6.0 runs off the wizard to the login
+            # screen with no gender chosen — stop and say what the screen asked.
+            return result(False, "options",
+                          f"the '{prompt}' screen offers {offered or 'a picker'} "
+                          f"but none of {wanted} could be selected")
 
         if not press_object(altdriver, GUEST_ENTRY["next"], settle=1.2):
             break
         trace.append("Next")
+
+        # Prove the wizard moved on: the parrot's question changes on every
+        # step and is gone once the last answer is in.
+        moved_on = False
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            now, _ = _guest_screen_offers(altdriver)
+            if now != prompt:
+                moved_on = True
+                break
+            time.sleep(0.5)
+        if not moved_on:
+            return result(False, "next",
+                          f"Next did not leave the '{prompt}' screen"
+                          + (f" after picking '{chosen}'" if chosen else ""))
 
         # The English level is the last answer: the app then builds the profile
         # and hands over to the hub, which takes far longer than a screen change.
@@ -2170,8 +2506,12 @@ def parrot_bubble_shown(altdriver):
     return False if readable else None
 
 
-def dismiss_help_popup(altdriver, settle=0.4, verify_timeout=3.0):
+def dismiss_help_popup(altdriver, settle=0.4, verify_timeout=3.0, allow_tap=True):
     """Close the parrot's instruction bubble. Returns True when it acted.
+
+    ``allow_tap=False`` never falls back to tapping an empty point — the
+    automatic parrot guard uses it, because it runs on every screen and must
+    only ever press the parrot's own control.
 
     Closed with 'HelpButton', the instructions icon -- the control the app gives
     for this bubble. It TOGGLES: pressing it blind on a screen where
@@ -2202,21 +2542,30 @@ def dismiss_help_popup(altdriver, settle=0.4, verify_timeout=3.0):
     # here, where the bubble is known to be up. Tapping elsewhere is kept only
     # as a fallback: a full board has no empty point to tap, measured live on
     # BEE_CAREFUL ("found no empty point to tap").
+    # The parrot ICON first; an empty point only as the fallback (user,
+    # 2026-09-22) — when there is no icon, or pressing it left the bubble up.
+    pressed = False
     obj = find_any(altdriver, "HelpButton")
     if obj is not None and _press(obj):
+        pressed = True
         if gone():
             logging.info("[Help] closed the instruction bubble via 'HelpButton'")
             return True
         logging.info("[Help] pressed 'HelpButton'"
                      + ("" if shown is None else " but the bubble is still up"))
-        time.sleep(settle)
-        return True
 
-    if tap_empty_area(altdriver) and gone():
-        logging.info("[Help] dismissed the instruction bubble by tapping an "
-                     "empty point (no 'HelpButton' on this screen)")
+    # Never tap blind after a press whose effect could not be read: HelpButton
+    # toggles, so an unreadable bubble may already be closed.
+    if allow_tap and (not pressed or shown is True) \
+            and parrot_bubble_shown(altdriver) is not False \
+            and tap_empty_area(altdriver) and gone():
+        logging.info("[Help] dismissed the instruction bubble by tapping an empty "
+                     "point" + (" (the icon did not close it)" if pressed
+                                else " (no 'HelpButton' on this screen)"))
         return True
-    return False
+    if pressed:
+        time.sleep(settle)
+    return pressed
 
 
 ACTIVITY_EXITS = ("prev", "BackButton", "X", "CloseButton", "Close")
@@ -2409,7 +2758,7 @@ def wait_for_start_scene_ready(altdriver, timeout=START_SCENE_READY_TIMEOUT,
 # Male/Female -> AvatarBuilderScene -> BackButton -> NewStartScene.
 GENDER_POPUP = "GenderSelectPopup(Clone)"
 GENDER_OPTIONS = ("Male", "Female")
-AVATAR_BUILDER_SCENE = "AvatarBuilderScene"
+AVATAR_BUILDER_SCENE = AVATAR_SCENE                  # renamed in 4.6.0, see there
 # The LONGEST a login waits to see whether this is a first entry. It polls and
 # returns the moment the popup shows, so a first entry is handled at once; only
 # an account that has already answered pays the full wait.
@@ -3602,7 +3951,9 @@ def tasks_check(altdriver, username=None, password=None, tc_id="",
             user_id = user_id or who["user_id"]
             class_id = class_id or who.get("class_id")
             report["player"] = who
-            if who.get("backend"):
+            # The account's own backend wins — unless the run NAMED one, which
+            # is a stated choice and must not be switched behind its back.
+            if who.get("backend") and not backend_pinned():
                 globals()["VT_TASKS_API"] = f"{who['backend']}/data"
         elif not user_id:
             report["note"] = (f"could not look up '{username}' - without the "
@@ -5364,6 +5715,43 @@ def read_activity_progress(altdriver):
         return 0, 0
 
 
+def activity_finished(altdriver, settle=8.0):
+    """Did the game reach the END of this activity? Returns (True/False/None, note).
+
+    True  - the success screen is up, or the progress counter reached its total
+    False - the game was lost, or the counter stopped short ("stopped at 3/8")
+    None  - no counter and no result screen: nothing to judge by (TURTLE_ISLAND
+            ends on neither), so the caller must not call that a failure
+
+    Gives the game ``settle`` seconds first: the last answer animates before the
+    counter ticks and the feedback screen opens.
+    """
+    deadline = time.time() + settle
+    done = total = 0
+    while True:
+        if find_any(altdriver, "FailureFeedbackPopup(Clone)") is not None:
+            return False, "the game was lost (Try Again screen)"
+        if find_any(altdriver, "FeedbackPopup(Clone)") is not None:
+            return True, "the success screen is showing"
+        done, total = read_activity_progress(altdriver)
+        if total and done >= total:
+            return True, f"progress {done}/{total}"
+        if time.time() >= deadline:
+            break
+        time.sleep(0.5)
+    if total:
+        return False, f"stopped at {done}/{total}"
+    return None, "no progress counter or result screen"
+
+
+def retry_lost_activity(altdriver):
+    """On the Try Again screen, press Retry so the next attempt has a board."""
+    if find_any(altdriver, "FailureFeedbackPopup(Clone)") is not None and \
+            find_any(altdriver, "RetryButton") is not None:
+        press_object(altdriver, "RetryButton", settle=4.0)
+        logging.info("[Activity] the game was lost — pressed Retry for the next attempt")
+
+
 def wait_for_finish_feedback(altdriver, timeout=25):
     """True once the activity's final feedback screen is showing.
 
@@ -6753,3 +7141,22 @@ def pretest_skip(altdriver, entries=PRETEST_ENTRIES_FOR_SKIP, open_timeout=18,
     logging.error(f"[Pretest] skip did not reach the map "
                   f"(scene: {_current_scene(altdriver)})")
     return False
+
+
+# Every AltTester click / tap / swipe / touch now clears the instructions parrot
+# first, and every newly entered scene has its intro cleared — see
+# Utilities/parrot_guard.py. Installed here so every test, solver and panel run
+# that imports this module gets it. VT_PARROT_GUARD=0 turns it off.
+from Utilities import parrot_guard as _parrot_guard  # noqa: E402
+_parrot_guard.install()
+_parrot_guard.ACTION_HOOKS.append(_mid_activity_frame)
+
+# A run launched by the panel names its backend in VT_BACKEND (the pytest
+# subprocess inherits it). Applied at the very end, once VT_TASKS_API and
+# _CLASS_MAP_HOST exist. An unknown name is reported and falls back to auto.
+if __import__("os").getenv("VT_BACKEND"):
+    try:
+        set_backend(__import__("os").getenv("VT_BACKEND"))
+    except ValueError as _e:
+        logging.error(f"[Backend] {_e}; using auto")
+        set_backend(VT_BACKEND_AUTO)
