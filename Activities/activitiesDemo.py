@@ -264,7 +264,6 @@ def spiders(altdriver):
 def megaphone(altdriver):
     """Solves the Listen & Find activity using correct word sequence and background layout."""
     num_words = int(altdriver.find_object(By.NAME, "ProgressText").get_text().split('/')[1])
-    iterations = 4 if num_words == 4 else 2 if num_words <= 6 else 3
 
     geo_name = altdriver.find_object(By.NAME, "ListenFind_activity").get_component_property(
         "com.kideo.learn.english.ListenFindActivityManagement", "sessionData_.CurrentGeographyName", "Assembly-CSharp"
@@ -277,28 +276,66 @@ def megaphone(altdriver):
     }
     leaf_name = leaf_map.get(geo_name, "LeafPref(Clone)")
 
-    for _ in range(iterations):
-        time.sleep(4)
-        papers = altdriver.find_objects(By.NAME, "PaperPref(Clone)")
-        leaves = altdriver.find_objects(By.NAME, leaf_name)
-        combined = papers + leaves
+    # Driven by the PROGRESS. `usedWords` only grows a round at a time — three
+    # words, then all six once the first round is scored — so the old fixed
+    # "2 passes, 4s apart" read the second round before it existed and stopped
+    # at 3/6 (measured on 4.6.0, 2026-09-14). A word already scored also stays
+    # on the board for a moment, so what was scored is remembered rather than
+    # clicked again.
+    def progress():
+        done, total = altdriver.find_object(By.NAME, "ProgressText").get_text().split("/")
+        return int(done), int(total)
 
-        word_objs = [(obj.get_component_property("com.kideo.learn.english.ListenFindObject", "word.word", "Assembly-CSharp"), obj)
-                     for obj in combined]
+    def board():
+        pairs = []
+        for obj in (altdriver.find_objects(By.NAME, "PaperPref(Clone)")
+                    + altdriver.find_objects(By.NAME, leaf_name)):
+            try:
+                pairs.append((obj.get_component_property(
+                    "com.kideo.learn.english.ListenFindObject", "word.word", "Assembly-CSharp"), obj))
+            except Exception:
+                continue
+        return pairs
+
+    scored, missed = [], ""
+    deadline = time.time() + 60 + 25 * num_words
+    while time.time() < deadline:
+        done, total = progress()
+        if done >= total:
+            break
         used_words = altdriver.find_object(By.NAME, "ListenFindGameManager").get_component_property(
             "com.kideo.learn.english.ListenFindGameManager", "usedWords", "Assembly-CSharp"
-        )
+        ) or []
+        pending = list(used_words)
+        for word in scored:                          # a word can come round twice
+            if word in pending:
+                pending.remove(word)
+        if missed in pending and len(pending) > 1:  # the word that did not take goes last
+            pending.remove(missed)
+            pending.append(missed)
+        on_board = board()
+        target = next(((w, o) for w in pending for t, o in on_board if t == w), None)
+        if target is None:
+            time.sleep(1)                            # the next round is not out yet
+            continue
 
-        clicked = set()
-        for word in used_words:
-            for text, obj in word_objs:
-                if word == text and word not in clicked:
-                    obj.click()
-                    clicked.add(word)
-                    time.sleep(1)
-                    break
+        word, obj = target
+        obj.click()
+        settle_end = time.time() + 6
+        while time.time() < settle_end and progress()[0] <= done:
+            time.sleep(0.4)
+        if progress()[0] > done:
+            scored.append(word)
+            missed = ""
+        else:
+            missed = word
+            time.sleep(1)                            # not taken yet — re-read and go again
 
-    print("[INFO] Megaphone activity complete")
+    done, total = progress()
+    if done >= total:
+        print(f"[INFO] Megaphone activity complete ({done}/{total})")
+    else:
+        print(f"[ERROR] Megaphone stopped at {done}/{total}")
 
 def _read_matchables(objects, component=None, lift=0):
     """``[(text, object, position)]`` for one side of a matching exam.
@@ -691,6 +728,37 @@ def translation_wiz(altdriver):
     print("[INFO] TranslationWiz activity complete")
 
 
+def _frog_key(word):
+    """A word as Frogger compares it: normalized, no edge punctuation, any case."""
+    text = normalize_text(word or "")
+    return text.strip(".,!?;:\"'()[]“”‘’«»¿¡،؛؟").casefold()
+
+
+def _frogger_tiles(altdriver):
+    """(word, clickable tile) for every word tile ON SCREEN right now."""
+    try:
+        width, height = (float(v) for v in altdriver.get_application_screensize())
+    except Exception:
+        width = height = 0.0
+    tiles = []
+    for t in altdriver.find_objects(By.NAME, "Text"):
+        if width and not (0 <= t.x <= width and 0 <= t.y <= height):
+            continue                                  # a hidden copy clicks nothing
+        try:
+            tiles.append((_frog_key(t.get_text()), t.get_parent()))
+        except Exception:
+            continue
+    return tiles
+
+
+def _frogger_has_empty_blank(altdriver):
+    """True while the sentence still shows an unfilled blank ("______")."""
+    try:
+        return bool(altdriver.find_objects_which_contain(By.TEXT, "___"))
+    except Exception:
+        return False
+
+
 def frogger(altdriver):
     """Solves Frogger activity with RTL-aware word clicking order."""
     num_words = int(altdriver.find_object(By.NAME, "ProgressText").get_text().split('/')[1])
@@ -702,21 +770,35 @@ def frogger(altdriver):
             .get_component_property('com.kideo.learn.english.Frogger.FroggerGameManager', 'selectedSentence', 'Assembly-CSharp')
         print('Current sentence to solve:', sentence)
 
-        words = [normalize_text(w) for w in sentence.split(' ')]
+        # Compare words WITHOUT punctuation: the sentence ends "summer." while
+        # the tile says "summer", so the last blank was never filled and the
+        # frog crossed with it empty.
+        words = [_frog_key(w) for w in sentence.split(' ')]
+        words = [w for w in words if w]
         if is_rtl(sentence):
             words = words[::-1]  # reverse only for Hebrew/Arabic
 
-        word_objs = [(normalize_text(t.get_text()), t.get_parent()) for t in altdriver.find_objects(By.NAME, "Text")]
-
-        used = []
-        for word in words:
-            for idx, (text, obj) in enumerate(word_objs):
-                if text == word and idx not in used:
-                    obj.click()
-                    used.append(idx)
-                    time.sleep(1.8)
-                    break
-
+        # Fill EVERY blank before the frog moves: click the words, then look
+        # for an empty blank ("___") still in the sentence; if one is left,
+        # read the board again and retry.
+        remaining = list(words)
+        for _pass in range(4):
+            tiles = _frogger_tiles(altdriver)
+            used = set()
+            for word in list(remaining):
+                for idx, (text, obj) in enumerate(tiles):
+                    if text == word and idx not in used:
+                        obj.click()
+                        used.add(idx)
+                        remaining.remove(word)
+                        time.sleep(1.8)
+                        break
+            if not _frogger_has_empty_blank(altdriver):
+                break
+            time.sleep(1.5)
+        if _frogger_has_empty_blank(altdriver):
+            print("[ERROR] Frogger: a blank is still empty — not crossing with it")
+            continue
 
         click_by_name(altdriver, "CheckSentenceButton")
         time.sleep(2)
@@ -802,26 +884,66 @@ def bee(altdriver):
     }
     obj_name = background_map.get(bg_name, "DraggableObjectB(Clone)")
 
-    for _ in range(num_words):
-        time.sleep(3)
-        objects = altdriver.find_objects(By.NAME, obj_name)
+    # Driven by the PROGRESS, not by a fixed count of rounds. The old loop made
+    # num_words passes and silently skipped any pass whose picture was not
+    # there, so it "finished" at 2/6 (measured on 4.6.0, 2026-09-14).
+    #
+    # The flies are the trap. FlyEnemyPrefB(Clone) objects hover over the hive,
+    # and a picture dropped while one is there costs a heart; three of those
+    # and the game is lost behind FailureFeedbackPopup(Clone). So a drop only
+    # happens once no fly is near the hive, and each one must move the
+    # progress — waiting it out got a Jungle board to 6/6 with no heart lost.
+    hive_name = "Vector Smart Object_3"
+    try:
+        width, _height = (float(v) for v in altdriver.get_application_screensize())
+    except Exception:
+        width = 0.0
+    fly_clearance = 0.15 * width                     # a fraction of the screen, any resolution
+
+    def progress():
+        done, total = altdriver.find_object(By.NAME, "ProgressText").get_text().split("/")
+        return int(done), int(total)
+
+    def game_lost():
+        return bool(altdriver.find_objects(By.NAME, "FailureFeedbackPopup(Clone)"))
+
+    deadline = time.time() + 60 + 30 * num_words
+    while time.time() < deadline:
+        if game_lost():
+            print("[ERROR] Bee Careful: the game was lost (FailureFeedbackPopup)")
+            return
+        done, total = progress()
+        if done >= total:
+            break
+
         target_word = altdriver.find_object(By.NAME, 'WordPanel')\
             .get_component_property("WordPanel", "<wordObj_>k__BackingField.word", "Assembly-CSharp")
+        match = next((o for o in altdriver.find_objects(By.NAME, obj_name)
+                      if o.get_component_property("com.kideo.learn.english.BeeCarefulObject",
+                                                  "word", "Assembly-CSharp") == target_word), None)
+        hive = altdriver.find_object(By.NAME, hive_name)
+        flies_near = [f for f in altdriver.find_objects_which_contain(By.NAME, "FlyEnemy")
+                      if fly_clearance and math.hypot(f.x - hive.x, f.y - hive.y) < fly_clearance]
+        if match is None or flies_near:
+            time.sleep(0.7)                          # the picture is not out yet / a fly is on the hive
+            continue
 
-        match = next((o for o in objects if o.get_component_property(
-            "com.kideo.learn.english.BeeCarefulObject", "word", "Assembly-CSharp") == target_word), None)
-
-        if match:
-            hive = altdriver.find_object(By.NAME, "Vector Smart Object_3")
-            pos = hive.get_component_property("UnityEngine.Transform", "position", "UnityEngine.CoreModule")
-            match.set_component_property("UnityEngine.Transform", "localScale", "UnityEngine.CoreModule",
+        pos = hive.get_component_property("UnityEngine.Transform", "position", "UnityEngine.CoreModule")
+        match.set_component_property("UnityEngine.Transform", "localScale", "UnityEngine.CoreModule",
                                      {"x": 0.3, "y": 0.3, "z": 0.3})
+        match.set_component_property("UnityEngine.Transform", "position", "UnityEngine.CoreModule", pos)
+        match.click()
 
-            match.set_component_property("UnityEngine.Transform", "position", "UnityEngine.CoreModule", pos)
-            match.click()
-            time.sleep(3)
+        # A drop that does not move the progress is retried on the next pass.
+        settle_end = time.time() + 6
+        while time.time() < settle_end and progress()[0] <= done and not game_lost():
+            time.sleep(0.4)
 
-    print("[INFO] Bee activity complete")
+    done, total = progress()
+    if done >= total:
+        print(f"[INFO] Bee activity complete ({done}/{total})")
+    else:
+        print(f"[ERROR] Bee Careful stopped at {done}/{total}")
 '''
 s = altdriver.find_objects(By.NAME,'DraggableObjectB(Clone)')
 s.set_component_property("UnityEngine.Transform", "localScale", "UnityEngine.CoreModule", {"x": 1, "y": 2, "z": 1})
