@@ -64,3 +64,32 @@ def test_generator_templates_only_use_existing_names():
     used = set(re.findall(r"utilsdemo\.([A-Za-z_][A-Za-z0-9_]*)", source))
     missing = sorted(n for n in used if not hasattr(utilsdemo, n))
     assert not missing, f"the generator writes calls to names that do not exist: {missing}"
+
+
+# Names Activities/activitiesDemo.py uses WITHOUT importing them itself: it gets
+# them from `from Utilities.utilsdemo import *`. Losing one is a NameError in the
+# middle of a solver, which nothing else here would notice.
+STAR_IMPORT_DEPENDENCIES = ("logging", "time", "re", "By", "AltKeyCode", "AltDriver",
+                            "click_by_name", "find_any", "read_activity_progress")
+
+
+def test_solvers_still_get_what_they_star_import():
+    missing = [n for n in STAR_IMPORT_DEPENDENCIES if not hasattr(activitiesDemo, n)]
+    assert not missing, f"activitiesDemo no longer receives: {missing}"
+
+
+def _package_modules():
+    root = pathlib.Path(__file__).parents[2] / "vocatooki"
+    return sorted(p.stem for p in root.glob("*.py") if p.stem != "__init__")
+
+
+@pytest.mark.parametrize("module", _package_modules())
+def test_every_package_module_imports_on_its_own(module):
+    """Import order must never matter: a module that only loads when something
+    else was imported first is a circular import waiting for a new caller."""
+    import subprocess
+    import sys
+    root = pathlib.Path(__file__).parents[2]
+    r = subprocess.run([sys.executable, "-c", f"import vocatooki.{module}"], cwd=root,
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    assert r.returncode == 0, (r.stderr or r.stdout).strip().splitlines()[-1]

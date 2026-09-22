@@ -15,8 +15,11 @@ import pytest
 logging.disable(logging.WARNING)
 
 from Activities import activitiesDemo as A  # noqa: E402
-from Utilities import parrot_guard  # noqa: E402
 from Utilities import utilsdemo as U  # noqa: E402
+# Fakes go into the module that OWNS a helper: the framework calls the owner
+# (ui_actions.find_any, ...), so replacing the front door's copy changes nothing.
+from vocatooki import (activity_runner, instructions_parrot, parrot_guard,  # noqa: E402
+                       scenes, ui_actions)
 
 
 class Obj:
@@ -44,8 +47,8 @@ class Obj:
     (set(), (0, 0), None),                                   # nothing to judge by
 ])
 def test_activity_finished(monkeypatch, objs, progress, expected):
-    monkeypatch.setattr(U, "find_any", lambda d, n, enabled=True: Obj(n) if n in objs else None)
-    monkeypatch.setattr(U, "read_activity_progress", lambda d: progress)
+    monkeypatch.setattr(ui_actions, "find_any", lambda d, n, enabled=True: Obj(n) if n in objs else None)
+    monkeypatch.setattr(activity_runner, "read_activity_progress", lambda d: progress)
     finished, _note = U.activity_finished(None, settle=0.2)
     assert finished is expected
 
@@ -54,8 +57,8 @@ def test_activity_finished(monkeypatch, objs, progress, expected):
 @pytest.mark.parametrize("total, at", [(4, 2), (5, 2), (6, 3), (8, 4), (11, 5), (12, 6)])
 def test_mid_frame_fires_once_at_half(monkeypatch, total, at):
     shots, cur = [], {"v": (0, total)}
-    monkeypatch.setattr(U, "activity_frame", lambda d, s, p: shots.append((p, cur["v"])))
-    monkeypatch.setattr(U, "read_activity_progress", lambda d: cur["v"])
+    monkeypatch.setattr(activity_runner, "activity_frame", lambda d, s, p: shots.append((p, cur["v"])))
+    monkeypatch.setattr(activity_runner, "read_activity_progress", lambda d: cur["v"])
     driver = object()
     U._watch_mid_frame(driver, "X")
     for done in range(total + 1):
@@ -107,9 +110,9 @@ def parrot(monkeypatch):
     monkeypatch.setattr(parrot_guard, "INTRO_QUIET", 0.2)
     monkeypatch.setattr(parrot_guard, "POLL", 0.02)
     monkeypatch.setattr(parrot_guard, "ARRIVAL_GRACE", 0.05)
-    monkeypatch.setattr(U, "parrot_bubble_shown", lambda d: world.bubble)
-    monkeypatch.setattr(U, "_current_scene", lambda d: world.scene)
-    monkeypatch.setattr(U, "wait_for_scene_ready", lambda d, **k: True)
+    monkeypatch.setattr(instructions_parrot, "parrot_bubble_shown", lambda d: world.bubble)
+    monkeypatch.setattr(scenes, "_current_scene", lambda d: world.scene)
+    monkeypatch.setattr(scenes, "wait_for_scene_ready", lambda d, **k: True)
 
     def find_any(d, name, enabled=True):
         if name == "HelpButton" and world.icon:
@@ -131,9 +134,9 @@ def parrot(monkeypatch):
         world.bubble = False
         return True
 
-    monkeypatch.setattr(U, "find_any", find_any)
-    monkeypatch.setattr(U, "_press", press)
-    monkeypatch.setattr(U, "tap_empty_area", tap_empty)
+    monkeypatch.setattr(ui_actions, "find_any", find_any)
+    monkeypatch.setattr(ui_actions, "_press", press)
+    monkeypatch.setattr(ui_actions, "tap_empty_area", tap_empty)
     return world
 
 
@@ -150,7 +153,7 @@ def _act(driver, world, target="Button"):
     (dict(bubble=None), []),                                      # unreadable: never blind
 ])
 def test_parrot_guard_decisions(parrot, monkeypatch, setup, presses):
-    monkeypatch.setattr(U, "dismiss_help_popup",
+    monkeypatch.setattr(instructions_parrot, "dismiss_help_popup",
                         lambda d, **k: _real_dismiss(d, verify_timeout=0.1, **k))
     for k, v in setup.items():
         setattr(parrot, k, v)
@@ -158,7 +161,7 @@ def test_parrot_guard_decisions(parrot, monkeypatch, setup, presses):
     assert parrot.presses == presses
 
 
-_real_dismiss = U.dismiss_help_popup
+_real_dismiss = instructions_parrot.dismiss_help_popup
 
 
 def test_parrot_guard_skips_its_own_controls_and_when_paused(parrot):

@@ -19,9 +19,9 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-# Tests collected on 2026-09-22: 82 suite tests + 40 offline unit tests.
+# Tests collected on 2026-09-22: 82 suite tests + the offline unit tests.
 # Raise it when tests are added; never lower it to make a change pass.
-BASELINE_TESTS = 122
+BASELINE_TESTS = 142
 SKIP_DIRS = {".venv", "__pycache__", "_cleanup_backup", ".claude", ".git", "Web"}
 # Known-broken files that are not part of the framework (listed, not hidden).
 KNOWN_BROKEN = {"Scripts/generate_plan_docx.py"}
