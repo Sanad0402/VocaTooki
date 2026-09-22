@@ -45,6 +45,7 @@ _load_env_file(os.path.join(_ROOT, "rally.env"))
 from flask import Flask, request, jsonify, render_template, Response, send_file, abort
 
 from runner.core import manager, REPORTS_DIR
+from Utilities import utilsdemo
 from runner.modes import mode_list, DEFAULT_MODE
 from runner import guest as guest_runs
 from runner import suite
@@ -229,6 +230,12 @@ def api_config():
         ],
         "suite": suite.tree(),
         "guest": guest_runs.options(),
+        # The APIs a run can be pointed at — asked in the Run dialog every time.
+        "backends": [{"key": utilsdemo.VT_BACKEND_AUTO,
+                      "label": manager.backend_label(utilsdemo.VT_BACKEND_AUTO),
+                      "url": ""}]
+                    + [{"key": k, "label": k, "url": v}
+                       for k, v in utilsdemo.VT_BACKENDS.items()],
         "rally": rally_config,
         "defaults": {
             "run_type": "lesson_range",

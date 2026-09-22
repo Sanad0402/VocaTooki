@@ -275,7 +275,18 @@ class RunManager:
             cid = override or u["class_id"]
             for lesson in range(lf, lt + 1):
                 steps.append(f"[{u['username']}] class {cid} - lesson {lesson} ({mode})")
+        steps.insert(0, f"API: {self.backend_label(cfg.get('backend'))}")
         return steps
+
+    @staticmethod
+    def backend_label(key=None):
+        """'green (https://green.vocatooki.com/data)' / 'auto (green -> ...)'."""
+        key = str(key or utilsdemo.VT_BACKEND_AUTO).strip().lower()
+        if key in utilsdemo.VT_BACKENDS:
+            return f"{key} ({utilsdemo.VT_BACKENDS[key]})"
+        chain = " -> ".join(b.split("//")[-1].split(".")[0]
+                            for b in utilsdemo._VT_DATA_API_HOSTS_DEFAULT)
+        return f"auto ({chain})"
 
     @classmethod
     def validate(cls, cfg):
@@ -299,6 +310,14 @@ class RunManager:
         """Validate + start. Returns (ok, payload)."""
         if self.is_running():
             return False, {"error": "A run is already in progress."}
+
+        # Which API this run talks to — asked in the panel before every run.
+        # Kept on the manager (not in reset()), so every run path and report
+        # can say which backend it measured.
+        backend = str(cfg.get("backend") or utilsdemo.VT_BACKEND_AUTO).strip().lower()
+        if backend != utilsdemo.VT_BACKEND_AUTO and backend not in utilsdemo.VT_BACKENDS:
+            return False, {"error": f"Unknown API '{cfg.get('backend')}'."}
+        cfg["backend"] = self._backend = backend
 
         if cfg.get("run_type") == "guest":
             return self._start_guest(cfg)
@@ -433,7 +452,8 @@ class RunManager:
         sel = ", ".join(cfg.get("test_folders") if rt == "test_folder" else cfg.get("test_cases") or [])
         lines = ["Execution plan:", "",
                  "Run Type:", "Test Folder" if rt == "test_folder" else "Test Case(s)", "",
-                 f"Selected: {sel or '—'}", "", f"Test cases ({len(cases)}):"]
+                 f"Selected: {sel or '—'}", "", f"API: {self.backend_label(cfg.get('backend'))}", "",
+                 f"Test cases ({len(cases)}):"]
         for i, c in enumerate(cases, 1):
             u = c.get("user") or {}
             lines.append(f"  {i}. {c['id']} - {c.get('name', '')}  [user: {u.get('username', '-')}]")
@@ -510,8 +530,10 @@ class RunManager:
             if device:
                 cmd += ["--device_instance_id", device]
 
+            backend = getattr(self, "_backend", utilsdemo.VT_BACKEND_AUTO)
             env = dict(os.environ, REPORTS_DIR=REPORTS_DIR, PYTHONIOENCODING="utf-8",
-                       **self._shot_env(cfg, cases))
+                       VT_BACKEND=backend, **self._shot_env(cfg, cases))
+            self._log(f"[INFO] API: {self.backend_label(backend)}")
             self._log(f"[INFO] Running {len(nodeids)} test case(s) via pytest...")
             proc = subprocess.Popen(cmd, cwd=_ROOT, env=env, stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT, text=True, bufsize=1)
@@ -622,6 +644,7 @@ class RunManager:
             with open(base + ".txt", "w", encoding="utf-8") as f:
                 f.write("TEST CASE EXECUTION REPORT\n" + "=" * 40 + "\n\n")
                 f.write(f"Platform: {platform}   {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"API: {self.backend_label(getattr(self, '_backend', None))}\n")
                 f.write(f"Passed {totals['PASSED']}  Failed {totals['FAILED']}  "
                         f"Cancelled {totals['CANCELLED']}\n" + "-" * 40 + "\n")
                 for c in self.cases:
@@ -696,6 +719,7 @@ class RunManager:
 </style></head><body>
   <h1>Test Case Execution Report</h1>
   <div>Platform: {html.escape(platform)} &nbsp;|&nbsp; {time.strftime("%Y-%m-%d %H:%M:%S")}</div>
+  <div>API: {html.escape(self.backend_label(getattr(self, "_backend", None)))}</div>
   <div class="summary">{summary}</div>
   <table><thead><tr><th>TC ID</th><th>Test Case Name</th><th>User</th>
   <th>Status</th><th>Duration</th><th>Error</th></tr></thead>
@@ -782,6 +806,9 @@ class RunManager:
             mode_run = MODES[mode]["run"]
             lessons = list(range(lf, lt + 1))
 
+            backend = getattr(self, "_backend", utilsdemo.VT_BACKEND_AUTO)
+            utilsdemo.set_backend(backend)
+            self._log(f"[INFO] API: {self.backend_label(backend)}")
             self._log(f"[INFO] Connecting to AltTester at {host}:{port} (platform={platform})...")
             if not self._preflight(host, port):
                 raise RuntimeError(
@@ -917,6 +944,12 @@ class RunManager:
                 self._emit("state", state="error", error=str(e))
         finally:
             self._close_driver()
+            # The panel process outlives the run: put the backend back to auto,
+            # or the pin would leak into the environment the NEXT run inherits.
+            try:
+                utilsdemo.set_backend(utilsdemo.VT_BACKEND_AUTO)
+            except Exception:                        # noqa: BLE001
+                pass
             _timemod.sleep = _orig_sleep
             sys.stdout, sys.stderr = old_stdout, old_stderr
             root.removeHandler(handler)
@@ -1033,6 +1066,7 @@ class RunManager:
                                             time.localtime(started)) if started else "",
                 "finished_at": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "kind": kind,                    # suite | lessons
+                "backend": getattr(self, "_backend", utilsdemo.VT_BACKEND_AUTO),
                 "state": state,
                 "error": (error or "")[:300],
                 "totals": totals,
@@ -1144,6 +1178,7 @@ class RunManager:
         lines = [
             f"Voca Tooki automation run {state}.",
             f"Platform: {platform}",
+            f"API: {self.backend_label(getattr(self, '_backend', None))}",
             f"Activities: {len(report)}  |  Passed: {totals.get('PASSED', 0)}  "
             f"Failed: {totals.get('FAILED', 0)}  Skipped: {totals.get('SKIPPED', 0)}",
             "",
@@ -1200,6 +1235,7 @@ class RunManager:
 <body>
   <h1>Activity Execution Report</h1>
   <div>Platform: {html.escape(platform)} &nbsp;|&nbsp; {time.strftime("%Y-%m-%d %H:%M:%S")}</div>
+  <div>API: {html.escape(self.backend_label(getattr(self, "_backend", None)))}</div>
   <div class="summary">{summary}</div>
   <table>
     <thead><tr><th>Activity</th><th>Status</th><th>Duration</th><th>Error</th></tr></thead>

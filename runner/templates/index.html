@@ -253,11 +253,18 @@
   <div id="shots-modal" class="modal-backdrop hidden">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="sm-title">
       <div class="modal-head">
-        <h3 id="sm-title">📷 Screenshots for this run</h3>
+        <h3 id="sm-title">▶ Before this run</h3>
         <button id="sm-close" type="button" class="link" aria-label="Close">✕</button>
       </div>
       <div class="modal-body">
-        <p class="hint" style="margin-top:0">
+        <div class="api-pick">
+          <div class="api-title">🌐 Which API should this run use?</div>
+          <div id="sm-api" class="api-list"></div>
+          <p class="hint" style="margin:6px 0 0">Every API call the run makes — class map, user
+            state, exams, tasks — goes to this backend. <b>Auto</b> asks each host in turn.</p>
+        </div>
+        <div class="api-title" style="margin-top:14px">📷 Screenshots</div>
+        <p class="hint" style="margin-top:4px">
           Up to <b>3 frames</b> per test case (start · end) and <b>5</b> for a lesson run.
           A <b>failure screenshot is always taken</b>, even for cases you untick here.
         </p>
@@ -275,7 +282,7 @@
     </div>
   </div>
 
-  <script src="{{ url_for('static', filename='status.js') }}?v=32"></script>
-  <script src="{{ url_for('static', filename='app.js') }}?v=32"></script>
+  <script src="{{ url_for('static', filename='status.js') }}?v=33"></script>
+  <script src="{{ url_for('static', filename='app.js') }}?v=33"></script>
 </body>
 </html>

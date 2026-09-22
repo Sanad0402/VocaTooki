@@ -522,3 +522,10 @@ body.rs-page { max-width: 980px; margin: 0 auto; padding: 22px 18px; }
 }
 .guest-opt:hover { border-color: var(--accent, #4a7dff); }
 .guest-all { margin-left: 8px; }
+
+/* API picker in the Run dialog */
+.api-pick { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.api-title { font-weight: 600; margin-bottom: 6px; }
+.api-list { display: flex; flex-direction: column; gap: 4px; }
+.api-opt { display: flex; align-items: baseline; gap: 8px; cursor: pointer; }
+.api-opt .hint { overflow-wrap: anywhere; }
