@@ -95,3 +95,25 @@ def test_every_package_module_imports_on_its_own(module):
     r = subprocess.run([sys.executable, "-c", f"import vocatooki.{module}"], cwd=root,
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     assert r.returncode == 0, (r.stderr or r.stdout).strip().splitlines()[-1]
+
+
+# Old module names kept as aliases after a rename: generated tests and habits
+# still import them. Each must be the SAME module object as its new name.
+RENAMED_MODULES = {
+    "Pages.LoginPage": "Pages.login_page",
+    "Pages.StartScreen": "Pages.start_screen",
+    "Pages.new_page": "Pages.page_template",
+    "Utilities.utils_audio": "vocatooki.text_to_speech",
+    "Utilities.parrot_guard": "vocatooki.parrot_guard",
+}
+
+
+@pytest.mark.parametrize("old, new", sorted(RENAMED_MODULES.items()))
+def test_renamed_module_old_name_is_the_same_module(old, new):
+    import importlib
+    assert importlib.import_module(old) is importlib.import_module(new)
+
+
+def test_old_page_imports_still_work():
+    from Pages.LoginPage import LoginPage  # noqa: F401  (what generated tests write)
+    from Pages.StartScreen import StartScreen  # noqa: F401

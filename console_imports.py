@@ -36,20 +36,20 @@ if _PROJECT_ROOT not in sys.path:
 _MODULES = [
     "data.test_users",
     "Utilities.wait_utils",
-    "Utilities.utils_audio",
+    "vocatooki.text_to_speech",
     "Utilities.utilsdemo",
     "Activities.activitiesDemo",
     "Pages.base_page",
-    "Pages.LoginPage",
-    "Pages.StartScreen",
+    "Pages.login_page",
+    "Pages.start_screen",
     "Pages.map_page",
-    "Pages.new_page",
+    "Pages.page_template",
 ]
 
 # Short aliases so you can also reach modules namespaced, e.g. `act.search(...)`.
 _ALIASES = {
     "Utilities.utilsdemo": "utils",
-    "Utilities.utils_audio": "audio",
+    "vocatooki.text_to_speech": "audio",
     "Utilities.wait_utils": "waits",
     "Activities.activitiesDemo": "act",
     "data.test_users": "users",

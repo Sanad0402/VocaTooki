@@ -2,8 +2,8 @@ import time
 import pytest
 from alttester import By
 
-from Pages.StartScreen import StartScreen
-from Pages.LoginPage import LoginPage
+from Pages.start_screen import StartScreen
+from Pages.login_page import LoginPage
 from Utilities import utilsdemo
 
 

@@ -2,7 +2,7 @@ import time
 import pytest
 from alttester import By
 
-from Pages.LoginPage import LoginPage
+from Pages.login_page import LoginPage
 from Utilities import utilsdemo
 
 

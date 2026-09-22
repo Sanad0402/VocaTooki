@@ -21,7 +21,7 @@ from data.test_users import TEST_USERS, DEFAULT_CLASS_ID
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 from Utilities import utilsdemo
-from Pages.StartScreen import StartScreen
+from Pages.start_screen import StartScreen
 from Pages.map_page import MapPage
 from .modes import MODES, DEFAULT_MODE
 from . import suite

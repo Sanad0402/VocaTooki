@@ -4,7 +4,7 @@ import pathlib
 import pytest
 
 from data.test_users import DEFAULT_CLASS_ID
-from Pages.StartScreen import StartScreen
+from Pages.start_screen import StartScreen
 from Pages.map_page import MapPage
 
 REPORTS_DIR = os.getenv("REPORTS_DIR", os.path.expanduser("~/Downloads/reports"))

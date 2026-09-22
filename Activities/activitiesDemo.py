@@ -24,7 +24,7 @@ from alttester import By  # noqa: F401
 from langdetect import detect  # noqa: F401
 from Utilities.utilsdemo import *  # noqa: F401,F403
 from Utilities.utilsdemo import click_by_name  # noqa: F401
-from Utilities.utils_audio import say, init_audio  # noqa: F401
+from vocatooki.text_to_speech import say, init_audio  # noqa: F401
 from Utilities import utilsdemo as _utilsdemo
 
 from vocatooki.solvers.text_utils import (  # noqa: F401

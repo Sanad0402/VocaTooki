@@ -1,7 +1,7 @@
 import pytest
-from Pages.LoginPage import LoginPage
-from Pages.StartScreen import StartScreen
-from Pages.new_page import NewPage
+from Pages.login_page import LoginPage
+from Pages.start_screen import StartScreen
+from Pages.page_template import NewPage
 
 @pytest.mark.newpage
 class TestNewPage:

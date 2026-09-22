@@ -243,9 +243,6 @@ def run_activity(altdriver, activity):
     import time
     from datetime import datetime
     import traceback
-    # ✅ Lazy import to break circular import
-    from Activities import activitiesDemo as A
-
     # --- capture previous scene before clicking ---
     try:
         prev_scene = ui_actions.call_method(altdriver, "AltTesterUtils", "GetCurrentActivity")
@@ -284,41 +281,8 @@ def run_activity(altdriver, activity):
         })
         return
 
-    # ✅ Use function references from activitiesDemo (A.*)
-    activity_map = {
-        'MEMMORY_CARDS': A.memory,
-        'LISTEN_FIND': A.megaphone,
-        'SENTENCE_COMPLETION_QUIZ': A.fill_in,
-        'SENTENCE_TRANSLATION_QUIZ': A.spiders,
-        'SEARCH': A.search,
-        'MISSING_BUBBLE': A.bubbels,
-        'RADAR': A.radar,
-        'UNSCRAMBLE_QUIZ': A.lexi_match,
-        'GAP_GURU': A.gap_guru,
-        'TYPE_IT_RIGHT': A.type_it_right,
-        'TRANSLATION_WIZ': A.translation_wiz,
-        'ECHO_ORDER': A.echo_order,
-        'FROGGER': A.frogger,
-        'HANGWORDS': A.hang_words,
-        'WORDS_MATCHING_QUIZ': A.moving,
-        'BEE_CAREFUL': A.bee,
-        'ISPY': A.ispy,
-        'LETTERS_SEARCH': A.search_3rd,
-        'LETTERS_BUBBLES': A.bubbels_activity_3rd,
-        'LETTERS_SORTING': A.signs,
-        'CROSSWORD2': A.crosswords2,
-        'CROSSWORD':A.crosswords,
-        'PUZZLES':A.solve_puzzles,
-        'TURTLE_ISLAND':A.turtle_island,
-        'BRICKOUT':A.brickout,
-        'PIPES':A.pipes,
-        'RINGS':A.rings,
-        'PARASHOOT':A.parashoot,
-        'TETRIS':A.tetris,
-        'LETTERS_TRACING':A.letters_tracing,
-        'LETTERS_SLIDER_TRACING':A.letters_slider_tracing,
-        'SHARKS':A.sharks
-    }
+    # THE scene -> solver table (vocatooki/solvers/registry.py) - one table for every path.
+    activity_map = get_activity_solver_map()
 
     if scene not in activity_map:
         print(f"[WARN] Unknown activity '{scene}' — marking as UNMAPPED.")
@@ -551,47 +515,15 @@ def when_finish_activity(altdriver, retries=3, delay=1):
 #         -> solve_activity_in_level -> Logout
 # ---------------------------------------------------------------------------
 def get_activity_solver_map():
-    """Scene name -> solver function, for callers outside run_activity.
+    """Scene name -> solver function: THE table, from vocatooki/solvers/registry.py.
 
-    Mirrors the dispatch table inside run_activity (kept separate on purpose so
-    the battle-tested run_activity flow stays untouched). When a new activity is
-    mapped there, add it here too.
+    run_activity, the guest walk, Treasure Island and the generated activity
+    tests all dispatch through it. Returns a copy, so a caller can never change
+    the table for everyone else.
     """
-    from Activities import activitiesDemo as A
-    return {
-        'MEMMORY_CARDS': A.memory,
-        'LISTEN_FIND': A.megaphone,
-        'SENTENCE_COMPLETION_QUIZ': A.fill_in,
-        'SENTENCE_TRANSLATION_QUIZ': A.spiders,
-        'SEARCH': A.search,
-        'MISSING_BUBBLE': A.bubbels,
-        'RADAR': A.radar,
-        'UNSCRAMBLE_QUIZ': A.lexi_match,
-        'GAP_GURU': A.gap_guru,
-        'TYPE_IT_RIGHT': A.type_it_right,
-        'TRANSLATION_WIZ': A.translation_wiz,
-        'ECHO_ORDER': A.echo_order,
-        'FROGGER': A.frogger,
-        'HANGWORDS': A.hang_words,
-        'WORDS_MATCHING_QUIZ': A.moving,
-        'BEE_CAREFUL': A.bee,
-        'ISPY': A.ispy,
-        'LETTERS_SEARCH': A.search_3rd,
-        'LETTERS_BUBBLES': A.bubbels_activity_3rd,
-        'LETTERS_SORTING': A.signs,
-        'CROSSWORD2': A.crosswords2,
-        'CROSSWORD': A.crosswords,
-        'PUZZLES': A.solve_puzzles,
-        'TURTLE_ISLAND': A.turtle_island,
-        'BRICKOUT': A.brickout,
-        'PIPES': A.pipes,
-        'RINGS': A.rings,
-        'PARASHOOT': A.parashoot,
-        'TETRIS': A.tetris,
-        'LETTERS_TRACING': A.letters_tracing,
-        'LETTERS_SLIDER_TRACING': A.letters_slider_tracing,
-        'SHARKS': A.sharks,
-    }
+    # Imported here, not at the top: the solvers import from this module.
+    from vocatooki.solvers.registry import SOLVERS
+    return dict(SOLVERS)
 
 
 ACTIVITY_EXITS = ("prev", "BackButton", "X", "CloseButton", "Close")

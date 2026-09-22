@@ -8,7 +8,7 @@ import time
 
 from alttester import By
 
-from Utilities.utils_audio import init_audio, say
+from vocatooki.text_to_speech import init_audio, say
 
 
 def _safe_exists(altdriver, name: str) -> bool:

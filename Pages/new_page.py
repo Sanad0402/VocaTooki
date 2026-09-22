@@ -1,25 +1,10 @@
-# Pages/new_page.py
-import time
-from alttester import By
+"""Renamed to Pages/page_template.py. This old name stays an ALIAS of that module.
 
-class NewPage:
-    # ✅ change this to a UNIQUE object that exists only in this scene
-    OPEN_ANCHOR = "NewPageAnchor"
+Aliased through sys.modules, so both names are the very same module object -
+code (and generated tests) that import the old name keep working unchanged.
+"""
+import sys
 
-    def __init__(self, driver):
-        self.driver = driver
+from Pages import page_template as _real
 
-    def is_open(self) -> bool:
-        try:
-            self.driver.find_object(By.NAME, self.OPEN_ANCHOR)
-            return True
-        except Exception:
-            return False
-
-    def wait_until_open(self, timeout=20, poll=0.5):
-        start = time.time()
-        while time.time() - start < timeout:
-            if self.is_open():
-                return
-            time.sleep(poll)
-        raise AssertionError(f"[FAIL] NewPage not open. Missing anchor: {self.OPEN_ANCHOR}")
+sys.modules[__name__] = _real

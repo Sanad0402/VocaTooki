@@ -959,8 +959,8 @@ class RallyTestGenerator:
 
 import time
 import pytest
-from Pages.LoginPage import LoginPage
-from Pages.StartScreen import StartScreen
+from Pages.login_page import LoginPage
+from Pages.start_screen import StartScreen
 
 # Rally test case ID (for sync and maintenance)
 TC_ID = "{tc_id}"
@@ -1007,7 +1007,7 @@ TC_ID = "{tc_id}"
 """
 
 import time
-from Pages.LoginPage import LoginPage
+from Pages.login_page import LoginPage
 
 # Rally test case ID (for sync and maintenance)
 TC_ID = "{tc_id}"
@@ -1053,7 +1053,7 @@ def {test_func_name}(altdriver):
 """
 
 import time
-from Pages.LoginPage import LoginPage
+from Pages.login_page import LoginPage
 from Utilities import utilsdemo
 
 # Rally test case ID (for sync and maintenance)
@@ -2403,7 +2403,7 @@ def {test_func_name}(altdriver):
 
 import time
 from alttester import By
-from Pages.StartScreen import StartScreen
+from Pages.start_screen import StartScreen
 
 # Rally test case ID (for sync and maintenance)
 TC_ID = "{tc_id}"
