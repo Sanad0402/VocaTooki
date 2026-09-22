@@ -30,6 +30,15 @@ def _puzzle_progress(progress_object):
         return None
 
 
+def _screen_width(altdriver):
+    """The game window's width in pixels, or None if it cannot be read."""
+    try:
+        return float(altdriver.call_static_method(
+            "UnityEngine.Screen", "get_width", "UnityEngine.CoreModule"))
+    except Exception:
+        return None
+
+
 def solve_puzzles(altdriver):
     time.sleep(10)
     print("[INFO] Puzzle solver started...")
@@ -55,6 +64,23 @@ def solve_puzzles(altdriver):
     # one puzzle can read word for word the same, and without this the second
     # would be handed the first one's pieces and never move.
     used_windows = set()
+    # Pieces of sentences already built. A solved sentence KEEPS its words on
+    # the board, and on a hard board two sentences share the same rows (the
+    # grid is 14 columns, 7 on screen): sentence 7's slots are 140-146/154-160,
+    # sentence 1's are 147-153/161-167. Both hold 'like' and 'to', so without
+    # this the solver clicked sentence 1's locked, off-screen pieces and
+    # nothing moved -- the "stuck at sentence 6/7" failure.
+    solved_ids = set()
+    # Only pieces inside the window can be the sentence being played; the
+    # board scrolls, and the rest of the grid sits off screen.
+    screen_w = _screen_width(altdriver)
+
+    def playable(e):
+        if e.name in solved_ids:
+            return False
+        if screen_w is not None and not (0 <= float(e.x) <= screen_w):
+            return False
+        return True
 
     # ===== Timer Extension for Hard =====
     if total > 6:
@@ -92,7 +118,7 @@ def solve_puzzles(altdriver):
             if not e.name.isdigit():
                 continue
             num = int(e.name)
-            if num < start_idx or num > end_idx or not e.enabled:
+            if num < start_idx or num > end_idx or not e.enabled or not playable(e):
                 continue
             try:
                 word = e.get_component_property("PuzzlePiece", "text.text", "Assembly-CSharp")
@@ -110,7 +136,7 @@ def solve_puzzles(altdriver):
         """``{piece id: word}`` for every readable piece on the board."""
         out = {}
         for e in altdriver.get_all_elements():
-            if not e.name.isdigit() or not e.enabled:
+            if not e.name.isdigit() or not e.enabled or not playable(e):
                 continue
             try:
                 word = e.get_component_property("PuzzlePiece", "text.text", "Assembly-CSharp")
@@ -158,7 +184,7 @@ def solve_puzzles(altdriver):
         """
         by_row = {}
         for e in altdriver.get_all_elements():
-            if not e.name.isdigit() or not e.enabled:
+            if not e.name.isdigit() or not e.enabled or not playable(e):
                 continue
             try:
                 word = e.get_component_property("PuzzlePiece", "text.text", "Assembly-CSharp")
@@ -176,7 +202,11 @@ def solve_puzzles(altdriver):
                 rows.append(row)
         return rows
 
-    for i in range(total):
+    # A retry resumes a part-done board: start counting at the sentence the
+    # game is on, so the messages and the fallback window match it (it used to
+    # restart at 1 and call sentence 7 "sentence 2/7").
+    first = _puzzle_progress(progress) or 0
+    for i in range(min(first, total), total):
         # The puzzle may already be part-done (a retry resumes a board that a
         # previous attempt got most of the way through), and it ENDS the moment
         # the count is full. Without this the loop kept playing phantom
@@ -257,6 +287,7 @@ def solve_puzzles(altdriver):
             if current == target:
                 print(f"[OK] Sentence solved.")
                 solved = True
+                solved_ids.update(p["obj"].name for p in pieces)
                 break
 
             # Two passes that change nothing will not start working on a third:
