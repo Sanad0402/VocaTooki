@@ -74,18 +74,32 @@ def _frogger_blank_words(altdriver, sentence):
     tokens = [w for w in sentence.split(' ') if w.strip()]
     if not slots or len(slots) != len(tokens):
         return None
-    rtl = is_rtl(sentence)
-    # Reading order: top row first, then along the row (right-to-left for RTL).
-    slots = sorted(slots, key=lambda o: (-round(o.y / 10), -o.x if rtl else o.x))
-    words = []
-    for slot, token in zip(slots, tokens):
+    texts = {}
+    for slot in slots:
         try:
-            text = slot.get_text() or ""
+            texts[id(slot)] = slot.get_text() or ""
         except Exception:
-            text = ""
-        if "___" in text:
-            words.append(_frog_key(token))
-    return words
+            texts[id(slot)] = ""
+
+    def in_order(right_to_left):
+        # Top row first, then along the row.
+        return sorted(slots, key=lambda o: (-round(o.y / 10), -o.x if right_to_left else o.x))
+
+    def fits(order):
+        # Every word already printed in the bar must be the token at that place.
+        return all("___" in texts[id(slot)] or _frog_key(texts[id(slot)]) == _frog_key(token)
+                   for slot, token in zip(order, tokens))
+
+    # Which way the bar runs is READ OFF the words already in it, not assumed
+    # from the language: Kideo Land prints a Hebrew sentence left to right (the
+    # string it stores is already reversed for display), so "right-to-left for
+    # RTL" paired every blank with the wrong word there and no tile was ever
+    # found (seen live 2026-09-24, 0/9). The old guess is tried first, so a bar
+    # that fits both ways reads exactly as it always did.
+    rtl = is_rtl(sentence)
+    guesses = (in_order(rtl), in_order(not rtl))
+    order = next((g for g in guesses if fits(g)), guesses[0])
+    return [_frog_key(token) for slot, token in zip(order, tokens) if "___" in texts[id(slot)]]
 
 
 def _frogger_bag(altdriver):

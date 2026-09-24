@@ -224,6 +224,23 @@ def test_frogger_takes_the_word_at_each_blank_position():
     assert A._frogger_blank_words(FrogDriver(bar), sentence) == ["sandra", "shoes", "pink"]
 
 
+def test_frogger_reads_a_kideo_land_hebrew_bar_left_to_right():
+    # Kideo Land stores the sentence already reversed for display and lays the
+    # bar out LEFT to right in that order (live 2026-09-24). Blanks: זמן כאשר בחצר.
+    sentence = ".יונפ ןמז יל שי רשאכ רצחב קחשמ ינא"
+    bar = [".יונפ", "____", "יל", "שי", "____", "____", "קחשמ", "ינא"]
+    assert A._frogger_blank_words(FrogDriver(bar), sentence) == ["ןמז", "רשאכ", "רצחב"]
+
+
+def test_frogger_still_reads_a_right_to_left_hebrew_bar():
+    # The same sentence laid out the other way round (the pre-2026-09-24
+    # assumption for RTL) must give the same blanks — the direction is read off
+    # the visible words, so neither game's layout is guessed.
+    sentence = ".יונפ ןמז יל שי רשאכ רצחב קחשמ ינא"
+    bar = ["ינא", "קחשמ", "____", "____", "שי", "יל", "____", ".יונפ"]
+    assert A._frogger_blank_words(FrogDriver(bar), sentence) == ["ןמז", "רשאכ", "רצחב"]
+
+
 def test_frogger_blank_is_empty_until_its_child_holds_a_word():
     bar = ["_____", "and", "_____", "_____."]
     assert A._frogger_has_empty_blank(FrogDriver(bar, bag=["lions", "live"]))
