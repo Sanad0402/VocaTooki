@@ -1,7 +1,15 @@
 """3rd grade - LETTERS_TRACING and LETTERS_SLIDER_TRACING: trace the strokes, then solve the slide puzzle.
 
-Moved out of Activities/activitiesDemo.py unchanged (2026-09-22); every name is
-still reachable as activitiesDemo.<name>.
+Shared by Voca Tooki and Kideo Land. The tracing rig (IndieStudio) and the
+slide puzzle (ReunionManager) are the same code in both games; Kideo Land only
+prefixes its prefab names with `KL_` and ends on its own feedback popup
+variant. Every press here goes through a named object -- the tile's cover
+Button, the tile itself, the popup's ExitButton -- never through a screen
+coordinate. Drag gestures (the strokes) take their points from the rig's own
+Point objects, which is the one place a position is allowed.
+
+Moved out of Activities/activitiesDemo.py (2026-09-22); every name is still
+reachable as activitiesDemo.<name>.
 """
 
 import heapq
@@ -61,6 +69,70 @@ _LT_END_DWELL = 6
 _LT_OVERSHOOT = 0.012
 
 
+# The camera the stroke dots must be projected through, per run: None means
+# AltTester's default. See `_lt_pick_camera`.
+_LT_CAMERA = {"id": None, "name": None}
+
+
+def _lt_on_screen(obj, size, margin=0.05):
+    width, height = size
+    return (-margin * width <= float(obj.x) <= (1 + margin) * width
+            and -margin * height <= float(obj.y) <= (1 + margin) * height)
+
+
+def _lt_pick_camera(altdriver):
+    """Find the camera that puts the stroke dots ON the screen, and remember it.
+
+    AltTester reports an object's screen position through the camera it picks
+    for that object. In Voca Tooki that is the one that renders the letter, so
+    the dots read right. Kideo Land's activity scene runs several cameras and
+    the default pick projects the world-space Point objects through the wrong
+    one (`StageCamera`): the dots come back at y ~ 1,470,000 and negative x,
+    every gesture lands off screen and `tracedPoints` stays 0 for ever (seen
+    live 2026-09-27). Read through the camera named `Camera` they sit exactly
+    on their numbered circles.
+
+    Nothing about a game or camera name is assumed: every camera in the scene
+    is probed with one find of a stroke dot and the first whose dot lies within
+    the screen wins. The choice is cached for the run and re-made only when the
+    default read goes wrong again.
+    """
+    size = tuple(float(v) for v in altdriver.get_application_screensize())
+    try:
+        probe = altdriver.find_object(By.PATH, "//Curve/Point0", enabled=False)
+        if _lt_on_screen(probe, size):
+            _LT_CAMERA.update(id=None, name=None)
+            return None
+    except Exception:
+        return _LT_CAMERA["id"]          # no dot to probe with; keep what we have
+    try:
+        cameras = altdriver.find_objects(By.COMPONENT, "UnityEngine.Camera", enabled=False)
+    except Exception:
+        cameras = []
+    for camera in cameras:
+        try:
+            probe = altdriver.find_object(By.PATH, "//Curve/Point0", camera_by=By.ID,
+                                          camera_value=str(camera.id), enabled=False)
+        except Exception:
+            continue                     # not a camera, or one this dot is not seen by
+        if _lt_on_screen(probe, size):
+            if _LT_CAMERA["id"] != camera.id:
+                print(f"[INFO] stroke dots read through camera '{camera.name}' "
+                      f"(the default projected them off screen)")
+            _LT_CAMERA.update(id=camera.id, name=camera.name)
+            return camera.id
+    print("[WARN] no camera puts the stroke dots on screen — keeping the default read")
+    return _LT_CAMERA["id"]
+
+
+def _lt_all_elements(altdriver):
+    """Every object, positioned through the camera the dots need."""
+    if _LT_CAMERA["id"] is None:
+        return altdriver.get_all_elements(enabled=False)
+    return altdriver.get_all_elements(camera_by=By.ID, camera_value=str(_LT_CAMERA["id"]),
+                                      enabled=False)
+
+
 def _lt_read_board(altdriver):
     """Every stroke of the letter on screen, in drawing order.
 
@@ -69,7 +141,7 @@ def _lt_read_board(altdriver):
     can be recognised before it goes live.
     """
     try:
-        elements = altdriver.get_all_elements(enabled=False)
+        elements = _lt_all_elements(altdriver)
     except Exception:
         # The board is torn down the moment the activity ends; a read that
         # lands mid-teardown is "no strokes left", not a failure.
@@ -311,10 +383,13 @@ def _lt_round(altdriver):
 
 def _lt_feedback_up(altdriver):
     """True once the end-of-activity feedback is on screen."""
-    try:
-        return altdriver.find_object(By.NAME, _LT_FEEDBACK) is not None
-    except Exception:
-        return False
+    return _lt_find_feedback(altdriver) is not None
+
+
+class _Pt:
+    """A bare (x, y) with the attributes `_lt_on_screen` reads."""
+    def __init__(self, x, y):
+        self.x, self.y = x, y
 
 
 def _lt_wait_for_letter(altdriver, timeout=30.0, poll=0.25, stable_reads=3):
@@ -341,7 +416,17 @@ def _lt_wait_for_letter(altdriver, timeout=30.0, poll=0.25, stable_reads=3):
         if _lt_feedback_up(altdriver):
             return None
         board = _lt_read_board(altdriver)
-        if _lt_active(board) is not None:
+        active = _lt_active(board)
+        if active is not None:
+            size = tuple(float(v) for v in altdriver.get_application_screensize())
+            if not all(_lt_on_screen(_Pt(x, y), size) for x, y in active["points"]):
+                # Wrong camera: the dots are nowhere a finger can reach.
+                # Pick the right one and read again before trusting a single
+                # coordinate.
+                _lt_pick_camera(altdriver)
+                previous, repeats = None, 0
+                time.sleep(poll)
+                continue
             current = [path["points"] for path in board]
             repeats = repeats + 1 if previous == current else 1
             previous = current
@@ -450,6 +535,22 @@ def _lt_dismiss_dialogs(altdriver):
 _LT_FEEDBACK = "FeedbackPopup(Clone)"
 
 
+# Kideo Land ships the same popup as a prefab VARIANT named after the game, so
+# its clone carries that name. Both tracing activities end on one of these in
+# either game.
+_LT_FEEDBACKS = (_LT_FEEDBACK, "KideoLandFeedbackPopup(Clone)")
+
+
+def _lt_find_feedback(altdriver):
+    """The end-of-activity feedback popup, whichever game put it up, or None."""
+    for name in _LT_FEEDBACKS:
+        try:
+            return altdriver.find_object(By.NAME, name)
+        except Exception:
+            continue
+    return None
+
+
 def _lt_exit_feedback(altdriver, timeout=25.0, poll=1.0):
     """Close the end-of-activity feedback so the app returns to activity selection.
 
@@ -460,13 +561,15 @@ def _lt_exit_feedback(altdriver, timeout=25.0, poll=1.0):
     """
     deadline = time.time() + timeout
     while time.time() < deadline:
+        popup = _lt_find_feedback(altdriver)
         try:
-            popup = altdriver.find_object(By.NAME, _LT_FEEDBACK)
-            popup.find_object_from_object(By.NAME, "ExitButton").click()
-            print("[INFO] closed the final feedback popup")
-            return True
+            if popup is not None:
+                popup.find_object_from_object(By.NAME, "ExitButton").click()
+                print(f"[INFO] closed the final feedback popup ({popup.name})")
+                return True
         except Exception:
-            time.sleep(poll)
+            pass
+        time.sleep(poll)
     print("[WARN] final feedback popup never appeared — nothing to close")
     return False
 
@@ -484,6 +587,7 @@ def letters_tracing(altdriver, stroke_attempts=6, idle_timeout=30.0,
     print("[INFO] LETTERS_TRACING: starting")
 
     _width, height = (float(v) for v in altdriver.get_application_screensize())
+    _LT_CAMERA.update(id=None, name=None)
 
     strokes = 0
     letters = 0
@@ -588,31 +692,73 @@ def letters_tracing(altdriver, stroke_attempts=6, idle_timeout=30.0,
 # LETTERS_SLIDER_TRACING — the tracing grid that ends in a slide puzzle
 #
 # One board of nine tiles (`BOARD/Content/For_Wide_Res`), each a
-# `Tile_With_Boarder Variant(Clone)` carrying two things:
+# `Tile_With_Boarder Variant(Clone)` in Voca Tooki and a
+# `KL_Tile_With_Boarder(Clone)` in Kideo Land -- the same prefab, carrying:
 #
 #   TIle_Text            its number, 1..9 -- its place in the finished picture
 #   LetterText - RTLTMP  the letter to trace; GONE once that tile is done
+#   LetterImg            a Unity Button: the "open this letter" cover
+#   TileData             currentRow/currentColumn (where it is) and
+#                        originalRow/originalColumn (where it belongs)
 #
 # The activity runs in two halves, and ProgressText counts them ("n/2"):
 #
-#   1. Tap each tile in turn. It opens the ordinary tracing rig -- the same
-#      Paths/Curve/Point objects as LETTERS_TRACING -- so the letter is drawn by
-#      the very same helpers, and the tile returns to the grid without its
-#      letter.
-#   2. With all nine traced the tiles turn into pieces of one picture and tile 9
-#      switches OFF: that hidden tile is the gap of a 3x3 slide puzzle. Tapping
-#      a tile next to the gap slides it in. Ordering 1..9 reveals the picture.
+#   1. Press each tile's cover in turn. It opens the ordinary tracing rig --
+#      the same Paths/Curve/Point objects as LETTERS_TRACING -- so the letter is
+#      drawn by the very same helpers, and the tile returns to the grid without
+#      its letter.
+#   2. With all nine traced the tiles turn into pieces of one picture and the
+#      bottom-right tile switches OFF: that hidden tile is the gap of a 3x3
+#      slide puzzle. Pressing a tile next to the gap slides it in (its own
+#      ClickHandler). Ordering 1..9 reveals the picture.
 #
-# Then the run ends on the shared FeedbackPopup(Clone), closed the same way.
+# Then the run ends on the shared feedback popup, closed the same way.
+#
+# Nothing here presses a coordinate. The grid is read off TileData rather than
+# off where the tiles are drawn, so it does not care which way y runs, what the
+# resolution is, or where the board sits.
 # ----------------------------------------------------------------
+# Matched as a SUBSTRING: Kideo Land prefixes the prefab name with `KL_`.
 _LST_TILE = "Tile_With_Boarder"
+
+
+# The tile's cover -- the one Unity Button the game wires to "open this letter"
+# (LettersSliderTracingObj.coverButtonRef). The same child in both prefabs.
+_LST_COVER = "LetterImg"
+
+
+_LST_TILE_DATA = "TileData"
+
+
+_LST_PUZZLE = "ReunionManager"
+
+
+_LST_SIZE = 3
 
 
 _LST_GOAL = (1, 2, 3, 4, 5, 6, 7, 8, 9)      # 9 is the hidden tile, bottom right
 
 
+def _lst_letter(text):
+    """The letter a tile shows, with TextMeshPro's sprite markup unwrapped.
+
+    Kideo Land renders some Hebrew letters as glyph sprites, so the text reads
+    `<sprite name="א" tint=1>` rather than `א`. Either way the tile has a
+    letter left to trace; only the reporting wants the bare character.
+    """
+    text = (text or "").strip()
+    match = re.search(r'<sprite[^>]*name="([^"]+)"', text)
+    if match:
+        return match.group(1)
+    return re.sub(r"<[^>]+>", "", text).strip() or None
+
+
 def _lst_read_tiles(altdriver):
-    """The nine tiles in reading order, with the number and letter each shows."""
+    """The nine tiles, with the number and letter each shows.
+
+    Ordered by the printed number when it can be read, so "the first tile still
+    carrying a letter" means the same thing on every screen; never by position.
+    """
     try:
         elements = altdriver.get_all_elements(enabled=False)
     except Exception:
@@ -629,7 +775,7 @@ def _lst_read_tiles(altdriver):
             yield from descendants(child, depth + 1)
 
     tiles = []
-    for tile in [o for o in elements if o.name.startswith(_LST_TILE)]:
+    for tile in [o for o in elements if _LST_TILE in o.name]:
         number = letter = None
         for node in descendants(tile):
             if node.name == "TIle_Text" and number is None:
@@ -639,44 +785,73 @@ def _lst_read_tiles(altdriver):
                     pass
             elif node.name.startswith("LetterText") and letter is None:
                 try:
-                    letter = (node.get_text() or "").strip() or None
+                    letter = _lst_letter(node.get_text())
                 except Exception:
                     pass
         tiles.append({"obj": tile, "number": number, "letter": letter,
-                      "x": float(tile.x), "y": float(tile.y), "shown": tile.enabled})
-    # Screen y runs bottom-up, so the top row is the HIGHEST y.
-    return sorted(tiles, key=lambda t: (-t["y"], t["x"]))
+                      "shown": tile.enabled})
+
+    def by_number(tile):
+        return int(tile["number"]) if (tile["number"] or "").isdigit() else 99
+    return sorted(tiles, key=by_number)
+
+
+def _lst_open(tile):
+    """Open a tile's letter by pressing its cover Button -- as an object.
+
+    The tile ROOT answers nothing during the tracing half: the ClickHandler on
+    it belongs to the slide puzzle, and `click()`/`tap()` on it or on the inner
+    `Tile` image do nothing. What the game listens to is the Unity Button on
+    the `LetterImg` child (LettersSliderTracingObj.coverButtonRef), so that is
+    what gets pressed, by name. Verified live in Kideo Land 2026-09-27 (the
+    rig opened on the first click); the Voca Tooki prefab wires the same
+    Button. The old positional tap is gone for good -- see the rule in
+    no-coordinate-based-clicks.
+    """
+    tile["obj"].find_object_from_object(By.NAME, _LST_COVER).click()
 
 
 def _lst_tap(altdriver, tile):
-    """Press a tile at the position it is reporting right now.
+    """Kept for the activitiesDemo re-export; presses the cover, never a coordinate."""
+    _lst_open(tile)
 
-    The tiles are driven by a raycasting input handler, not by the Unity event
-    system: `AltObject.click()` and `.tap()` on the tile both do nothing at all,
-    and the inner `Tile` child has no handler on it either. A positional tap is
-    the only press this board answers. The coordinate still comes from the named
-    object, never from a constant, so it survives any resolution.
-    """
-    altdriver.tap((tile["x"], tile["y"]))
+
+def _lst_cell(tile):
+    """(row, col) the tile sits in NOW, read off its TileData, not off the screen."""
+    return (int(tile["obj"].get_component_property(_LST_TILE_DATA, "currentRow", _LT_ASM)),
+            int(tile["obj"].get_component_property(_LST_TILE_DATA, "currentColumn", _LT_ASM)))
 
 
 def _lst_grid(tiles):
-    """(state, xs, ys) — the numbers in reading order plus the lattice."""
-    xs = sorted({t["x"] for t in tiles})
-    ys = sorted({t["y"] for t in tiles}, reverse=True)
-    if len(xs) != 3 or len(ys) != 3 or len(tiles) != 9:
-        return None, xs, ys
-    state = [None] * 9
+    """(state, cells): the numbers in reading order, and the tile in each cell.
+
+    Everything comes off TileData: `currentRow`/`currentColumn` say where a
+    tile is, `originalRow`/`originalColumn` where it belongs -- and the number
+    the game printed on it is row*3+col+1 (ReunionManager.NumberTheTiles). So
+    the grid does not depend on screen positions or on which way y runs. The
+    hidden tile is the one not shown; it still reports its cell.
+    """
+    if len(tiles) != _LST_SIZE * _LST_SIZE:
+        return None, {}
+    state, cells = [None] * (_LST_SIZE * _LST_SIZE), {}
     for tile in tiles:
         try:
-            state[ys.index(tile["y"]) * 3 + xs.index(tile["x"])] = int(tile["number"])
-        except (TypeError, ValueError):
-            return None, xs, ys
-    return (tuple(state) if all(v is not None for v in state) else None), xs, ys
+            data = {key: int(tile["obj"].get_component_property(_LST_TILE_DATA, key, _LT_ASM))
+                    for key in ("currentRow", "currentColumn", "originalRow", "originalColumn")}
+        except Exception:
+            return None, {}
+        index = data["currentRow"] * _LST_SIZE + data["currentColumn"]
+        if not 0 <= index < len(state) or state[index] is not None:
+            return None, {}
+        state[index] = data["originalRow"] * _LST_SIZE + data["originalColumn"] + 1
+        cells[index] = tile
+    if any(value is None for value in state):
+        return None, {}
+    return tuple(state), cells
 
 
 def _lst_solve(state):
-    """A* over the 3x3 slide puzzle; the moves are the tiles to tap, in order."""
+    """A* over the 3x3 slide puzzle; the moves are the cells to press, in order."""
     def remaining(board):
         return sum(abs(i // 3 - (v - 1) // 3) + abs(i % 3 - (v - 1) % 3)
                    for i, v in enumerate(board) if v != 9)
@@ -705,13 +880,60 @@ def _lst_solve(state):
     return None
 
 
+def _lst_wait_cell(tile, target, timeout=2.5, poll=0.1):
+    """True once the tile's TileData says it sits in `target` (row, col)."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            if _lst_cell(tile) == tuple(target):
+                return True
+        except Exception:
+            pass
+        time.sleep(poll)
+    return False
+
+
+def _lst_slide(altdriver, tile, target):
+    """Slide one tile into the gap at `target` and confirm it arrived.
+
+    Presses the tile OBJECT: its ClickHandler (an IPointerClickHandler) moves
+    it into the neighbouring gap. Arrival is read back off TileData, so a press
+    the game ignored -- it switches `isClickEnabled` off while a slide animates
+    -- is seen rather than assumed. If the press did not take, the puzzle's own
+    `ReunionManager.MoveTile` is called with the two cells: still addressed by
+    object and component, never by a coordinate.
+    """
+    try:
+        start = _lst_cell(tile)
+    except Exception:
+        return False
+    try:
+        tile["obj"].click()
+    except Exception as e:
+        print(f"[WARN] could not press tile {tile.get('number')}: {e}")
+    if _lst_wait_cell(tile, target):
+        return True
+    try:
+        manager = altdriver.find_object(By.COMPONENT, _LST_PUZZLE)
+        manager.call_component_method(
+            _LST_PUZZLE, "MoveTile", _LT_ASM,
+            parameters=[start[0], start[1], target[0], target[1], True],
+            type_of_parameters=["System.Int32"] * 4 + ["System.Boolean"])
+        print(f"[INFO] tile {tile.get('number')} did not answer the press — "
+              f"moved through {_LST_PUZZLE}.MoveTile instead")
+    except Exception as e:
+        print(f"[WARN] {_LST_PUZZLE}.MoveTile fallback failed: {e}")
+        return False
+    return _lst_wait_cell(tile, target)
+
+
 def _lst_wait_for_grid(altdriver, timeout=25.0, poll=0.4):
     """The tiles, once the tracing view has closed and the board is back."""
     deadline = time.time() + timeout
     while time.time() < deadline:
         if not _lt_read_board(altdriver):
             tiles = _lst_read_tiles(altdriver)
-            if len(tiles) == 9:
+            if len(tiles) == _LST_SIZE * _LST_SIZE:
                 return tiles
         time.sleep(poll)
     return None
@@ -730,10 +952,13 @@ def _lst_wait_for_letters(altdriver, timeout=45.0, poll=0.5):
     while time.time() < deadline:
         if _lt_feedback_up(altdriver):
             return None
-        if not _lt_read_board(altdriver):
-            tiles = _lst_read_tiles(altdriver)
-            if len(tiles) == 9 and any(tile["letter"] for tile in tiles):
-                return tiles
+        # The tiles are read whether or not a letter's rig is open on top of
+        # them: a run that starts (or resumes) with a tile already open is
+        # still a round with letters left, and `_lst_trace_round` deals with
+        # the open letter first.
+        tiles = _lst_read_tiles(altdriver)
+        if len(tiles) == _LST_SIZE * _LST_SIZE and any(tile["letter"] for tile in tiles):
+            return tiles
         time.sleep(poll)
     return None
 
@@ -742,17 +967,36 @@ def _lst_trace_round(altdriver, height, stroke_attempts, tile_attempts):
     """Trace every letter on the board in front of us. Returns (letters, strokes)."""
     letters = strokes = 0
     while True:
-        tiles = _lst_wait_for_grid(altdriver)
-        if tiles is None:
-            raise AssertionError("LETTERS_SLIDER_TRACING: the tile board never appeared")
-        pending = [tile for tile in tiles if tile["letter"]]
-        if not pending:
-            return letters, strokes
-        tile = pending[0]
+        board, tile = None, {"number": "?", "letter": "?"}
+        if _lt_active(_lt_read_board(altdriver)) is not None:
+            # A letter is already open with a stroke still to draw -- the run
+            # started or resumed on an opened tile, or the previous press
+            # landed after its wait gave up. Trace what is offered rather than
+            # waiting for a grid that will not come back until it is done.
+            #
+            # It has to be an UNFINISHED stroke: a traced letter's rig lingers
+            # on screen through the celebration with every stroke completed,
+            # and taking that for "a letter is open" cost a 15s timeout after
+            # each of the nine tiles (214s for a run Voca Tooki does in ~85s).
+            print("[INFO] a letter is already open — tracing it first")
+            board = _lt_wait_for_letter(altdriver, timeout=15.0)
+        if board is None:
+            tiles = _lst_wait_for_grid(altdriver)
+            if tiles is None:
+                raise AssertionError("LETTERS_SLIDER_TRACING: the tile board never appeared")
+            pending = [tile for tile in tiles if tile["letter"]]
+            if not pending:
+                return letters, strokes
+            tile = pending[0]
 
-        board = None
         for attempt in range(1, tile_attempts + 1):
-            _lst_tap(altdriver, tile)
+            if board:
+                break
+            try:
+                _lst_open(tile)
+            except Exception as e:
+                print(f"[WARN] tile {tile['number']}: its {_LST_COVER} cover could not "
+                      f"be pressed ({e})")
             board = _lt_wait_for_letter(altdriver, timeout=15.0)
             if board:
                 break
@@ -783,15 +1027,21 @@ def _lst_trace_round(altdriver, height, stroke_attempts, tile_attempts):
 
 
 def _lst_order_pieces(altdriver, passes=4):
-    """Slide the picture into 1..9 order. Returns the number of moves made."""
+    """Slide the picture into 1..9 order. Returns the number of moves made.
+
+    Each move presses the tile object that TileData puts next to the gap and
+    is confirmed by TileData before the next one; a move that did not take
+    ends the pass, and the next pass re-reads and re-plans from whatever the
+    board really is.
+    """
     moves = 0
     for attempt in range(1, passes + 1):
         tiles = _lst_wait_for_grid(altdriver)
         if tiles is None:
             return moves
-        state, xs, ys = _lst_grid(tiles)
+        state, cells = _lst_grid(tiles)
         if state is None:
-            print("[WARN] could not read the tile numbers — leaving the puzzle alone")
+            print("[WARN] could not read the tiles' TileData — leaving the puzzle alone")
             return moves
         if state == _LST_GOAL:
             print(f"[INFO] picture ordered in {moves} moves")
@@ -800,13 +1050,15 @@ def _lst_order_pieces(altdriver, passes=4):
         if plan is None:
             raise AssertionError(f"LETTERS_SLIDER_TRACING: puzzle {state} cannot be solved")
         print(f"[INFO] puzzle pass {attempt}: {state} — {len(plan)} moves")
+        board = list(state)
         for index in plan:
-            # Replay against the lattice rather than re-reading the board for
-            # every move; a missed slide is caught by the next pass, which
-            # re-reads and re-plans from whatever is actually on screen.
-            altdriver.tap((xs[index % 3], ys[index // 3]))
+            gap = board.index(9)
+            if not _lst_slide(altdriver, cells[index], divmod(gap, _LST_SIZE)):
+                print(f"[WARN] the tile in cell {index} did not move — re-reading the board")
+                break
             moves += 1
-            time.sleep(0.45)
+            board[gap], board[index] = board[index], board[gap]
+            cells[gap], cells[index] = cells[index], cells[gap]
         time.sleep(1.0)
     raise AssertionError("LETTERS_SLIDER_TRACING: the puzzle would not come out")
 
@@ -819,10 +1071,11 @@ def letters_slider_tracing(altdriver, stroke_attempts=4, tile_attempts=3,
     puzzle -- but some deal several, each with its own letters and its own
     picture. Nothing here is told how many: it keeps taking rounds until the
     activity puts up its feedback screen, so it follows whatever the level was
-    built with.
+    built with. Works unchanged in Voca Tooki and Kideo Land.
     """
     print("[INFO] LETTERS_SLIDER_TRACING: starting")
     _width, height = (float(v) for v in altdriver.get_application_screensize())
+    _LT_CAMERA.update(id=None, name=None)
 
     rounds = traced = strokes = moves = 0
     seen_letters = []
@@ -850,4 +1103,5 @@ def letters_slider_tracing(altdriver, stroke_attempts=4, tile_attempts=3,
           f"({strokes} strokes), pictures ordered in {moves} moves, "
           f"final feedback {'closed' if closed else 'not seen'}. "
           f"Traced with real finger drags over the game's own stroke points; "
+          f"every press went through a named object; "
           f"the score and stars on the feedback screen are not asserted.")
