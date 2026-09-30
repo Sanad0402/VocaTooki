@@ -10,9 +10,10 @@ results back to **Rally** — from a web **runner panel** or from pytest.
 | Folder / file | What it is |
 |---|---|
 | `vocatooki/` | **The framework** — one module per domain (navigation, activities, exams, guest, …). See [ARCHITECTURE.md](ARCHITECTURE.md). |
-| `vocatooki/solvers/` | One solver per activity, named after it (`frogger.py`, `missing_bubble.py`, …); 3rd grade in `solvers/third_grade/`. Index in `solvers/__init__.py`. |
+| `vocatooki/solvers/` | One solver per activity, named after it (`frogger.py`, `missing_bubble.py`, …); 3rd grade in `solvers/third_grade/`. Index in `solvers/__init__.py`. **Shared by Voca Tooki and Kideo Land.** |
+| `kideoland/` | Kideo Land only: login, islands → island map → lessons, level play, exam, lesson modes. Uses the shared solvers. |
 | `Pages/` | Page objects (`login_page.py`, `start_screen.py`, `map_page.py`, `page_template.py`). |
-| `runner/` + `run_panel.py` | The runner panel (Flask): pick a run type and an API, run, see results, post to Rally. |
+| `runner/` + `run_panel.py` | The runner panel (Flask): pick a run type, the game (Voca Tooki / Kideo Land, `runner/games.py`) and an API, run, see results, post to Rally. |
 | `Tests/rally/` | Test cases **generated** from Rally in the panel (do not hand-edit — regenerate). |
 | `Tests/unit/` | Offline safety net: the framework contract + behaviour pins (no app needed). |
 | `Scripts/` | Utilities: `safety_check.py`, Rally sync scripts, guest-data tools. |

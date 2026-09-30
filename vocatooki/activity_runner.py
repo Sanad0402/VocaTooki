@@ -174,6 +174,12 @@ ACTIVITY_FRAMES = ("1-start", "2-mid", "3-feedback")
 MID_FRAME_FALLBACK_SECONDS = 15.0
 
 
+# The result popup animates in (stars, score) -- a frame shot the instant it
+# appears catches it half-drawn. Wait this long before the feedback frame
+# (user, 2026-09-29).
+FEEDBACK_FRAME_DELAY = 2.0
+
+
 _MID = {"driver": None, "scene": "", "taken": False, "checked": 0.0, "since": 0.0}
 
 
@@ -205,7 +211,20 @@ def _watch_mid_frame(driver, scene):
 # What proves the game itself accepted the activity. FeedbackPopup(Clone) is the
 # shared result screen; "prev" is the older marker and is kept as a fallback,
 # though it is weak -- the side toolbar carries one during play too.
-ACTIVITY_RESULT_MARKERS = ("FeedbackPopup(Clone)", "ResultPanel", "WinDialog")
+ACTIVITY_RESULT_MARKERS = ("FeedbackPopup(Clone)", "ResultPanel", "WinDialog",
+                           "KideoLandFeedbackPopup(Clone)")
+
+
+# The end-of-activity popups in BOTH games. Kideo Land ships the same popups as
+# prefab variants named after the game; Voca Tooki never shows those names, so
+# looking for them changes nothing there.
+SUCCESS_POPUPS = ("FeedbackPopup(Clone)", "KideoLandFeedbackPopup(Clone)")
+FAILURE_POPUPS = ("FailureFeedbackPopup(Clone)", "KideoLandFailureFeedbackPopup(Clone)")
+
+
+def _any_present(altdriver, names):
+    """True when any of ``names`` is on screen."""
+    return any(ui_actions.find_any(altdriver, name) is not None for name in names)
 
 
 # Short on purpose: this is only used to LABEL the last frame, so a long wait
@@ -385,7 +404,10 @@ def run_activity(altdriver, activity):
         # it cannot speak for the rest. Until there is a per-activity list built
         # from what each one really shows, a missing result screen is worth
         # SAYING and nothing more.
-        if not wait_for_activity_result(altdriver, timeout=ACTIVITY_RESULT_TIMEOUT):
+        result_seen = wait_for_activity_result(altdriver, timeout=ACTIVITY_RESULT_TIMEOUT)
+        if result_seen:
+            time.sleep(FEEDBACK_FRAME_DELAY)       # let the popup finish drawing
+        else:
             logging.warning(
                 f"[Activity] {scene}: no result screen seen in "
                 f"{ACTIVITY_RESULT_TIMEOUT}s (looked for "
@@ -484,13 +506,16 @@ def when_finish_activity(altdriver, retries=3, delay=1):
     # the SideToolbar holding "prev" is gone behind it, so the loop above can
     # never succeed. The popup carries its own exit. When "prev" IS found the
     # behaviour above is unchanged and this never runs.
-    try:
-        popup = altdriver.find_object(By.NAME, "FeedbackPopup(Clone)")
-        popup.find_object_from_object(By.NAME, "ExitButton").click()
-        logging.info("Exit via the result popup's ExitButton.")
-        return
-    except Exception as e:
-        logging.warning(f"Result popup exit not available either - {e}")
+    popup_error = None
+    for popup_name in SUCCESS_POPUPS:
+        try:
+            popup = altdriver.find_object(By.NAME, popup_name)
+            popup.find_object_from_object(By.NAME, "ExitButton").click()
+            logging.info("Exit via the result popup's ExitButton.")
+            return
+        except Exception as e:
+            popup_error = e
+    logging.warning(f"Result popup exit not available either - {popup_error}")
 
     # Having nothing left to exit is not a failure. A solver that closes its own
     # result screen (the tracing activities do) leaves us back on the selection
@@ -686,9 +711,9 @@ def activity_finished(altdriver, settle=8.0):
     deadline = time.time() + settle
     done = total = 0
     while True:
-        if ui_actions.find_any(altdriver, "FailureFeedbackPopup(Clone)") is not None:
+        if _any_present(altdriver, FAILURE_POPUPS):
             return False, "the game was lost (Try Again screen)"
-        if ui_actions.find_any(altdriver, "FeedbackPopup(Clone)") is not None:
+        if _any_present(altdriver, SUCCESS_POPUPS):
             return True, "the success screen is showing"
         done, total = read_activity_progress(altdriver)
         if total and done >= total:
@@ -703,7 +728,7 @@ def activity_finished(altdriver, settle=8.0):
 
 def retry_lost_activity(altdriver):
     """On the Try Again screen, press Retry so the next attempt has a board."""
-    if ui_actions.find_any(altdriver, "FailureFeedbackPopup(Clone)") is not None and \
+    if _any_present(altdriver, FAILURE_POPUPS) and \
             ui_actions.find_any(altdriver, "RetryButton") is not None:
         ui_actions.press_object(altdriver, "RetryButton", settle=4.0)
         logging.info("[Activity] the game was lost — pressed Retry for the next attempt")
@@ -1006,7 +1031,11 @@ def write_activity_report(f, lesson_num=None, lesson_id=None):
         platform = entry.get('platform', 'Unknown')
         count = activity_occurrences.get(activity, 0)
 
-        if count < len(difficulty_labels):
+        # A row that KNOWS its difficulty says so (Kideo Land's rows do); the
+        # occurrence guess below is only for rows that do not.
+        if entry.get("difficulty"):
+            difficulty = entry["difficulty"]
+        elif count < len(difficulty_labels):
             difficulty = difficulty_labels[count]
         else:
             difficulty = f"Attempt {count + 1}"

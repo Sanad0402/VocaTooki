@@ -12,6 +12,24 @@ from vocatooki.solvers.text_utils import is_rtl, normalize_text
 from vocatooki.ui_actions import click_by_name
 
 
+# Voca Tooki's name first, then Kideo Land's: KL prefixes the prefab with `KL_`.
+QUIZ_NAMES = ("ContextTypingItQuiz(Clone)", "KL_ContextTypingItQuiz(Clone)")
+
+
+def _quiz(altdriver, timeout=15):
+    """The typing quiz object, under whichever game's name is on screen."""
+    deadline = time.time() + timeout
+    while True:
+        for name in QUIZ_NAMES:
+            try:
+                return altdriver.find_object(By.NAME, name)
+            except Exception:
+                continue
+        if time.time() >= deadline:
+            raise AssertionError(f"TYPE_IT_RIGHT: none of {QUIZ_NAMES} is on screen")
+        time.sleep(0.5)
+
+
 def type_it_right(altdriver):
     """Types the correct word into the input, reversing only Arabic."""
     num_words = int(altdriver.find_object(By.NAME, "ProgressText").get_text().split('/')[1])
@@ -19,7 +37,7 @@ def type_it_right(altdriver):
     for i in range(num_words):
         time.sleep(2.5)
 
-        raw_answer = altdriver.find_object(By.NAME, "ContextTypingItQuiz(Clone)") \
+        raw_answer = _quiz(altdriver) \
             .get_component_property("com.kideo.learn.english.ContextAudioTypingQuiz", "currentWord_.word",
                                     "Assembly-CSharp")
 

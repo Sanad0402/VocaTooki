@@ -24,6 +24,7 @@ from Utilities import utilsdemo
 from Pages.start_screen import StartScreen
 from Pages.map_page import MapPage
 from .modes import MODES, DEFAULT_MODE
+from . import games
 from . import suite
 from . import guest
 from . import emailer
@@ -75,6 +76,10 @@ def _import_ref(ref):
     if not callable(fn):
         raise RuntimeError(f"{ref} is not a callable function.")
     return fn
+
+
+class _SkipToLessons(Exception):
+    """Login done by a game with no separate map step -- go straight to the lessons."""
 
 
 class _StopRun(Exception):
@@ -275,7 +280,10 @@ class RunManager:
             cid = override or u["class_id"]
             for lesson in range(lf, lt + 1):
                 steps.append(f"[{u['username']}] class {cid} - lesson {lesson} ({mode})")
-        steps.insert(0, f"API: {self.backend_label(cfg.get('backend'))}")
+        game = games.normalise(cfg.get("game"))
+        if games.GAMES[game]["uses_api"]:
+            steps.insert(0, f"API: {self.backend_label(cfg.get('backend'))}")
+        steps.insert(0, f"Game: {games.GAMES[game]['label']}")
         return steps
 
     @staticmethod
@@ -301,8 +309,16 @@ class RunManager:
                 errors.append("'From' lesson must be <= 'To' lesson.")
         except (KeyError, TypeError, ValueError):
             errors.append("Lesson From/To must be integers.")
-        if cfg.get("mode", DEFAULT_MODE) not in MODES:
-            errors.append(f"Unknown mode '{cfg.get('mode')}'.")
+        game = games.normalise(cfg.get("game"))
+        if game not in games.GAMES:
+            errors.append(f"Unknown game '{cfg.get('game')}'.")
+            return errors
+        if cfg.get("mode", DEFAULT_MODE) not in games.modes_for(game):
+            errors.append(f"Unknown mode '{cfg.get('mode')}' for {games.GAMES[game]['label']}.")
+        try:
+            errors.extend(games.lesson_errors(game, int(cfg["lesson_from"]), int(cfg["lesson_to"])))
+        except (KeyError, TypeError, ValueError):
+            pass
         return errors
 
     # ---- run -------------------------------------------------------------
@@ -318,6 +334,16 @@ class RunManager:
         if backend != utilsdemo.VT_BACKEND_AUTO and backend not in utilsdemo.VT_BACKENDS:
             return False, {"error": f"Unknown API '{cfg.get('backend')}'."}
         cfg["backend"] = self._backend = backend
+
+        # Which game the app under test is -- asked in the same dialog. Voca
+        # Tooki is the default, so every existing caller behaves as before.
+        game = games.normalise(cfg.get("game"))
+        if game not in games.GAMES:
+            return False, {"error": f"Unknown game '{cfg.get('game')}'."}
+        cfg["game"] = self._game = game
+        if game != games.DEFAULT_GAME and cfg.get("run_type") == "guest":
+            return False, {"error": f"Guest runs exist only for Voca Tooki so far, "
+                                    f"not {games.GAMES[game]['label']}."}
 
         if cfg.get("run_type") == "guest":
             return self._start_guest(cfg)
@@ -803,8 +829,14 @@ class RunManager:
             override = cfg.get("class_id_override")
             lf, lt = int(cfg["lesson_from"]), int(cfg["lesson_to"])
             mode = cfg.get("mode", DEFAULT_MODE)
-            mode_run = MODES[mode]["run"]
+            game = games.normalise(cfg.get("game"))
+            if game == "kl":
+                from kideoland import lessons as kl_lessons, login as kl_login
+                mode_run = lambda mp, drv, cid, lesson: kl_lessons.run_lesson(drv, lesson, mode)
+            else:
+                mode_run = MODES[mode]["run"]
             lessons = list(range(lf, lt + 1))
+            self._log(f"[INFO] Game: {games.GAMES[game]['label']}")
 
             backend = getattr(self, "_backend", utilsdemo.VT_BACKEND_AUTO)
             utilsdemo.set_backend(backend)
@@ -855,8 +887,14 @@ class RunManager:
                 self._log(f"=== User {ui + 1}/{len(users)}: {username} (class {cid}) ===")
 
                 try:
-                    start_screen = StartScreen(driver, utilsdemo=utilsdemo)
                     map_page = MapPage(driver)
+                    if game == "kl":
+                        # Kideo Land: log in and stop on the islands; each
+                        # lesson opens its own island and map.
+                        kl_login.login(driver, username, user["password"])
+                        self._shoot(f"start-{username}")
+                        raise _SkipToLessons()
+                    start_screen = StartScreen(driver, utilsdemo=utilsdemo)
                     start_screen.login(username, user["password"])
                     # open_feature, NOT start_screen.go_to_map(): go_to_map taps
                     # GO-Map and asserts nothing, so a press the hub swallowed
@@ -872,6 +910,8 @@ class RunManager:
                             f"or the placement pretest gating this account)")
                     self._sleep(6)
                     self._shoot(f"map-{username}")
+                except _SkipToLessons:
+                    pass
                 except Exception as e:
                     if self._stopped():
                         break

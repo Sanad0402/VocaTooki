@@ -47,6 +47,7 @@ from flask import Flask, request, jsonify, render_template, Response, send_file,
 from runner.core import manager, REPORTS_DIR
 from Utilities import utilsdemo
 from runner.modes import mode_list, DEFAULT_MODE
+from runner import games
 from runner import guest as guest_runs
 from runner import suite
 from data.test_users import TEST_USERS, DEFAULT_CLASS_ID
@@ -222,6 +223,9 @@ def api_config():
             for u in TEST_USERS
         ],
         "modes": mode_list(),
+        # Which game the run drives, asked in the Run dialog; lesson modes differ.
+        "games": games.game_list(),
+        "modes_by_game": {g: games.mode_list(g) for g in games.GAMES},
         "run_types": [
             {"key": "lesson_range", "label": "Lesson Range (users)"},
             {"key": "test_folder", "label": "Test Folder"},
@@ -239,6 +243,7 @@ def api_config():
         "rally": rally_config,
         "defaults": {
             "run_type": "lesson_range",
+            "game": games.DEFAULT_GAME,
             "mode": DEFAULT_MODE,
             "lesson_from": 0,
             "lesson_to": 6,

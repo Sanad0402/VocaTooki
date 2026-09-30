@@ -257,7 +257,12 @@
         <button id="sm-close" type="button" class="link" aria-label="Close">✕</button>
       </div>
       <div class="modal-body">
-        <div class="api-pick">
+        <div class="api-pick" id="sm-game-box" style="margin-bottom:12px">
+          <div class="api-title">🎮 Which game is running?</div>
+          <div id="sm-game" class="api-list"></div>
+          <p id="sm-game-hint" class="hint" style="margin:6px 0 0"></p>
+        </div>
+        <div class="api-pick" id="sm-api-box">
           <div class="api-title">🌐 Which API should this run use?</div>
           <div id="sm-api" class="api-list"></div>
           <p class="hint" style="margin:6px 0 0">Every API call the run makes — class map, user
@@ -282,7 +287,7 @@
     </div>
   </div>
 
-  <script src="{{ url_for('static', filename='status.js') }}?v=33"></script>
-  <script src="{{ url_for('static', filename='app.js') }}?v=33"></script>
+  <script src="{{ url_for('static', filename='status.js') }}?v=34"></script>
+  <script src="{{ url_for('static', filename='app.js') }}?v=34"></script>
 </body>
 </html>

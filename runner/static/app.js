@@ -5,6 +5,7 @@ const LS_KEY = "vt_runner_cfg";
 const LS_USERS = "vt_runner_custom_users";
 const LS_RALLY_PROJECT = "vt_runner_rally_project";
 const LS_API = "vt_runner_api";            // the API picked in the Run dialog last time
+const LS_GAME = "vt_runner_game";          // the game picked in the Run dialog last time
 
 let CONFIG = null;
 let MODES = [];
@@ -135,9 +136,11 @@ async function init() {
   on("sm-cancel", "click", () => resolveShots(null));
   on("sm-start", "click", () => {
     const api = readApiChoice();
-    try { localStorage.setItem(LS_API, api); } catch (e) {}
-    resolveShots({ ...readShotsDialog(), backend: api });
+    const game = readGameChoice();
+    try { localStorage.setItem(LS_API, api); localStorage.setItem(LS_GAME, game); } catch (e) {}
+    resolveShots({ ...readShotsDialog(), backend: api, game });
   });
+  on("sm-game", "change", () => applyGameChoice(readGameChoice()));
   on("shots-modal", "click", (e) => { if (e.target.id === "shots-modal") resolveShots(null); });
   on("sm-all", "click", () => setAllShots(true));
   on("sm-none", "click", () => setAllShots(false));
@@ -786,6 +789,7 @@ function gatherConfig(dryRun) {
   const base = {
     run_type: rt, dry_run: dryRun, email_report: $("email_report").checked,
     backend: savedApi(),                     // the Run dialog overrides this for a real run
+    game: savedGame(),                       // likewise the game
     platform: $("platform").value.trim(), host: $("host").value.trim(),
     port: parseInt($("port").value, 10),
     app_id: $("app_id").value.trim(), device_instance_id: $("device_instance_id").value.trim(),
@@ -887,6 +891,7 @@ function askShots(cfg) {
   if (!modal) return Promise.resolve({});     // no dialog markup -> run as before
   return new Promise((resolve) => {
     SHOTS_RESOLVE = resolve;
+    renderGameChoice(cfg);
     renderApiChoice();
     renderShotsDialog(cfg);
     modal.classList.remove("hidden");
@@ -978,6 +983,48 @@ function renderApiChoice() {
       <b>${escapeHtml(b.key)}</b>
       <span class="hint" style="margin:0">${escapeHtml(b.url || b.label.replace(/^auto /, ""))}</span>
     </label>`).join("");
+}
+
+// ------------------------------------------------------ game for this run
+// Asked first in the same dialog: Voca Tooki or Kideo Land. It picks the
+// login, the way to a lesson and the lesson flow; the solvers are shared.
+function savedGame() {
+  let v = "";
+  try { v = localStorage.getItem(LS_GAME) || ""; } catch (e) {}
+  const keys = ((CONFIG && CONFIG.games) || []).map((g) => g.key);
+  return keys.includes(v) ? v : ((CONFIG && CONFIG.defaults && CONFIG.defaults.game) || "vt");
+}
+
+function renderGameChoice(cfg) {
+  const box = $("sm-game");
+  if (!box) return;
+  const current = savedGame();
+  box.innerHTML = ((CONFIG && CONFIG.games) || []).map((g) => `<label class="api-opt">
+      <input type="radio" name="sm-game" value="${escapeAttr(g.key)}" ${g.key === current ? "checked" : ""}>
+      <b>${escapeHtml(g.label)}</b></label>`).join("");
+  SHOTS_CFG = cfg;
+  applyGameChoice(current);
+}
+
+let SHOTS_CFG = null;
+
+function applyGameChoice(game) {
+  const spec = ((CONFIG && CONFIG.games) || []).find((g) => g.key === game) || {};
+  const hint = $("sm-game-hint");
+  let text = spec.hint || "";
+  // The lesson mode means something slightly different per game -- say what.
+  if (SHOTS_CFG && SHOTS_CFG.run_type === "lesson_range" && CONFIG.modes_by_game) {
+    const m = (CONFIG.modes_by_game[game] || []).find((x) => x.key === SHOTS_CFG.mode);
+    if (m) text += ` Mode here: ${m.label} — ${m.description}`;
+  }
+  if (hint) hint.textContent = text;
+  const apiBox = $("sm-api-box");
+  if (apiBox) apiBox.style.display = spec.uses_api === false ? "none" : "";
+}
+
+function readGameChoice() {
+  const on = document.querySelector('#sm-game input[name="sm-game"]:checked');
+  return on ? on.value : savedGame();
 }
 
 function readApiChoice() {

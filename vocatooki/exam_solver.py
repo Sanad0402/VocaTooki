@@ -22,7 +22,7 @@ EXAM_APPEAR_SETTLE_SECONDS = 3.0
 EXAM_RESULT_MARKERS = ("Collect", "CollectButton", "ResultPanel", "ScorePanel")
 
 
-def detect_exam_type_settled(altdriver, tries=6, pause=0.5):
+def detect_exam_type_settled(altdriver, tries=6, pause=0.5, patience=0.0):
     """The page's type, once the page has STOPPED changing into it.
 
     A page is built in pieces, and the first widget to exist decides the answer
@@ -30,14 +30,42 @@ def detect_exam_type_settled(altdriver, tries=6, pause=0.5):
     second the exam icon was pressed. Two agreeing reads mean the page is
     really that type, not merely part-way to being it.
     """
-    previous = ""
-    for _ in range(tries):
-        current = detect_exam_type(altdriver)
-        if current and current == previous:
+    # ``patience``: how long to keep looking while the page still reads as
+    # "unknown". A page that is still being built has none of its widgets yet,
+    # and Kideo Land builds its pages noticeably slower than Voca Tooki -- a
+    # word-to-image page read after 3s came back "unknown" and the exam was
+    # submitted unanswered. 0 keeps the original behaviour.
+    deadline = time.time() + patience
+    while True:
+        previous = ""
+        for _ in range(tries):
+            current = detect_exam_type(altdriver)
+            if current and current == previous:
+                break
+            previous = current
+            time.sleep(pause)
+        else:
+            current = previous
+        if current != "unknown" or time.time() >= deadline:
             return current
-        previous = current
-        time.sleep(pause)
-    return previous
+        time.sleep(1.0)
+
+
+def _exam_page_has(altdriver, name):
+    """True when the exam page shows ``name`` -- or its Kideo Land twin.
+
+    Kideo Land ships the SAME exam pages under other prefab names: some are
+    prefixed `KL_` (`SwapLetterText(Clone)` is `KL_SwapLetterText(Clone)`),
+    and the right-to-left pages carry an `_RTL` suffix -- its audio-to-meaning
+    page is `WordAudioShape_RTL(Clone)` (seen live 2026-09-29; the page type
+    is dealt at random each time the exam opens). A page is recognised under
+    any of them. Voca Tooki shows none of those names, so the extra looks
+    change nothing there.
+    """
+    variants = (name, "KL_" + name)
+    if name.endswith("(Clone)"):
+        variants += (name[:-len("(Clone)")] + "_RTL(Clone)",)
+    return any(altdriver.find_objects(By.NAME, variant) for variant in variants)
 
 
 def detect_exam_type(altdriver):
@@ -47,30 +75,30 @@ def detect_exam_type(altdriver):
     types, and a given type can appear on any page.
     """
     # Rows of scrambled letters; drag one onto another to swap them.
-    if altdriver.find_objects(By.NAME, "SwapLetterText(Clone)"):
+    if _exam_page_has(altdriver, "SwapLetterText(Clone)"):
         return "swap_letters"
     # Sentences with blanks; drag each word from the bank into its blank.
-    if altdriver.find_objects(By.NAME, "WordInShuffledContext(Clone)"):
+    if _exam_page_has(altdriver, "WordInShuffledContext(Clone)"):
         return "shuffled_context"
-    if altdriver.find_objects(By.NAME, "SpellingInputField"):
+    if _exam_page_has(altdriver, "SpellingInputField"):
         return "spelling"
-    if altdriver.find_objects(By.NAME, "LetterTestPanel(Clone)"):
+    if _exam_page_has(altdriver, "LetterTestPanel(Clone)"):
         return "audio_letter"
-    if altdriver.find_objects(By.NAME, "LetterWordText Variant(Clone)"):
+    if _exam_page_has(altdriver, "LetterWordText Variant(Clone)"):
         return "letter_to_word"
-    if altdriver.find_objects(By.NAME, "MatchShapeImage(Clone)"):
+    if _exam_page_has(altdriver, "MatchShapeImage(Clone)"):
         return "word_to_image"
-    if altdriver.find_objects(By.NAME, "WordAudioShape(Clone)"):
+    if _exam_page_has(altdriver, "WordAudioShape(Clone)"):
         return "audio"
-    if altdriver.find_objects(By.NAME, "WordMeaningShape(Clone)"):
+    if _exam_page_has(altdriver, "WordMeaningShape(Clone)"):
         return "meaning"
-    if altdriver.find_objects(By.NAME, "FillWord(Clone)"):
+    if _exam_page_has(altdriver, "FillWord(Clone)"):
         return "spelling"
-    if altdriver.find_objects(By.NAME, "Context"):
+    if _exam_page_has(altdriver, "Context"):
         return "context"
-    if altdriver.find_objects(By.NAME, "QuestionTemplate(Clone)"):
+    if _exam_page_has(altdriver, "QuestionTemplate(Clone)"):
         return "image_4_voices"
-    if altdriver.find_objects(By.NAME, "ImageAudioShape(Clone)"):
+    if _exam_page_has(altdriver, "ImageAudioShape(Clone)"):
         return "audio_to_image"
 
     return "unknown"
@@ -105,7 +133,7 @@ def open_exam(altdriver, timeout=60):
     return False
 
 
-def solve_exam_pages(altdriver, label="", dismiss_help=False):
+def solve_exam_pages(altdriver, label="", dismiss_help=False, page_patience=0.0):
     """Solve the 3 pages of an exam that is ALREADY open, and submit it.
 
     Split out of ``solve_exam`` so a test can navigate to the exam its own way
@@ -253,7 +281,7 @@ def solve_exam_pages(altdriver, label="", dismiss_help=False):
         if dismiss_help:
             instructions_parrot.dismiss_help_popup(altdriver)
         # Read the type only once the page has settled INTO that type.
-        exam_type = detect_exam_type_settled(altdriver)
+        exam_type = detect_exam_type_settled(altdriver, patience=page_patience)
         solver = exam_solvers.get(exam_type)
 
         if solver:
