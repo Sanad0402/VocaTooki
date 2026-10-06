@@ -70,6 +70,13 @@ def parrot_bubble_shown(altdriver):
     return False if readable else None
 
 
+# How long the parrot's bubble may stay up before the icon is pressed to
+# close it. Below this the bubble is the intro doing its job (it types its
+# words out and goes), and pressing the icon only toggles it against the
+# sequence. Past it the bubble is an idle hint that will not leave by itself.
+BUBBLE_PATIENCE = 8.0
+
+
 def wait_for_instructions(altdriver, timeout=30.0, quiet=2.0, poll=0.5):
     """Let the parrot FINISH its instructions: wait until the bubble has been
     down for ``quiet`` seconds. Never presses anything. Returns True when the

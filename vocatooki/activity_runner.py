@@ -19,31 +19,75 @@ activity_report = []
 
 
 def handle_level_flow(altdriver):
-    """Manages both opened and not-yet-opened level flows."""
-    time.sleep(2)
-    current_scene = altdriver.get_current_scene()
+    """Play every activity of the open level, from the activity selection.
 
-    if current_scene == 'ActivitySelectionScene':
+    Arrival is WAITED for (the scene settles, the thumbs exist) before anything
+    is read, and after every activity the activity list is waited for again
+    before the next thumb is pressed — a thumb press made while the result
+    popup is still up lands on the popup, and the level then died with "list
+    index out of range" after ONE activity (live, 2026-10-06). The list is one
+    press away from a finished activity; the map is never visited in between.
+    """
+    from vocatooki import map_navigation           # same layer: import late
+    scenes.wait_for_scene_ready(altdriver, label="level")
+    current_scene = scenes._current_scene(altdriver)
+
+    if current_scene == scene_names.ACTIVITY_SELECTION_SCENE:
         print("[INFO] Executing opened level flow")
     else:
         print("[INFO] Handling not-yet-opened level flow")
-        from vocatooki import map_navigation           # same layer: import late
         ui_actions.click_by_name(altdriver, "nextButton")
         assert scenes.wait_for_scene(altdriver, map_navigation.VENDING_SCENE, timeout=20), \
             f"[FAIL] Expected vending scene (on {scenes._current_scene(altdriver)})"
         assert map_navigation.pick_vending_prize(altdriver), \
             f"[FAIL] Expected activity selection after the vending machine (on {scenes._current_scene(altdriver)})"
 
+    assert wait_for_activity_list(altdriver), \
+        f"[FAIL] the activity list did not appear (on {scenes._current_scene(altdriver)})"
     activities = altdriver.find_objects(By.NAME, "ActivityThumb")
     assert len(activities) == 3, f"[FAIL] Expected 3 activities, found {len(activities)}"
+    total = len(activities)
 
-    for i in range(len(activities)):
+    for i in range(total):
         run_activity(altdriver, activities[i])
-        time.sleep(4)
-        when_finish_activity(altdriver)
-        time.sleep(2)
+        # Out of the activity and back on ITS list — proven, not assumed.
+        if not when_finish_activity(altdriver):
+            leave_activity(altdriver)
+        assert wait_for_activity_list(altdriver), \
+            f"[FAIL] the activity list did not come back after activity {i + 1}/{total} " \
+            f"(on {scenes._current_scene(altdriver)})"
         activities = altdriver.find_objects(By.NAME, "ActivityThumb")
+        assert len(activities) >= total, \
+            f"[FAIL] only {len(activities)} thumbs after activity {i + 1}/{total}"
 
+
+# How long the activity selection may take to come back after an activity,
+# counting the result popup's close animation and the list rebuilding.
+ACTIVITY_LIST_TIMEOUT = 25
+
+
+def _on_activity_list(altdriver):
+    """On the activity selection, with its thumbs — not inside an activity."""
+    scene = scenes._current_scene(altdriver)
+    if scene is not None and scene != scene_names.ACTIVITY_SELECTION_SCENE:
+        return False
+    return ui_actions.find_any(altdriver, scene_names.ACTIVITY_SELECTION_SCENE_MARKER) is not None
+
+
+def wait_for_activity_list(altdriver, timeout=ACTIVITY_LIST_TIMEOUT):
+    """Wait for the activity selection to be back AND settled. Bool.
+
+    The scene flips before the thumbs are rebuilt, and the thumbs exist before
+    the screen has finished arranging itself — a press in either window is
+    swallowed. So: the scene, then the thumbs, then the scene stops growing.
+    """
+    end = time.time() + timeout
+    while time.time() < end:
+        if _on_activity_list(altdriver):
+            scenes.wait_for_scene_ready(altdriver, label=scene_names.ACTIVITY_SELECTION_SCENE)
+            return True
+        time.sleep(0.5)
+    return _on_activity_list(altdriver)
 
 def _get_current_activity_with_retry(altdriver, prev_scene=None, max_attempts=10, waits=(2,5,10,15,30,45)):
     """
@@ -135,7 +179,7 @@ def clear_activity_intro(altdriver, scene="", timeout=ACTIVITY_INTRO_TIMEOUT,
     """
     wait_for_activity_board(altdriver, scene)
     deadline = time.time() + timeout
-    acted, quiet_since = False, None
+    acted, quiet_since, bubble_since = False, None, None
     while time.time() < deadline:
         busy = bool(instructions_parrot.dismiss_screen_blocker(altdriver))
         words = instructions_parrot.parrot_instructions_text(altdriver)
@@ -143,8 +187,17 @@ def clear_activity_intro(altdriver, scene="", timeout=ACTIVITY_INTRO_TIMEOUT,
             logging.info(f"[Activity] the parrot is still saying "
                          f"{words[:60]!r} — waiting it out")
         if words or instructions_parrot.parrot_bubble_shown(altdriver) is True:
-            instructions_parrot.dismiss_help_popup(altdriver)
+            # The parrot is talking: let it FINISH. The icon is pressed only
+            # when the bubble has stayed up past its patience — pressing it
+            # mid-sequence toggles the bubble open and shut against the intro
+            # (seen live 2026-10-06, four times per activity).
+            bubble_since = bubble_since or time.time()
+            if time.time() - bubble_since >= instructions_parrot.BUBBLE_PATIENCE:
+                instructions_parrot.dismiss_help_popup(altdriver)
+                bubble_since = None
             busy = True
+        else:
+            bubble_since = None
         if busy:
             acted, quiet_since = True, None
         else:
@@ -525,59 +578,65 @@ def leave_activity(altdriver, marker=None, scene=None, timeout=10):
     return out()
 
 
-def when_finish_activity(altdriver, retries=3, delay=1):
-    """
-    Attempts to exit the activity screen by clicking the Exit button.
+# The end-of-activity popups, won or lost. Each carries its own ExitButton,
+# and each sits OVER the side toolbar: a touch on 'prev' under one lands on
+# the popup (live 2026-10-06, every activity), so the popup is closed FIRST.
+RESULT_POPUPS = ("FeedbackPopup(Clone)", "KideoLandFeedbackPopup(Clone)",
+                 "FailureFeedbackPopup(Clone)")
 
-    Args:
-        altdriver (AltDriver): The AltTester driver instance.
-        retries (int): Number of retries in case ExitButton is not immediately found.
-        delay (float): Delay between retries in seconds.
+
+def _close_result_popup(altdriver):
+    """Press the result popup's own ExitButton if one is up. Returns the popup's name or ""."""
+    for popup_name in RESULT_POPUPS:
+        popup = ui_actions.find_any(altdriver, popup_name)
+        if popup is None:
+            continue
+        try:
+            exit_button = popup.find_object_from_object(By.NAME, "ExitButton")
+        except Exception:                            # noqa: BLE001 - a popup without one
+            continue
+        if ui_actions._press(exit_button, altdriver):
+            logging.info(f"[Activity] closed '{popup_name}' with its ExitButton")
+            return popup_name
+    return ""
+
+
+def when_finish_activity(altdriver, retries=3, delay=1, timeout=ACTIVITY_LIST_TIMEOUT):
+    """Leave the finished activity the way a user does, and PROVE the list is back.
+
+    Order: the result popup's own ExitButton (it covers everything else), then
+    the toolbar's 'prev' / the activity's back controls if the board is what is
+    left. After every press the activity selection is waited for — thumbs on
+    screen and the scene settled — so the next thumb press never lands on a
+    popup or a half-built list. Returns True once the list is back.
     """
     logging.info("Attempting to exit activity")
-
-    for attempt in range(1, retries + 1):
-        try:
-            exit_button = altdriver.find_object(By.NAME, "prev")
-            if not ui_actions._press(exit_button, altdriver):
-                raise RuntimeError("the press on 'prev' was refused")
-            logging.info("Exit button clicked successfully.")
-            return
-        except Exception as e:
-            logging.warning(f"Attempt {attempt}: Failed to click ExitButton - {e}")
+    deadline = time.time() + max(float(timeout), retries * 8.0)
+    while time.time() < deadline:
+        if _on_activity_list(altdriver):
+            scenes.wait_for_scene_ready(altdriver, label=scene_names.ACTIVITY_SELECTION_SCENE)
+            logging.info("Back on the activity list.")
+            return True
+        pressed = _close_result_popup(altdriver)
+        if not pressed:
+            for name in ACTIVITY_EXITS:
+                obj = ui_actions.find_any(altdriver, name)
+                if obj is not None and ui_actions._press(obj, altdriver):
+                    logging.info(f"[Activity] pressed '{name}' to leave the activity")
+                    pressed = name
+                    break
+        if not pressed:
+            scene = scenes._current_scene(altdriver)
+            if scene == scene_names.MAP_SCENE:
+                logging.info("Already out on the map — nothing to exit.")
+                return False
             time.sleep(delay)
+            continue
+        ui_actions.wait_for_any(altdriver, scene_names.ACTIVITY_SELECTION_SCENE_MARKER, timeout=8)
 
-    # Fallback, reached only when "prev" was never found. Some activities
-    # (LETTERS_TRACING) put their result screen up as FeedbackPopup(Clone) and
-    # the SideToolbar holding "prev" is gone behind it, so the loop above can
-    # never succeed. The popup carries its own exit. When "prev" IS found the
-    # behaviour above is unchanged and this never runs.
-    popup_error = None
-    for popup_name in SUCCESS_POPUPS:
-        try:
-            popup = altdriver.find_object(By.NAME, popup_name)
-            if not ui_actions._press(popup.find_object_from_object(By.NAME, "ExitButton"), altdriver):
-                raise RuntimeError("the press on the popup's ExitButton was refused")
-            logging.info("Exit via the result popup's ExitButton.")
-            return
-        except Exception as e:
-            popup_error = e
-    logging.warning(f"Result popup exit not available either - {popup_error}")
-
-    # Having nothing left to exit is not a failure. A solver that closes its own
-    # result screen (the tracing activities do) leaves us back on the selection
-    # screen before this is called, and then neither "prev" nor the popup is
-    # there to click. Logging that as an ERROR puts a red line under an activity
-    # that passed, so say what actually happened instead.
-    try:
-        scene = altdriver.get_current_scene()
-    except Exception:
-        scene = None
-    if scene in ("ActivitySelectionScene", "MapScene"):
-        logging.info(f"Already out of the activity (on {scene}) — nothing to exit.")
-        return
-
-    logging.error("Failed to exit activity after multiple retries.")
+    logging.error(f"Failed to exit the activity in {timeout}s "
+                  f"(on {scenes._current_scene(altdriver)})")
+    return False
 
 
 # ---------------------------------------------------------------------------

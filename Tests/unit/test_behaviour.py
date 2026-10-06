@@ -140,24 +140,33 @@ def parrot(monkeypatch):
     return world
 
 
-def _act(driver, world, target="Button"):
-    parrot_guard._state[id(driver)] = {"scene": world.scene, "checked": 0.0}
+def _act(driver, world, target="Button", bubble_up_for=0.0):
+    """``bubble_up_for``: how long the bubble has already been on screen."""
+    parrot_guard._state[id(driver)] = {
+        "scene": world.scene, "checked": 0.0,
+        "bubble_since": (time.time() - bubble_up_for) if bubble_up_for else None}
     parrot_guard.before_action(driver, target)
 
 
-@pytest.mark.parametrize("setup, presses", [
-    (dict(bubble=True), ["HelpButton"]),                          # the icon first
-    (dict(bubble=True, icon_works=False), ["HelpButton", "EMPTY_POINT"]),   # fallback
-    (dict(bubble=True, icon=False), ["EMPTY_POINT"]),
-    (dict(bubble=False), []),                                     # nothing up
-    (dict(bubble=None), []),                                      # unreadable: never blind
+# 2026-10-06: the bubble is the intro typing its words out and it goes by
+# itself; the icon is pressed only once the bubble has OUTSTAYED its patience.
+STALE = instructions_parrot.BUBBLE_PATIENCE + 1
+
+
+@pytest.mark.parametrize("setup, up_for, presses", [
+    (dict(bubble=True), 0.0, []),                                  # just appeared: let it finish
+    (dict(bubble=True), STALE, ["HelpButton"]),                    # outstayed: the icon first
+    (dict(bubble=True, icon_works=False), STALE, ["HelpButton", "EMPTY_POINT"]),   # fallback
+    (dict(bubble=True, icon=False), STALE, ["EMPTY_POINT"]),
+    (dict(bubble=False), STALE, []),                               # nothing up
+    (dict(bubble=None), STALE, []),                                # unreadable: never blind
 ])
-def test_parrot_guard_decisions(parrot, monkeypatch, setup, presses):
+def test_parrot_guard_decisions(parrot, monkeypatch, setup, up_for, presses):
     monkeypatch.setattr(instructions_parrot, "dismiss_help_popup",
                         lambda d, **k: _real_dismiss(d, verify_timeout=0.1, **k))
     for k, v in setup.items():
         setattr(parrot, k, v)
-    _act(object(), parrot)
+    _act(object(), parrot, bubble_up_for=up_for)
     assert parrot.presses == presses
 
 

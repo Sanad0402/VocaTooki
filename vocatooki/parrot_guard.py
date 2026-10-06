@@ -42,7 +42,7 @@ from vocatooki import instructions_parrot, scenes
 # crossword typing letters) would otherwise pay a check per press.
 CHECK_INTERVAL = 0.75
 # Clearing a fresh scene's intro: give up after this long ...
-INTRO_TIMEOUT = 15.0
+INTRO_TIMEOUT = 25.0
 # ... and count it over once nothing has needed clearing for this long. The
 # bubble scales up a beat AFTER the blocker goes.
 INTRO_QUIET = 1.5
@@ -82,17 +82,32 @@ def paused():
         _local.paused -= 1
 
 
-def _clear_once(driver):
-    """One pass: knock the blocker away, close a SHOWN bubble. True if it acted."""
-    acted = bool(instructions_parrot.dismiss_screen_blocker(driver, tries=1, settle=0.3))
+def _clear_once(driver, st=None):
+    """One pass: knock the blocker away; close a bubble that has OUTSTAYED its
+    patience. True while the parrot is still up (the caller keeps waiting).
+
+    The blocker is clicked at once — it blocks until it is. The bubble is NOT:
+    it is the intro typing its words out, and it goes by itself; pressing the
+    icon mid-sequence toggles it open and shut against the intro (seen live
+    2026-10-06, four presses per activity). Only a bubble that has stayed up
+    longer than ``BUBBLE_PATIENCE`` is closed with the icon.
+    """
+    st = st if st is not None else {}
+    busy = bool(instructions_parrot.dismiss_screen_blocker(driver, tries=1, settle=0.3))
     # `is True`, not truthy: None means "could not read the bubble", and pressing
     # HelpButton blind OPENS the bubble on a screen where it was down.
     if instructions_parrot.parrot_bubble_shown(driver) is True:
-        # The parrot ICON first ('HelpButton', the parrot's face in the corner);
-        # an empty point is tapped only if the icon is missing or did not close
-        # it (user, 2026-09-22).
-        acted = bool(instructions_parrot.dismiss_help_popup(driver, allow_tap=True)) or acted
-    return acted
+        busy = True
+        st["bubble_since"] = st.get("bubble_since") or time.time()
+        if time.time() - st["bubble_since"] >= instructions_parrot.BUBBLE_PATIENCE:
+            # The parrot ICON first ('HelpButton', the parrot's face in the
+            # corner); an empty point is tapped only if the icon is missing or
+            # did not close it (user, 2026-09-22).
+            instructions_parrot.dismiss_help_popup(driver, allow_tap=True)
+            st["bubble_since"] = None
+    else:
+        st["bubble_since"] = None
+    return busy
 
 
 def _clear_intro(driver, scene=""):
@@ -100,8 +115,10 @@ def _clear_intro(driver, scene=""):
     start = time.time()
     deadline = start + INTRO_TIMEOUT
     acted, quiet_since = False, None
+    st = _state.setdefault(id(driver), {"scene": None, "checked": 0.0})
+    st["bubble_since"] = None
     while time.time() < deadline:
-        if _clear_once(driver):
+        if _clear_once(driver, st):
             acted, quiet_since = True, None
         elif not acted:
             if time.time() - start >= ARRIVAL_GRACE:
@@ -157,8 +174,8 @@ def before_action(driver, target=""):
             _local.busy = False                 # on_scene_entered takes the flag itself
             on_scene_entered(driver, scene)
             return
-        if _clear_once(driver):
-            logging.info(f"[Parrot] cleared on {scene or 'the screen'} before "
+        if _clear_once(driver, st):
+            logging.info(f"[Parrot] the parrot is up on {scene or 'the screen'} before "
                          f"pressing {target or 'the next control'}")
         st["checked"] = time.time()
     except Exception as e:                      # noqa: BLE001

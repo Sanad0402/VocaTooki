@@ -11,10 +11,17 @@ from alttester import By
 from vocatooki import activity_runner, exam_solver, level_completion, map_navigation
 
 
-def _after_level(altdriver, level_name, class_id, lesson_num, opened):
-    """Leave the level like a user and prove the map still works (one report row)."""
-    level_completion.finish_level(altdriver, level_name, class_id=class_id,
-                                  lesson_num=lesson_num, other_levels=tuple(opened))
+def _after_level(altdriver, level_name, class_id, lesson_num, opened, finished=True):
+    """After the level: the completion contract when it FINISHED (one report
+    row); after a level that did not, just back to the map for the next lesson
+    — the contract on a half-played level only proves what is already known."""
+    if finished:
+        level_completion.finish_level(altdriver, level_name, class_id=class_id,
+                                      lesson_num=lesson_num, other_levels=tuple(opened))
+    else:
+        logging.warning(f"[solve_lesson_levels] the {level_name} level did not finish — "
+                        f"skipping its completion check, returning to the map")
+        map_navigation.return_to_map(altdriver)
 
 
 def _level_failed(altdriver, level_name, lesson_num, error):
@@ -41,8 +48,8 @@ def solve_lesson_levels(altdriver, class_id, lesson_num):
             continue
 
         try:
-            solve_level(altdriver, diff)
-            _after_level(altdriver, level_name, class_id, lesson_num, opened)
+            finished = solve_level(altdriver, diff)
+            _after_level(altdriver, level_name, class_id, lesson_num, opened, finished)
             opened.append(map_navigation.LAST_LEVEL_INDEX)
         except Exception as e:
             _level_failed(altdriver, level_name, lesson_num, e)
@@ -74,6 +81,7 @@ def solve_level(altdriver, difficulty):
     logging.info(f"[solve_level] Will run {repetitions} open-level flow(s)")
 
     # Loop through the repetitions and handle each level flow
+    ok = True
     for i in range(repetitions):
         logging.info(f"[solve_level] Executing flow {i + 1}/{repetitions}")
         try:
@@ -81,9 +89,11 @@ def solve_level(altdriver, difficulty):
         except Exception as e:
             logging.warning(f"[solve_level] Flow {i + 1} failed: {e}")
             activity_runner.record_failure(altdriver, f"level flow {i + 1}/{repetitions}", e)
+            ok = False
 
     logging.info(f"[solve_level] Finished solving level with difficulty {difficulty}")
     time.sleep(4)  # Wait before continuing to the next level
+    return ok
 
 
 def solve_lesson(altdriver, class_id, lesson_num):
@@ -128,6 +138,7 @@ def solve_level_express(altdriver, difficulty):
     repetitions = {0: 1, 1: 1, 2: 1}[difficulty]
     logging.info(f"[solve_level] Will run {repetitions} open-level flow(s)")
 
+    ok = True
     for i in range(repetitions):
         logging.info(f"[solve_level] Executing flow {i + 1}/{repetitions}")
         try:
@@ -135,9 +146,11 @@ def solve_level_express(altdriver, difficulty):
         except Exception as e:
             logging.warning(f"[solve_level] Flow {i + 1} failed: {e}")
             activity_runner.record_failure(altdriver, f"level flow {i + 1}/{repetitions}", e)
+            ok = False
 
     logging.info(f"[solve_level] Finished solving level for difficulty {difficulty}")
     time.sleep(4)
+    return ok
 
 
 def solve_level_express_hard(altdriver, difficulty):
@@ -164,6 +177,7 @@ def solve_level_express_hard(altdriver, difficulty):
     repetitions = {2: 1}[difficulty]
     logging.info(f"[solve_level] Will run {repetitions} open-level flow(s)")
 
+    ok = True
     for i in range(repetitions):
         logging.info(f"[solve_level] Executing flow {i + 1}/{repetitions}")
         try:
@@ -171,9 +185,11 @@ def solve_level_express_hard(altdriver, difficulty):
         except Exception as e:
             logging.warning(f"[solve_level] Flow {i + 1} failed: {e}")
             activity_runner.record_failure(altdriver, f"level flow {i + 1}/{repetitions}", e)
+            ok = False
 
     logging.info(f"[solve_level] Finished solving level for difficulty {difficulty}")
     time.sleep(4)
+    return ok
 
 
 def solve_lesson_express(altdriver, class_id, lesson_num):
@@ -238,8 +254,8 @@ def solve_lesson_levels_express(altdriver, class_id, lesson_num):
 
         try:
             time.sleep(2)
-            solve_level_express(altdriver, diff)
-            _after_level(altdriver, level_name, class_id, lesson_num, opened)
+            finished = solve_level_express(altdriver, diff)
+            _after_level(altdriver, level_name, class_id, lesson_num, opened, finished)
             opened.append(map_navigation.LAST_LEVEL_INDEX)
         except Exception as e:
             _level_failed(altdriver, level_name, lesson_num, e)
@@ -260,9 +276,10 @@ def solve_lesson_levels_express_hard(altdriver, class_id, lesson_num):
 
         try:
             time.sleep(2)
-            solve_level_express_hard(altdriver, diff)
+            finished = solve_level_express_hard(altdriver, diff)
             # Only the hard level is played in this mode, so the probe re-opens
             # the level just finished: that is still a map touch after the gift.
-            _after_level(altdriver, level_name, class_id, lesson_num, opened=())
+            _after_level(altdriver, level_name, class_id, lesson_num, opened=(),
+                         finished=finished)
         except Exception as e:
             _level_failed(altdriver, level_name, lesson_num, e)

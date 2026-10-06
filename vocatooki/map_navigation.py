@@ -164,7 +164,9 @@ def _open_level_icon(altdriver, icon, label, index=None):
         logging.error(f"[Map Navigation] {label}: the press on '{name}' was refused")
         return False
     if scenes._wait_leaves_scene(altdriver, scene_names.MAP_SCENE, timeout=LEVEL_OPEN_TIMEOUT):
-        time.sleep(2)
+        # The level's screen builds itself for a moment: let it finish before
+        # anything reads or presses it (user, 2026-10-06: wait on every scene).
+        scenes.wait_for_scene_ready(altdriver, label=label)
         if index is not None:
             LAST_LEVEL_INDEX = index
         logging.info(f"[Map Navigation] Entered {label} (icon '{name}').")

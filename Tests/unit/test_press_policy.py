@@ -436,3 +436,40 @@ def test_vending_prize_presses_again_when_the_machine_ignores_the_first_press(qu
     d.on_tap = lambda p: presses.append(p) or (len(presses) == 2 and setattr(d, "scene", "ActivitySelectionScene"))
     assert map_navigation.pick_vending_prize(d, timeout=0.4) is True
     assert len(presses) == 2
+
+
+# ------------------------------------------------------- leaving an activity
+def test_exit_closes_the_result_popup_first_and_waits_for_the_list(quiet, monkeypatch):
+    """Live 2026-10-06: 'prev' sits UNDER FeedbackPopup(Clone); a touch on it
+    lands on the popup. The popup's own ExitButton is pressed first, and the
+    activity list is proven back before the next thumb."""
+    monkeypatch.setattr(activity_runner.time, "sleep", lambda s: None)
+    monkeypatch.setattr(scenes, "wait_for_scene_ready", lambda d, **k: True)
+    d = FakeDriver(size=(2560.0, 1440.0))
+    d.scene = "ActivityScene"
+    popup = FakeObj("FeedbackPopup(Clone)", 1280, 720, driver=d)
+    exit_btn = FakeObj("ExitButton", 2077, 1160, parent=popup, driver=d)
+    popup.find_object_from_object = lambda by, name: exit_btn if name == "ExitButton" else (_ for _ in ()).throw(RuntimeError())
+    prev = FakeObj("prev", 134, 1326, driver=d)
+    d.objects = {"FeedbackPopup(Clone)": popup, "prev": prev}
+    d.hit = lambda p: exit_btn if p == (2077.0, 1160.0) else popup
+
+    def on_tap(p):
+        if p == (2077.0, 1160.0):                   # the popup's exit: list comes back
+            d.objects.pop("FeedbackPopup(Clone)")
+            d.objects["ActivityThumb"] = FakeObj("ActivityThumb", driver=d)
+            d.scene = "ActivitySelectionScene"
+    d.on_tap = on_tap
+    assert activity_runner.when_finish_activity(d, timeout=2) is True
+    assert d.taps == [(2077.0, 1160.0)]              # never a blind tap on the covered 'prev'
+
+
+def test_exit_reports_failure_when_the_list_never_comes_back(quiet, monkeypatch):
+    monkeypatch.setattr(activity_runner.time, "sleep", lambda s: None)
+    d = FakeDriver(size=(2560.0, 1440.0))
+    d.scene = "ActivityScene"
+    prev = FakeObj("prev", 134, 1326, driver=d)
+    d.objects = {"prev": prev}
+    d.hit = prev
+    assert activity_runner.when_finish_activity(d, retries=1, timeout=0.3) is False
+    assert d.taps                                     # it did try the exits
