@@ -385,3 +385,54 @@ def test_a_real_cover_is_still_reported_when_no_nearby_point_reaches_the_object(
     outcome = ui_actions.press_on_screen(d, icon)
     assert outcome and outcome.blocker == "GiftPopup(Clone)"
     assert d.taps == [(600.0, 300.0)] and kinds() == ["covered"]
+
+
+# ---------------------------------------------------------- vending machine
+def test_vending_prize_waits_for_the_list_instead_of_a_flat_sleep(quiet, monkeypatch):
+    """Live 2026-10-06: the activity list follows the press by ~14s; a flat 15s
+    wait was one second from failing. Now the list is waited for, and the
+    parrot's instructions are left to finish before the press."""
+    from vocatooki import instructions_parrot
+    monkeypatch.setattr(scenes, "wait_for_scene_ready", lambda d, **k: True)
+    monkeypatch.setattr(instructions_parrot, "parrot_bubble_shown", lambda d: False)
+    monkeypatch.setattr(instructions_parrot.time, "sleep", lambda s: None)
+    d = FakeDriver(size=(2560.0, 1440.0))
+    d.scene = map_navigation.VENDING_SCENE
+    toggle = FakeObj("Toggle", 1800, 525, driver=d)
+    d.objects["Toggle"] = toggle
+    d.hit = toggle
+    ticks = {"n": 0}
+
+    def on_tap(p):
+        ticks["n"] += 1
+
+    real_scene = d.get_current_scene
+
+    def scene_later():
+        # the list shows only a few polls after the tap, never on the same poll
+        if ticks["n"] and ticks.setdefault("polls", 0) >= 3:
+            return "ActivitySelectionScene"
+        if ticks["n"]:
+            ticks["polls"] += 1
+        return real_scene()
+
+    d.on_tap = on_tap
+    d.get_current_scene = scene_later
+    assert map_navigation.pick_vending_prize(d, timeout=10) is True
+    assert ticks["n"] == 1                             # pressed once, then waited
+
+
+def test_vending_prize_presses_again_when_the_machine_ignores_the_first_press(quiet, monkeypatch):
+    from vocatooki import instructions_parrot
+    monkeypatch.setattr(scenes, "wait_for_scene_ready", lambda d, **k: True)
+    monkeypatch.setattr(instructions_parrot, "parrot_bubble_shown", lambda d: False)
+    monkeypatch.setattr(instructions_parrot.time, "sleep", lambda s: None)
+    d = FakeDriver(size=(2560.0, 1440.0))
+    d.scene = map_navigation.VENDING_SCENE
+    toggle = FakeObj("Toggle", 1800, 525, driver=d)
+    d.objects["Toggle"] = toggle
+    d.hit = toggle
+    presses = []
+    d.on_tap = lambda p: presses.append(p) or (len(presses) == 2 and setattr(d, "scene", "ActivitySelectionScene"))
+    assert map_navigation.pick_vending_prize(d, timeout=0.4) is True
+    assert len(presses) == 2

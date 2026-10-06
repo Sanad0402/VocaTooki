@@ -27,12 +27,12 @@ def handle_level_flow(altdriver):
         print("[INFO] Executing opened level flow")
     else:
         print("[INFO] Handling not-yet-opened level flow")
+        from vocatooki import map_navigation           # same layer: import late
         ui_actions.click_by_name(altdriver, "nextButton")
-        time.sleep(3)
-        assert altdriver.get_current_scene() == 'VendingMachineScene', "[FAIL] Expected vending scene"
-        ui_actions.click_by_name(altdriver, "Toggle")
-        time.sleep(15)
-        assert altdriver.get_current_scene() == 'ActivitySelectionScene', "[FAIL] Expected activity selection"
+        assert scenes.wait_for_scene(altdriver, map_navigation.VENDING_SCENE, timeout=20), \
+            f"[FAIL] Expected vending scene (on {scenes._current_scene(altdriver)})"
+        assert map_navigation.pick_vending_prize(altdriver), \
+            f"[FAIL] Expected activity selection after the vending machine (on {scenes._current_scene(altdriver)})"
 
     activities = altdriver.find_objects(By.NAME, "ActivityThumb")
     assert len(activities) == 3, f"[FAIL] Expected 3 activities, found {len(activities)}"

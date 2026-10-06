@@ -19,6 +19,9 @@ import subprocess
 
 from data.test_users import TEST_USERS, DEFAULT_CLASS_ID
 
+_PANEL_STARTED = time.strftime("%Y-%m-%d %H:%M:%S")
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 from Utilities import utilsdemo
 from Pages.start_screen import StartScreen
@@ -793,8 +796,27 @@ class RunManager:
     def _stopped(self):
         return self._stop_event.is_set()
 
+    @staticmethod
+    def _framework_stamp():
+        """Which framework code this panel process is running — the panel loads
+        it once at startup, so a fix pulled after that is NOT in the run until
+        the panel is restarted (bitten live 2026-10-06)."""
+        try:
+            rev = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True,
+                                 text=True, timeout=5, cwd=_PROJECT_ROOT).stdout.strip() or "?"
+        except Exception:                            # noqa: BLE001
+            rev = "?"
+        try:
+            head = subprocess.run(["git", "log", "-1", "--format=%ci", "HEAD"], capture_output=True,
+                                  text=True, timeout=5, cwd=_PROJECT_ROOT).stdout.strip()
+        except Exception:                            # noqa: BLE001
+            head = ""
+        return (f"framework {rev}" + (f" ({head})" if head else "")
+                + f"; panel started {_PANEL_STARTED} — restart the panel after pulling a fix")
+
     def _run(self, cfg):
         _silence_alttester_logging()
+        self._log(f"[INFO] {self._framework_stamp()}")
 
         # Wire up log capture (process-global; safe because only one run at a time).
         handler = _QueueLogHandler(self._log)

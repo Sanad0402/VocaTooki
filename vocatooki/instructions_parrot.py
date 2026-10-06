@@ -70,6 +70,30 @@ def parrot_bubble_shown(altdriver):
     return False if readable else None
 
 
+def wait_for_instructions(altdriver, timeout=30.0, quiet=2.0, poll=0.5):
+    """Let the parrot FINISH its instructions: wait until the bubble has been
+    down for ``quiet`` seconds. Never presses anything. Returns True when the
+    bubble was seen down, False on timeout or when no bubble can be read.
+
+    For the screens where cutting the parrot off is what breaks the flow — the
+    vending machine, where a user listens and then presses (user, 2026-10-06).
+    The guard must be paused around the wait, or it closes the bubble itself.
+    """
+    end = time.time() + timeout
+    quiet_since = None
+    while time.time() < end:
+        shown = parrot_bubble_shown(altdriver)
+        if shown is False:
+            quiet_since = quiet_since or time.time()
+            if time.time() - quiet_since >= quiet:
+                return True
+        else:
+            quiet_since = None
+        time.sleep(poll)
+    logging.info(f"[Help] the instruction bubble was still up after {timeout:.0f}s — going on")
+    return False
+
+
 def dismiss_help_popup(altdriver, settle=0.4, verify_timeout=3.0, allow_tap=True):
     """Close the parrot's instruction bubble. Returns True when it acted.
 

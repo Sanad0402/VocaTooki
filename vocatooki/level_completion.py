@@ -161,6 +161,14 @@ def _leave_level(altdriver, summary):
             return
         back = ui_actions.find_any(altdriver, BACK_FROM_LEVEL)
         if back is None:
+            # Not on the activity list at all (a result popup, the vending
+            # machine, an intro): leave through the screens' own exits first,
+            # like a user — never by tapping the middle of an unknown screen.
+            if map_navigation.return_to_map(altdriver, max_steps=3):
+                return
+            scene = scenes._current_scene(altdriver)
+            if scene == scene_names.MAP_SCENE:
+                return
             cover = _whats_on_top(altdriver)
             if cover is None:
                 raise LevelCompletionError(

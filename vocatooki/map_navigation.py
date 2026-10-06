@@ -105,6 +105,51 @@ LAST_LEVEL_INDEX = None
 LEVEL_OPEN_TIMEOUT = 15
 
 
+# First visit to a level: the vending machine, its green button, and how long
+# the activity list takes to follow the press. Measured live (2026-10-06): the
+# list came 14s after the tap — the old flat 15s wait was a second from failing
+# every first-time level. A user who sees the machine do nothing presses again;
+# so does this, once, after half the timeout.
+VENDING_SCENE = "VendingMachineScene"
+VENDING_PRIZE_BUTTON = "Toggle"
+VENDING_TIMEOUT = 60
+VENDING_INSTRUCTIONS_TIMEOUT = 30
+
+
+def pick_vending_prize(altdriver, timeout=VENDING_TIMEOUT):
+    """Press the vending machine's button like a user and wait for the activity list.
+
+    The parrot's instructions are left to FINISH (the bubble is watched, not
+    closed — the guard is paused for this screen; user, 2026-10-06), then the
+    button is tapped where it is touchable, and the activity selection is
+    waited for. Returns True on the activity selection.
+    """
+    from vocatooki import parrot_guard                 # above this layer: import late
+    with parrot_guard.paused():
+        scenes.wait_for_scene_ready(altdriver, label=VENDING_SCENE)
+        instructions_parrot.wait_for_instructions(altdriver, timeout=VENDING_INSTRUCTIONS_TIMEOUT)
+        deadline = time.time() + timeout
+        pressed_at = None
+        while time.time() < deadline:
+            scene = scenes._current_scene(altdriver)
+            if scene == scene_names.ACTIVITY_SELECTION_SCENE:
+                return True
+            if scene == VENDING_SCENE and (pressed_at is None
+                                           or time.time() - pressed_at > timeout / 2):
+                if pressed_at is not None:
+                    logging.warning(f"[Level Flow] the vending machine is still showing "
+                                    f"{timeout / 2:.0f}s after the press — pressing again")
+                ui_actions.click_by_name(altdriver, VENDING_PRIZE_BUTTON)
+                pressed_at = time.time()
+            time.sleep(1)
+    here = scenes._current_scene(altdriver)
+    if here == scene_names.ACTIVITY_SELECTION_SCENE:
+        return True
+    logging.error(f"[Level Flow] the activity selection did not follow the vending "
+                  f"machine in {timeout}s (on {here})")
+    return False
+
+
 def _open_level_icon(altdriver, icon, label, index=None):
     """Press a level icon the way a finger would and PROVE the level opened.
 
@@ -513,10 +558,9 @@ def open_level_to_activities(altdriver, timeout=90):
             logging.info(f"[Level Flow] on '{scene}' — opening the level")
             last_scene = scene
 
-        if scene == 'VendingMachineScene':
+        if scene == VENDING_SCENE:
             # First visit to a level: pick a prize to get past the machine.
-            ui_actions.click_by_name(altdriver, "Toggle")
-            time.sleep(12)
+            pick_vending_prize(altdriver, timeout=max(10, min(VENDING_TIMEOUT, deadline - time.time())))
             continue
 
         # Level intro: keep pressing next for as long as one is on screen.
@@ -540,7 +584,10 @@ def open_level_to_activities(altdriver, timeout=90):
 # location popup are closed — matched EXACTLY so it can never hit the start
 # screen's ExitButton_1, which quits the app), generic back, then the home
 # screen's GO-Map. Whichever exists on the current screen gets clicked.
-_BACK_BUTTON_NAMES = ("prev", "X", "x", "CloseButton", "close", "Close", "Exit",
+# "ExitButton" first: it is the result popup's own exit, and that popup sits OVER
+# the toolbar's "prev" — seven taps on a covered 'prev' got nowhere (live,
+# 2026-10-06). Exact match, so the start screen's ExitButton_1 (quits) is safe.
+_BACK_BUTTON_NAMES = ("ExitButton", "prev", "X", "x", "CloseButton", "close", "Close", "Exit",
                       "BackButton", "backButton", "Back", "HomeButton", "GO-Map",
                       # Last resort: the word list has no back/close at all —
                       # "next" is how you leave it (same button that carries the
