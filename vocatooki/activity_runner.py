@@ -157,7 +157,7 @@ def wait_for_activity_board(altdriver, scene="", timeout=ACTIVITY_LOAD_TIMEOUT):
 
 
 def clear_activity_intro(altdriver, scene="", timeout=ACTIVITY_INTRO_TIMEOUT,
-                         quiet_for=ACTIVITY_INTRO_QUIET, poll=0.3):
+                         quiet_for=ACTIVITY_INTRO_QUIET, poll=0.5):
     """Get the instructions parrot off the board BEFORE a solver touches it.
 
     Two separate things arrive with an opening activity and they do NOT arrive
@@ -178,26 +178,19 @@ def clear_activity_intro(altdriver, scene="", timeout=ACTIVITY_INTRO_TIMEOUT,
     Returns True when it had to clear something.
     """
     wait_for_activity_board(altdriver, scene)
+    # Let the screen settle before the first read: a bubble caught while it is
+    # still scaling in, or words caught mid-typing, are not a state to act on.
+    time.sleep(instructions_parrot.READ_SETTLE)
     deadline = time.time() + timeout
-    acted, quiet_since, bubble_since = False, None, None
+    acted, quiet_since = False, None
+    st = {}
     while time.time() < deadline:
-        busy = bool(instructions_parrot.dismiss_screen_blocker(altdriver))
-        words = instructions_parrot.parrot_instructions_text(altdriver)
-        if words:
-            logging.info(f"[Activity] the parrot is still saying "
-                         f"{words[:60]!r} — waiting it out")
-        if words or instructions_parrot.parrot_bubble_shown(altdriver) is True:
-            # The parrot is talking: let it FINISH. The icon is pressed only
-            # when the bubble has stayed up past its patience — pressing it
-            # mid-sequence toggles the bubble open and shut against the intro
-            # (seen live 2026-10-06, four times per activity).
-            bubble_since = bubble_since or time.time()
-            if time.time() - bubble_since >= instructions_parrot.BUBBLE_PATIENCE:
-                instructions_parrot.dismiss_help_popup(altdriver)
-                bubble_since = None
-            busy = True
-        else:
-            bubble_since = None
+        # One observer, shared with the parrot guard: the blocker is clicked at
+        # once, a bubble whose words are still changing is left to finish, and
+        # the icon is pressed only once a finished bubble has outstayed its
+        # patience -- pressing it mid-sequence toggles the bubble open and
+        # shut against the intro (seen live 2026-10-06, four times per activity).
+        busy = instructions_parrot.observe(altdriver, st, blocker_tries=3, blocker_settle=1.0)
         if busy:
             acted, quiet_since = True, None
         else:

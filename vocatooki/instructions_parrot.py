@@ -26,6 +26,11 @@ def parrot_instructions_text(altdriver):
     """
     if parrot_bubble_shown(altdriver) is not True:
         return ""
+    return _bubble_text(altdriver)
+
+
+def _bubble_text(altdriver):
+    """The words in the bubble, read without re-checking whether it is shown."""
     for name in PARROT_BUBBLES:
         bubble = ui_actions.find_any(altdriver, name)
         if bubble is None:
@@ -70,11 +75,91 @@ def parrot_bubble_shown(altdriver):
     return False if readable else None
 
 
-# How long the parrot's bubble may stay up before the icon is pressed to
-# close it. Below this the bubble is the intro doing its job (it types its
-# words out and goes), and pressing the icon only toggles it against the
-# sequence. Past it the bubble is an idle hint that will not leave by itself.
+# How long the parrot's bubble may stay up AFTER IT HAS FINISHED SPEAKING
+# before the icon is pressed to close it. Below this the bubble is the intro
+# doing its job (it types its words out and goes), and pressing the icon only
+# toggles it against the sequence. Past it the bubble is an idle hint that will
+# not leave by itself.
 BUBBLE_PATIENCE = 8.0
+
+
+# The parrot TYPES its words out: while the text keeps changing between two
+# reads it is still speaking, and nothing it says then is a state to act on.
+# Once the words have stayed the same this long, it has finished.
+TEXT_SETTLE = 1.5
+
+
+# How long to let the screen settle before reading the parrot: right after a
+# press, and right after arriving. A bubble read while it is still scaling in
+# or typing gives a half-state -- the "additional clicks" of 2026-10-06 came
+# from reading three times a second and acting on what was there mid-change.
+READ_SETTLE = 0.8
+
+
+def parrot_state(altdriver):
+    """One read of the parrot: {'blocker': bool, 'shown': True/False/None, 'text': str}."""
+    shown = parrot_bubble_shown(altdriver)
+    return {"blocker": ui_actions.find_any(altdriver, SCREEN_BLOCKER) is not None,
+            "shown": shown,
+            "text": _bubble_text(altdriver) if shown is True else ""}
+
+
+def observe(altdriver, st, blocker_tries=1, blocker_settle=0.3):
+    """One pass of watching the parrot. Returns True while it is still up.
+
+    ``st`` is the caller's dict, kept between passes:
+      bubble_since  when the bubble was first seen up (None while down)
+      text          the words last read, text_since when they last CHANGED
+      said          the last words logged, so a typing bubble is logged once
+
+    What one pass does, in order:
+      1. the blocker is clicked away at once -- it blocks until it is -- and the
+         screen is then given READ_SETTLE before the bubble is read;
+      2. a bubble whose words are still changing is the parrot SPEAKING: it is
+         left alone, and its patience clock does not run;
+      3. a bubble whose words have stayed the same for TEXT_SETTLE has finished;
+         it normally hides itself, and only when it has outstayed
+         BUBBLE_PATIENCE (counted from when it finished, or from when it
+         appeared if it has no words) is the icon pressed.
+    """
+    now = time.time()
+    busy = bool(dismiss_screen_blocker(altdriver, tries=blocker_tries, settle=blocker_settle))
+    if busy:
+        time.sleep(READ_SETTLE)                      # let the bubble settle before reading it
+        now = time.time()
+
+    state = parrot_state(altdriver)
+    if state["shown"] is not True:
+        st["bubble_since"] = None
+        st["text"], st["text_since"], st["said"] = "", None, ""
+        return busy
+
+    busy = True
+    st["bubble_since"] = st.get("bubble_since") or now
+    text = state["text"]
+    if text != st.get("text", ""):
+        st["text"], st["text_since"] = text, now        # still typing
+        if text and not st.get("said"):
+            logging.info(f"[Activity] the parrot is speaking: {text[:60]!r} -- letting it finish")
+            st["said"] = text
+        return busy
+    if text and now - (st.get("text_since") or now) < TEXT_SETTLE:
+        return busy                                  # words just stopped changing
+    if text and st.get("said") != text + "\n":
+        logging.info(f"[Activity] the parrot has finished ({len(text)} chars) -- "
+                     f"waiting for its bubble to go")
+        st["said"] = text + "\n"
+
+    spoken_since = (st.get("text_since") or st["bubble_since"]) if text else st["bubble_since"]
+    if now - spoken_since >= BUBBLE_PATIENCE:
+        # The parrot ICON first ('HelpButton', the parrot's face in the corner);
+        # an empty point is tapped only if the icon is missing or did not close
+        # it (user, 2026-09-22).
+        dismiss_help_popup(altdriver, allow_tap=True)
+        time.sleep(READ_SETTLE)
+        st["bubble_since"] = None
+        st["text"], st["text_since"], st["said"] = "", None, ""
+    return busy
 
 
 def wait_for_instructions(altdriver, timeout=30.0, quiet=2.0, poll=0.5):

@@ -93,21 +93,11 @@ def _clear_once(driver, st=None):
     longer than ``BUBBLE_PATIENCE`` is closed with the icon.
     """
     st = st if st is not None else {}
-    busy = bool(instructions_parrot.dismiss_screen_blocker(driver, tries=1, settle=0.3))
-    # `is True`, not truthy: None means "could not read the bubble", and pressing
-    # HelpButton blind OPENS the bubble on a screen where it was down.
-    if instructions_parrot.parrot_bubble_shown(driver) is True:
-        busy = True
-        st["bubble_since"] = st.get("bubble_since") or time.time()
-        if time.time() - st["bubble_since"] >= instructions_parrot.BUBBLE_PATIENCE:
-            # The parrot ICON first ('HelpButton', the parrot's face in the
-            # corner); an empty point is tapped only if the icon is missing or
-            # did not close it (user, 2026-09-22).
-            instructions_parrot.dismiss_help_popup(driver, allow_tap=True)
-            st["bubble_since"] = None
-    else:
-        st["bubble_since"] = None
-    return busy
+    # One observer for the guard and the activity entry (instructions_parrot
+    # .observe): it waits for the screen to settle before reading, treats
+    # changing words as the parrot still speaking, and presses the icon only
+    # once a FINISHED bubble has outstayed its patience.
+    return instructions_parrot.observe(driver, st, blocker_tries=1, blocker_settle=0.3)
 
 
 def _clear_intro(driver, scene=""):
