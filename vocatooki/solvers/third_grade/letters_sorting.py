@@ -308,9 +308,7 @@ def _reenter_signs(altdriver, timeout=40):
             return True
         # wrong activity — back out and try the next thumb
         print(f"[INFO] thumb {index} opened '{scene}', not Signs; going back")
-        try:
-            call_method(altdriver, "AltTesterUtils", "LoadPreviousScene")
-        except Exception:
-            when_finish_activity(altdriver)
+        from vocatooki import activity_runner as _ar
+        _ar.leave_activity(altdriver)                 # the user's way; scene load recorded
         time.sleep(5)
     return False

@@ -5,6 +5,7 @@ reachable as utilsdemo.<name>.
 """
 
 import logging
+import os
 import re
 import time
 from alttester import By
@@ -49,19 +50,32 @@ def call_method(altdriver, component_name, method_name, parameters=None, paramet
 
 # UI Interactions
 def click_by_name(altdriver, name):
+    """Press the object called ``name`` the way a finger would (see ``_press``).
+
+    Returns True when a press was delivered. A missing object is a WARN and
+    False, as before. Whatever covered the object, or had to be bypassed, is
+    in ``INPUT_FINDINGS`` — the step after the press decides what it meant.
+    """
     try:
-        altdriver.find_object(By.NAME, name).click()
-        time.sleep(2)
-    except:
+        obj = altdriver.find_object(By.NAME, name)
+    except Exception:                                # noqa: BLE001
         print(f"[WARN] Failed to click element by name: {name}")
+        return False
+    delivered = _press(obj, altdriver)
+    time.sleep(2)
+    return delivered
 
 
 def click_by_path(altdriver, path):
+    """``click_by_name`` for a path. Returns True when the press was delivered."""
     try:
-        altdriver.wait_for_object(By.PATH, path).click()
-        time.sleep(2)
-    except:
+        obj = altdriver.wait_for_object(By.PATH, path)
+    except Exception:                                # noqa: BLE001
         print(f"[WARN] Failed to click element by path: {path}")
+        return False
+    delivered = _press(obj, altdriver)
+    time.sleep(2)
+    return delivered
 
 
 def assert_text_by_name(altdriver, name, expected_text):
@@ -185,15 +199,254 @@ def _press_confirmed(altdriver, expect=(), gone=(), timeout=10):
         time.sleep(0.25)
 
 
-def _press(obj):
-    """Deliver a press to an object. Returns True when the call went through."""
+# ------------------------------------------------------------ the press
+# 2026-10-06. A production bug got past every run: after a HARD level's three
+# activities the game gives a gift, and after the gift the map no longer
+# reacts to touches. The framework never noticed because AltTester's object
+# click (``tapElement``) hands the press to the object's handlers DIRECTLY —
+# no raycast, no EventSystem, nothing that covers the object gets a say. A
+# finger goes through the screen, so from now on so does every press:
+#
+#   1. the object's position is read LIVE, from the object itself (the
+#      no-hardcoded-pixel rule still holds: nothing here is a number that
+#      was measured once);
+#   2. the app is asked what a touch at that point would hit
+#      (``find_object_at_coordinates``). When that is not the object, or
+#      something inside it, the cover is RECORDED — the gift popup over the
+#      map is exactly such a finding — but the tap is still delivered,
+#      because that is what a finger does: whatever is on top gets it, and
+#      whether anything happened is for the step AFTER the press to verify;
+#   3. a real tap is delivered at that point.
+#
+# Only when the app reports nothing at all under the finger, or the object is
+# off screen, is the old object click used as well — recorded as ``bypassed``.
+# ``parrot_guard.install`` routes AltObject.click()/tap() through here too, so
+# the solvers get the same treatment without a code change each.
+# ``VT_PRESS=object`` restores the old object click for a comparison run.
+PRESS_POLICY_ENV = "VT_PRESS"
+
+
+# Every press that did not go cleanly through the screen, in order:
+# {"kind", "target", "blocker", "note", "time"}. Kinds:
+#   covered     another object sits between the finger and the target (tapped anyway)
+#   untouchable nothing at all receives a touch where the target is
+#   off-screen  the target's position is outside the screen (or unreadable)
+#   bypassed    an object click was used (after untouchable / off-screen)
+#   no-effect   a delivered tap changed nothing (recorded by the step that knows)
+#   popup-dismissed  a popup was closed on the way somewhere (what, and its text)
+# The lesson flows put these in the report; a test can assert on them.
+INPUT_FINDINGS = []
+
+
+# Hooks run before the raycast check of every screen press — the parrot guard
+# registers itself here, so the check sees a screen it has already cleared.
+BEFORE_SCREEN_PRESS = []
+
+
+# The UNWRAPPED AltObject.click / .tap, filled in by parrot_guard.install():
+# the bypass must call the real object press, not the screen wrapper again.
+ORIGINAL_OBJECT_ACTIONS = {}
+
+
+class PressOutcome:
+    """What ``press_on_screen`` did. Truthy only when a tap was delivered."""
+
+    __slots__ = ("status", "blocker", "point")
+
+    def __init__(self, status, blocker="", point=None):
+        self.status, self.blocker, self.point = status, blocker, point
+
+    def __bool__(self):
+        return self.status == "delivered"
+
+    def __repr__(self):
+        return f"PressOutcome({self.status}, blocker={self.blocker!r}, point={self.point})"
+
+
+def press_policy():
+    """``"screen"`` (the default) or ``"object"`` (``VT_PRESS=object``)."""
+    return (os.getenv(PRESS_POLICY_ENV, "screen") or "screen").strip().lower()
+
+
+def record_finding(kind, target, blocker="", note=""):
+    """Remember an input finding and say it out loud. Returns the entry."""
+    entry = {"kind": kind, "target": str(target or ""), "blocker": str(blocker or ""),
+             "note": note, "time": time.time()}
+    INPUT_FINDINGS.append(entry)
+    level = logging.error if kind == "no-effect" else logging.warning
+    level(f"[Press] {kind}: '{entry['target']}'"
+          + (f" — '{entry['blocker']}' is in the way" if blocker else "")
+          + (f" ({note})" if note else ""))
+    return entry
+
+
+def findings_since(index):
+    """The findings recorded after ``index`` (``len(INPUT_FINDINGS)`` taken earlier)."""
+    return list(INPUT_FINDINGS[index:])
+
+
+def _same_object(a, b):
+    """Two AltObject handles for the same game object?"""
+    if a is None or b is None:
+        return False
+    for field in ("id", "transformId"):
+        va, vb = getattr(a, field, None), getattr(b, field, None)
+        if va is not None and vb is not None and va == vb:
+            return True
+    return False
+
+
+# How far up from the raycast hit the target is looked for (a Button's Text
+# child is the usual hit, two levels is the usual distance).
+HIT_ANCESTOR_DEPTH = 6
+# How far up from the TARGET the hit may be: a child image pressed through the
+# Button that owns the raycast. Short on purpose — a full-screen ancestor is
+# not "the target", it is what covers it.
+TARGET_ANCESTOR_DEPTH = 2
+
+
+def _parent_of(obj):
+    try:
+        return obj.get_parent()
+    except Exception:                                # noqa: BLE001 - the root, or gone
+        return None
+
+
+def _reaches(hit, target):
+    """Would a touch that the raycast gives to ``hit`` reach ``target``?
+
+    Yes when ``hit`` IS the target, sits INSIDE it (a label inside a button),
+    or is the near ancestor that owns the target's raycast.
+    """
+    if _same_object(hit, target):
+        return True
+    node = hit
+    for _ in range(HIT_ANCESTOR_DEPTH):
+        node = _parent_of(node)
+        if node is None:
+            break
+        if _same_object(node, target):
+            return True
+    node = target
+    for _ in range(TARGET_ANCESTOR_DEPTH):
+        node = _parent_of(node)
+        if node is None:
+            break
+        if _same_object(node, hit):
+            return True
+    return False
+
+
+def _live_position(obj):
+    """The object's CURRENT screen position, re-read from the app. None if unreadable."""
+    try:
+        obj = obj.update_object()
+    except Exception:                                # noqa: BLE001 - keep the handle's values
+        pass
+    try:
+        return float(obj.x), float(obj.y)
+    except (TypeError, ValueError, AttributeError):
+        return None
+
+
+def _within_screen(altdriver, point):
+    try:
+        width, height = (float(v) for v in altdriver.get_application_screensize())
+    except Exception:                                # noqa: BLE001 - cannot tell: allow
+        return True
+    x, y = point
+    return 0 <= x <= width and 0 <= y <= height
+
+
+def what_is_at(altdriver, point):
+    """The object a touch at ``point`` would hit, or None (the app says nothing is there)."""
+    try:
+        return altdriver.find_object_at_coordinates(point)
+    except Exception:                                # noqa: BLE001 - "nothing there"
+        return None
+
+
+def _rounded(point):
+    return tuple(int(round(v)) for v in point)
+
+
+def press_on_screen(altdriver, obj, label=""):
+    """Tap ``obj`` where it is on the screen, as a finger would. Never raises.
+
+    Returns a ``PressOutcome``: truthy when the tap was delivered. ``blocker``
+    names what the touch hit when that was NOT the object (recorded as a
+    ``covered`` finding; the tap is delivered anyway). ``status`` is
+    ``off-screen`` / ``error`` when no tap could be delivered, and
+    ``untouchable`` when a tap was delivered where the app reports nothing.
+    """
+    name = label or getattr(obj, "name", "") or "?"
+    for hook in list(BEFORE_SCREEN_PRESS):
+        try:
+            hook(altdriver, name)
+        except Exception:                            # noqa: BLE001 - a hook never blocks a press
+            pass
+    point = _live_position(obj)
+    if point is None or not _within_screen(altdriver, point):
+        record_finding("off-screen", name, note=f"position {point}")
+        return PressOutcome("off-screen", point=point)
+    hit = what_is_at(altdriver, point)
+    blocker = ""
+    if hit is None:
+        record_finding("untouchable", name,
+                       note=f"nothing receives a touch at {_rounded(point)}")
+    elif not _reaches(hit, obj):
+        blocker = getattr(hit, "name", "") or "?"
+        record_finding("covered", name, blocker=blocker, note=f"at {_rounded(point)}")
+    try:
+        altdriver.tap(point)
+    except Exception as e:                           # noqa: BLE001
+        record_finding("error", name, note=f"tap failed: {e}")
+        return PressOutcome("error", blocker=blocker, point=point)
+    logging.info(f"[Press] tapped '{name}' at {_rounded(point)}"
+                 + (f" (under '{blocker}')" if blocker else ""))
+    return PressOutcome("untouchable" if hit is None else "delivered",
+                        blocker=blocker, point=point)
+
+
+def _object_action(obj, action):
+    """The real AltObject press, unwrapped when the guard has wrapped it."""
+    original = ORIGINAL_OBJECT_ACTIONS.get(action)
+    if original is not None and isinstance(obj, tuple(ORIGINAL_OBJECT_ACTIONS.get("_types", ()))):
+        return lambda: original(obj)
+    return getattr(obj, action)
+
+
+def _press(obj, altdriver=None):
+    """Deliver a press to an object. Returns True when a press went through.
+
+    Screen first (``press_on_screen``): a tap where the object is, whatever is
+    on top. When the app reports NOTHING under the finger, or the object is
+    off screen, the object press is used too and recorded as ``bypassed``,
+    so the report says the screen was not exercised there.
+    ``VT_PRESS=object`` keeps the old behaviour.
+    """
+    driver = altdriver if altdriver is not None else getattr(obj, "_altdriver", None)
+    name = getattr(obj, "name", "") or "?"
+    if driver is not None and press_policy() != "object":
+        outcome = press_on_screen(driver, obj, label=name)
+        if outcome:
+            return True
     for action in ("click", "tap"):
         try:
-            getattr(obj, action)()
-            return True
-        except Exception:
+            _object_action(obj, action)()
+        except Exception:                            # noqa: BLE001
             continue
+        if driver is not None and press_policy() != "object":
+            record_finding("bypassed", name, note=f"object {action}() used after the screen press")
+        return True
     return False
+
+
+def _scene_of(altdriver):
+    try:
+        return altdriver.get_current_scene()
+    except Exception:                                # noqa: BLE001
+        return None
 
 
 # How long to give the OUTER press before trying the child that owns the
@@ -255,7 +508,7 @@ def press_object(altdriver, name, timeout=12, settle=1.0, expect=(), gone=(),
         if index and (expect or gone) and _press_confirmed(altdriver, expect, gone,
                                                            timeout=0.1):
             return True                              # a previous press landed late
-        if not _press(target):
+        if not _press(target, altdriver):
             continue
         logging.info(f"[Guest] pressed '{name}'" + (f" {how}" if how else ""))
         time.sleep(0.3 if (expect or gone) else settle)
@@ -274,7 +527,7 @@ def press_label(altdriver, label, timeout=8, settle=1.0, expect=(), gone=()):
     while True:
         obj = _find_by_text(altdriver, label)
         if obj is not None:
-            if _press(obj):
+            if _press(obj, altdriver):
                 logging.info(f"[Guest] pressed label '{label}'")
                 time.sleep(settle)
                 if _press_confirmed(altdriver, expect, gone):

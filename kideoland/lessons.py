@@ -96,7 +96,9 @@ def run_lesson(driver, lesson, mode=DEFAULT_MODE):
         if skipped:
             not_covered.append(f"{skipped} activit{'y' if skipped == 1 else 'ies'} with no solver "
                                f"on {difficulty}")
-        navigation.back_to_map(driver)
+        if not navigation.back_to_map(driver):
+            raise AssertionError(f"{label} {difficulty}: the island map did not come back "
+                                 f"after the level (on {navigation.current_scene(driver)})")
         row = navigation.lesson_on_map(driver, unit)      # handles go stale on a new map
 
     exam_note = "not played in this mode"
@@ -112,9 +114,15 @@ def run_lesson(driver, lesson, mode=DEFAULT_MODE):
             if not unlocked:
                 logging.error(f"[KL Lesson] the exam of {label} was submitted but lesson "
                               f"{lesson + 1} did not unlock")
+                level_play._report(f"Lesson {lesson + 1} unlock", "FAILED",
+                                   f"the exam of {label} was submitted but lesson "
+                                   f"{lesson + 1} is still locked on the map")
 
     not_covered.append("each activity played once (the game wants 3 plays on easy and "
                        "2 on medium to mark a level done; the unlock does not need it)")
+    if navigation.OPENED_BY["component"] and not navigation.OPENED_BY["touch"]:
+        not_covered.append("the map's own touch handling: every icon opened through "
+                           "IconClicked() because a touch on it did nothing")
     print(f"KL {label} RESULT: island {navigation.island_label(island)}; mode {mode}; "
           f"levels [{'; '.join(levels_played) or 'none'}]; exam {exam_note}. "
           f"Not covered: {'; '.join(not_covered)}.")

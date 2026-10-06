@@ -203,5 +203,54 @@ def install():
         method = getattr(AltDriver, name, None)
         if method is not None and not getattr(method, "_parrot_guarded", False):
             setattr(AltDriver, name, _wrap(method, lambda d: d, lambda d: ""))
+    # A screen press first asks the app what a touch would hit. Clear the
+    # parrot BEFORE that question, or its bubble is reported as the cover.
+    from vocatooki import ui_actions
+    if before_action not in ui_actions.BEFORE_SCREEN_PRESS:
+        ui_actions.BEFORE_SCREEN_PRESS.append(before_action)
+    # And every AltObject.click()/tap() in the code base — the solvers' too —
+    # goes through the screen (2026-10-06). The unwrapped originals are kept
+    # for the recorded bypass. ``VT_PRESS=object`` turns this off per run.
+    for name in ("click", "tap"):
+        method = getattr(AltObject, name, None)
+        if method is not None and not getattr(method, "_screen_press", False):
+            ui_actions.ORIGINAL_OBJECT_ACTIONS[name] = _unwrapped(method)
+            setattr(AltObject, name, _screen_first(method, name))
+    ui_actions.ORIGINAL_OBJECT_ACTIONS["_types"] = (AltObject,)
     _installed = True
+
+
+def _unwrapped(method):
+    """The method under the guard's wrapper (``functools.wraps`` keeps it)."""
+    return getattr(method, "__wrapped__", method)
+
+
+def _screen_first(method, action):
+    """AltObject.click/tap that taps the screen where the object is.
+
+    The guard's own parrot check still runs (``method`` is the guarded one);
+    the object press itself is only used when the screen press could not be
+    delivered, and that is recorded. Returns the object, as the original does.
+    """
+    from vocatooki import ui_actions
+
+    @functools.wraps(method)
+    def pressed(self, *args, **kwargs):
+        if ui_actions.press_policy() == "object" or args or kwargs:
+            return method(self, *args, **kwargs)      # count/interval given: the real thing
+        driver = getattr(self, "_altdriver", None)
+        if driver is None:
+            return method(self)
+        try:
+            before_action(driver, getattr(self, "name", ""))
+        except Exception:                            # noqa: BLE001
+            pass
+        outcome = ui_actions.press_on_screen(driver, self, label=getattr(self, "name", ""))
+        if outcome:
+            return self
+        ui_actions.record_finding("bypassed", getattr(self, "name", ""),
+                                  note=f"object {action}() after a {outcome.status} screen press")
+        return _unwrapped(method)(self)
+    pressed._screen_press = True
+    return pressed
     logging.debug("[Parrot] guard installed on AltObject/AltDriver actions")

@@ -5,12 +5,15 @@ first island's five lessons, 6-10 the second island's, and so on. Inside an
 island each lesson is three levels (easy, medium, hard) and its exam, read off
 the map icons' own ``levelInfo`` -- never off their position on the screen.
 
-How things open, all by object:
-  island  -> ``IslandIcon.click()`` (an EventTrigger wired to CivilizationIslandIcon.Click)
-  level   -> ``LevelMapIcon.IconClicked()`` / exam -> ``TestMapIcon.IconClicked()``.
-             The icon's own Button has an EMPTY onClick in Kideo Land -- real taps
-             go through the map's pan-and-zoom raycast -- so ``click()`` on it
-             does nothing and the component method is the object-level press.
+How things open -- located by object, pressed THROUGH THE SCREEN (2026-10-06):
+  island  -> a tap on ``IslandIcon`` where it is (an EventTrigger wired to
+             CivilizationIslandIcon.Click)
+  level   -> a tap on the icon where it is. The icon's own Button has an EMPTY
+             onClick in Kideo Land -- a real tap goes through the map's
+             pan-and-zoom raycast, which is exactly what a finger does. Only if
+             the tap is delivered and the map stays is ``IconClicked()`` called
+             on the component, and that is RECORDED as a bypass: the row then
+             says the map's own touch handling was not what opened the level.
   cutscene-> its ``BackButton`` object goes on to the island map.
 """
 
@@ -21,7 +24,19 @@ from alttester import By
 
 from kideoland import names
 from kideoland.login import back_to_start, current_scene, wait_for_scene
-from vocatooki import ui_actions
+from vocatooki import scenes, ui_actions
+
+
+# A tapped level icon loads its scene inside this; the map still showing after
+# it means the touch did nothing.
+ICON_OPEN_TIMEOUT = 10
+
+
+# How the map's icons were opened in this process: by a touch, or through the
+# component. Once a touch has opened one, a touch that does nothing is no
+# longer "maybe the map eats taps" — it is the map not responding, which is
+# the post-reward lock, and it fails instead of falling back.
+OPENED_BY = {"touch": 0, "component": 0}
 
 
 class LessonLocked(AssertionError):
@@ -74,7 +89,10 @@ def open_island(driver, island_index, timeout=60):
     if island["locked"]:
         raise LessonLocked(f"island {island_index + 1} ({island_label(island)}) is locked "
                            f"for this account")
-    driver.find_object(By.PATH, f"//{island['name']}/{names.ISLAND_ICON}").click()
+    icon = driver.find_object(By.PATH, f"//{island['name']}/{names.ISLAND_ICON}")
+    if not ui_actions._press(icon, driver):
+        raise AssertionError(f"island {island_index + 1} ({island_label(island)}): the press on "
+                             f"its icon was refused (see the input findings)")
     deadline = time.time() + timeout
     while time.time() < deadline:
         scene = current_scene(driver)
@@ -143,13 +161,37 @@ def lesson_on_map(driver, unit):
 
 
 def open_icon(driver, row):
-    """Open a level or exam icon through its own IconClicked(). Raises LessonLocked if locked."""
+    """Open a level or exam icon with a touch where it is. Raises LessonLocked if locked.
+
+    A delivered touch that leaves the map on screen falls back to the icon's
+    ``IconClicked()`` -- recorded as a bypass, so the run says the map did not
+    open the level by itself (and what the touch hit, if not the icon).
+    """
     if row["state"] == names.ICON_LOCKED:
         raise LessonLocked(f"map level {row['number']} is locked")
+    label = f"map level {row['number']}"
+    kind = row['difficulty'] if row['type'] == names.LEVEL_TYPE_LESSON else 'exam'
+    outcome = ui_actions.press_on_screen(driver, row["obj"], label=label)
+    if outcome and scenes._wait_leaves_scene(driver, names.MAP_SCENE, timeout=ICON_OPEN_TIMEOUT):
+        OPENED_BY["touch"] += 1
+        logging.info(f"[KL Map] opened {label} ({kind}) with a touch")
+        return
+    if outcome and OPENED_BY["touch"]:
+        ui_actions.record_finding("no-effect", label,
+                                  note="the map stayed after the tap, although touches "
+                                       "opened icons earlier in this run")
+        raise AssertionError(f"{label} ({kind}): the island map did not respond to a touch "
+                             f"on its icon (touches opened {OPENED_BY['touch']} icon(s) "
+                             f"earlier in this run): the post-reward lock"
+                             + (f"; the touch hit '{outcome.blocker}'" if outcome.blocker else ""))
+    ui_actions.record_finding(
+        "bypassed", label,
+        note=f"the touch {'was delivered and the map stayed' if outcome else outcome.status}; "
+             f"opened through IconClicked() instead")
     row["obj"].call_component_method(row["component"], "IconClicked", names.ASSEMBLY,
                                      parameters=[], type_of_parameters=[])
-    logging.info(f"[KL Map] opened map level {row['number']} "
-                 f"({row['difficulty'] if row['type'] == names.LEVEL_TYPE_LESSON else 'exam'})")
+    OPENED_BY["component"] += 1
+    logging.info(f"[KL Map] opened {label} ({kind}) through IconClicked()")
 
 
 def back_to_map(driver, max_steps=6):

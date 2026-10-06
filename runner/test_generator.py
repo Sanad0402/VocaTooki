@@ -327,6 +327,13 @@ class RallyTestGenerator:
                 tc_id, tc_name, test_case.get("user", {}), func_name,
                 description, test_case.get("steps", []), test_case.get("validation"),
             )
+        elif test_type == "level":
+            # Whole-level playthrough + the completion contract: proven utils
+            # end to end, so live discovery adds nothing.
+            code = self._gen_level_completion(
+                tc_id, tc_name, test_case.get("user", {}), func_name,
+                description, test_case.get("steps", []), test_case.get("validation"),
+            )
         elif test_type == "activity":
             # Activity playthroughs are composed from the proven utils (login ->
             # map level -> the right activity -> solve), so this always writes a
@@ -627,6 +634,13 @@ class RallyTestGenerator:
         # word made TC1188 generate an exam test.
         if not is_negative and self._is_event_case(tc_name, description, nodeid, validation):
             return "event"
+        # "Complete the hard level" / "all activities" / "the gift after the
+        # level" -> play the WHOLE level and check what the user sees next.
+        # Before the activity rule: such a case may name an activity too, and
+        # a one-activity test never reaches the level's reward (2026-10-06).
+        if not is_negative and self._is_level_completion_case(tc_name, description,
+                                                              nodeid, validation):
+            return "level"
         # Positive "finish the <game> activity" cases -> full playthrough test.
         if self._infer_activity_scene(tc_name, description, nodeid) and not is_negative:
             return "activity"
@@ -642,6 +656,30 @@ class RallyTestGenerator:
         if not is_negative and self._infer_feature(tc_name, description, nodeid):
             return "page"
         return "generic"
+
+    # A case about finishing a whole LEVEL and what follows it, not one activity.
+    LEVEL_COMPLETION_PHRASES = (
+        "complete the level", "complete a level", "completing the level", "completes the level",
+        "finish the level", "finishing the level", "finishes the level", "level completion",
+        "complete all activities", "completing all activities", "all activities of the level",
+        "all three activities", "all 3 activities", "all the activities",
+        "gift", "reward", "unlock the next level", "next level unlock", "next level is unlocked",
+        "navigate to other level", "navigate to another level", "other levels",
+    )
+
+    @classmethod
+    def _is_level_completion_case(cls, tc_name: str, description: str = "", nodeid: str = "",
+                                  validation: Optional[Dict[str, str]] = None) -> bool:
+        """Is this case about completing a level (all its activities) and what the
+        user sees after it — the reward, the map, the next level?"""
+        hay = cls._haystack(tc_name, description, nodeid)
+        v = validation or {}
+        hay += " " + cls._clean_html(
+            f"{v.get('input', '')} {v.get('expected', '')}").lower()
+        if "exam" in (tc_name or "").lower():
+            return False
+        return any(re.search(rf"(?<![a-z0-9]){re.escape(p)}(?![a-z0-9-])", hay)
+                   for p in cls.LEVEL_COMPLETION_PHRASES)
 
     # Doing something INSIDE a task, rather than looking at the Tasks screen.
     _TASK_DO_WORDS = ("solve", "answer", "submit", "send", "score", "checked",
@@ -824,6 +862,9 @@ class RallyTestGenerator:
             return self._gen_login_negative(tc_id, tc_name, user_data, func_name, description, steps)
         elif test_type == "logout":
             return self._gen_logout(tc_id, tc_name, func_name, description, steps)
+        elif test_type == "level":
+            return self._gen_level_completion(tc_id, tc_name, user_data, func_name,
+                                              description, steps, validation)
         elif test_type == "activity":
             return self._gen_activity(tc_id, tc_name, user_data, func_name,
                                       description, steps, validation,
@@ -1193,6 +1234,110 @@ PASSWORD = "{password}"
     # 5. Clean state for the next test case: back to the level map (no logout —
     #    the next case in this run reuses the session and just clicks its level)
     utilsdemo.return_to_map(driver)
+'''
+
+    def _gen_level_completion(self, tc_id, tc_name, user_data, test_func_name,
+                              description="", steps=None, validation=None) -> str:
+        """Whole-level playthrough, then what the user sees next.
+
+        Login -> the level from the description -> EVERY activity of it played
+        to the end -> ``finish_level``: Back like a user, the reward popup read
+        and dismissed, the map back, a level still opening by touch. Fails with
+        "post-reward lock" when the map stops taking touches — the production
+        bug of 2026-10-06 that a one-activity case can never reach.
+        """
+        username = user_data.get("username") or ""
+        password = user_data.get("password") or ""
+        clean_desc = self._clean_html(description)
+        m = (re.search(r"(?:map|click(?:\s*on)?)\s*level\s*[:#]?\s*(\d+)",
+                       clean_desc, re.IGNORECASE)
+             or re.search(r"level\s*[:#]?\s*(\d+)", clean_desc, re.IGNORECASE))
+        level = int(m.group(1)) if m else -1
+        hay = f"{tc_name} {clean_desc}".lower()
+        difficulty = next((d for d in ("hard", "medium", "easy") if d in hay), "hard")
+
+        doc = self._doc_block(tc_id, tc_name, description, steps or [])
+        validation = validation or {}
+        v_in = self._clean_html(validation.get("input", ""))
+        v_exp = self._clean_html(validation.get("expected", ""))
+        if v_in or v_exp:
+            doc += "\n\nValidation (from Rally):"
+            if v_in:
+                doc += f"\n    Input:    {v_in}"
+            if v_exp:
+                doc += f"\n    Expected: {v_exp}"
+
+        missing = []
+        if not username:
+            missing.append("credentials (Username/Password)")
+        if level < 0:
+            missing.append('the map level ("level N")')
+        guard = ""
+        if missing:
+            reason = (f"{tc_id}: description is missing " + " and ".join(missing)
+                      + ". Add it to the Rally case, then re-sync.")
+            guard = ('@pytest.mark.stub\n'
+                     f'@pytest.mark.skip(reason="{self._py_str(reason)}")\n')
+
+        expected_note = self._py_str(
+            v_exp or "the level is completed, the reward is shown, and the map still opens levels")
+
+        return f'''"""
+{doc}
+"""
+
+import time
+import pytest
+from Utilities import utilsdemo
+
+# Rally test case ID (for sync and maintenance)
+TC_ID = "{tc_id}"
+# Regenerated from the Rally case on every sync so the level/credentials stay
+# current with the description. Hand-editing? Set MANUAL_EDIT = True to lock.
+MANUAL_EDIT = False
+
+MAP_LEVEL = {level}          # the lesson level to complete, from the Rally description
+DIFFICULTY = "{difficulty}"  # as the case names it
+USERNAME = "{username}"
+PASSWORD = "{password}"
+# The account must NOT have completed this level before: a replay never shows
+# the reward, so the part after the level would be checked against nothing.
+
+
+{guard}def {test_func_name}(altdriver):
+    driver, _platform = altdriver
+
+    # 1. Login (skipped when the previous case left this user signed in).
+    utilsdemo.ensure_logged_in(driver, USERNAME, PASSWORD)
+    time.sleep(2)
+
+    # 2. Open the level from the map with a real tap on its icon. "Entered"
+    #    means the map scene is gone, not that a click was sent.
+    assert utilsdemo.enter_level_number(driver, MAP_LEVEL,
+                                        username=USERNAME, password=PASSWORD), \\
+        f"{{TC_ID}}: could not open level {{MAP_LEVEL}} on the map"
+    assert utilsdemo.open_level_to_activities(driver), \\
+        f"{{TC_ID}}: activity selection screen was not reached"
+
+    # 3. Play EVERY activity of the level to the end. Each one is PASSED only
+    #    when the game shows it finished (counter N/N or the result screen).
+    before = len(utilsdemo.activity_report)
+    utilsdemo.handle_level_flow(driver)
+    rows = utilsdemo.activity_report[before:]
+    not_passed = [(r["activity"], r["status"], (r.get("error") or "")[:80])
+                  for r in rows if r["status"] != "PASSED"]
+    assert rows and not not_passed, \\
+        f"{{TC_ID}}: the level's activities did not all finish: {{not_passed or 'none played'}}"
+
+    # 4. What the user sees NEXT (the level-completion contract): Back like a
+    #    user, the reward popup read and dismissed, the map back, a touch
+    #    reaching its icons, and a level still opening by touch. Fails with
+    #    "post-reward lock" when the map stops taking touches.
+    summary = utilsdemo.finish_level(driver, DIFFICULTY, other_levels=())
+    print(f"{{TC_ID}} RESULT: level {{MAP_LEVEL}} ({{DIFFICULTY}}) completed, "
+          f"{{len(rows)}} activities finished; popups after it: "
+          f"{{summary['popups'] or 'none'}}; probe: {{summary['probe']}}. "
+          f"Not covered: {{'; '.join(summary['not_covered'])}}. Expected: {expected_note}")
 '''
 
     def _gen_exam(self, tc_id, tc_name, user_data, test_func_name,

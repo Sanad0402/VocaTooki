@@ -270,7 +270,15 @@ def run_activity(altdriver, activity):
         prev_scene = None
 
     time.sleep(3)
-    activity.click()
+    if not ui_actions._press(activity, altdriver):
+        # No press could be delivered at all (off screen and no object press
+        # either). Say so, rather than wait 20 minutes for an activity that
+        # was never asked for.
+        last = ui_actions.INPUT_FINDINGS[-1] if ui_actions.INPUT_FINDINGS else {}
+        record_failure(altdriver, "ACTIVITY THUMB",
+                       f"the activity thumb could not be pressed: {last.get('kind', '?')}"
+                       + (f" by '{last['blocker']}'" if last.get("blocker") else ""))
+        return
     time.sleep(10)  # small settle time before polling
 
     # --- get new scene with retries ---
@@ -334,7 +342,7 @@ def run_activity(altdriver, activity):
             if is_active:
                 print("[INFO] 'Last Attempt' popup detected — clicking 'Yes'.")
                 try:
-                    altdriver.find_object(By.NAME, "Yes").click()
+                    ui_actions._press(altdriver.find_object(By.NAME, "Yes"), altdriver)
                     time.sleep(0.3)  # quick settle
                 except Exception as e:
                     print(f"[WARN] Could not click 'Yes': {e}")
@@ -480,6 +488,43 @@ def run_activity(altdriver, activity):
                     print("[FATAL] Test execution cannot proceed after multiple recovery attempts.")
 
 
+def leave_activity(altdriver, marker=None, scene=None, timeout=10):
+    """Leave the open activity the way a user does; the scene load is a recorded last resort.
+
+    Presses the activity's own exits (``back_to_activity_list``: prev, back,
+    close) and waits for ``marker`` (an object) or ``scene`` to show. Only
+    when that fails is ``AltTesterUtils.LoadPreviousScene`` called, and that
+    is recorded as a ``bypassed`` finding — the app's own exit was not what
+    got us out, and the report says so. Returns True when out.
+    """
+    marker = marker or scene_names.ACTIVITY_SELECTION_SCENE_MARKER
+
+    def out():
+        if scene is not None:
+            return scenes._current_scene(altdriver) == scene
+        return ui_actions.find_any(altdriver, marker) is not None
+
+    if out():
+        return True
+    back_to_activity_list(altdriver, timeout=timeout)
+    if out():
+        return True
+    ui_actions.record_finding("bypassed", "LoadPreviousScene",
+                              note=f"the activity's own exits did not bring back "
+                                   f"{scene or marker}; the scene was loaded directly")
+    try:
+        ui_actions.call_method(altdriver, "AltTesterUtils", "LoadPreviousScene")
+    except Exception as e:                           # noqa: BLE001
+        logging.warning(f"[Activity] LoadPreviousScene failed: {e}")
+        when_finish_activity(altdriver)
+    end = time.time() + timeout
+    while time.time() < end:
+        if out():
+            return True
+        time.sleep(0.5)
+    return out()
+
+
 def when_finish_activity(altdriver, retries=3, delay=1):
     """
     Attempts to exit the activity screen by clicking the Exit button.
@@ -494,7 +539,8 @@ def when_finish_activity(altdriver, retries=3, delay=1):
     for attempt in range(1, retries + 1):
         try:
             exit_button = altdriver.find_object(By.NAME, "prev")
-            exit_button.click()
+            if not ui_actions._press(exit_button, altdriver):
+                raise RuntimeError("the press on 'prev' was refused")
             logging.info("Exit button clicked successfully.")
             return
         except Exception as e:
@@ -510,7 +556,8 @@ def when_finish_activity(altdriver, retries=3, delay=1):
     for popup_name in SUCCESS_POPUPS:
         try:
             popup = altdriver.find_object(By.NAME, popup_name)
-            popup.find_object_from_object(By.NAME, "ExitButton").click()
+            if not ui_actions._press(popup.find_object_from_object(By.NAME, "ExitButton"), altdriver):
+                raise RuntimeError("the press on the popup's ExitButton was refused")
             logging.info("Exit via the result popup's ExitButton.")
             return
         except Exception as e:
@@ -976,12 +1023,7 @@ def _solve_activity_once(altdriver, target_scene, title_hint=None):
         # solve the wrong game — go back and fall through to probing.
         logging.warning(f"[Activity] title matched but the game opened '{scene}', "
                         f"not {target_scene} — falling back to probing")
-        try:
-            ui_actions.call_method(altdriver, "AltTesterUtils", "LoadPreviousScene")
-        except Exception:
-            when_finish_activity(altdriver)
-        if not ui_actions.wait_for_any(altdriver, scene_names.ACTIVITY_SELECTION_SCENE_MARKER, timeout=8):
-            back_to_activity_list(altdriver)
+        leave_activity(altdriver)
 
     thumbs = altdriver.find_objects(By.NAME, "ActivityThumb")
     total = len(thumbs)
@@ -1004,11 +1046,7 @@ def _solve_activity_once(altdriver, target_scene, title_hint=None):
         # Not the one — back out to the activity SELECTION and try the next.
         # Never out to the map: that would cost a level re-entry per thumb.
         logging.info(f"[Activity] thumb {i} opened '{scene}', not {target_scene}; going back")
-        try:
-            ui_actions.call_method(altdriver, "AltTesterUtils", "LoadPreviousScene")
-        except Exception as e:
-            logging.warning(f"[Activity] LoadPreviousScene failed: {e}")
-            when_finish_activity(altdriver)
+        leave_activity(altdriver)
         # Wait for the thumbs instead of a flat sleep — the list is usually
         # back well inside a second, and when it is not, pressing the exit
         # ourselves beats sleeping and hoping.
@@ -1017,6 +1055,24 @@ def _solve_activity_once(altdriver, target_scene, title_hint=None):
 
     logging.error(f"[Activity] {target_scene} not found among {total} thumbs")
     return result
+
+
+def record_failure(altdriver, label, error, difficulty=None):
+    """One FAILED row, with a screenshot of the screen it failed on.
+
+    For the flows that used to catch an exception and only LOG it: a level
+    that could not be left, an exam that raised, a probe that found the map
+    dead. A row is what the run's verdict and the report are built from; a
+    log line is not.
+    """
+    shot = ui_actions.capture_failure_screenshot(altdriver, label) if altdriver is not None else ""
+    row = {"activity": label, "status": "FAILED", "error": str(error)[:600],
+           "duration": "0s", "screenshot": shot,
+           "platform": getattr(altdriver, "platform", "Unknown")}
+    if difficulty:
+        row["difficulty"] = str(difficulty).title()
+    activity_report.append(row)
+    return row
 
 
 def write_activity_report(f, lesson_num=None, lesson_id=None):
@@ -1057,4 +1113,6 @@ def write_activity_report(f, lesson_num=None, lesson_id=None):
         f.write(f"Duration: {entry['duration']}\n")
         if entry['error']:
             f.write(f"Error   :\n{entry['error']}\n")
+        if entry.get('note'):
+            f.write(f"Note    :\n{entry['note']}\n")
         f.write("-" * 40 + "\n")

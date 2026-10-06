@@ -77,15 +77,49 @@ def enter_to_level(altdriver, class_id, lesson_number, type="lesson", difficulty
             logging.error(f"[Map Navigation] Level index {level_num} out of range ({len(level_objs)} icons).")
             return False
 
-        # --- Click the target level ---
-        level_objs[level_num].click()
-        time.sleep(4)
-        logging.info(f"[Map Navigation] Entered level index {level_num} successfully.")
-        return True
+        # --- Press the target level, as a finger would, and prove it opened ---
+        return _open_level_icon(altdriver, level_objs[level_num], f"level index {level_num}",
+                                index=level_num)
 
     except Exception as e:
         logging.error(f"[Map Navigation] Exception while clicking level: {e}")
         return False
+
+
+# The icon index of the level entered last (``enter_to_level`` /
+# ``enter_level_number``), for the level-completion probe. None until one is.
+LAST_LEVEL_INDEX = None
+
+
+# A level icon that was really pressed loads the level inside this. A map still
+# showing after it means the icon is locked, or the map is not taking touches.
+LEVEL_OPEN_TIMEOUT = 15
+
+
+def _open_level_icon(altdriver, icon, label, index=None):
+    """Press a level icon the way a finger would and PROVE the level opened.
+
+    True only when the map scene is gone within ``LEVEL_OPEN_TIMEOUT``. A tap
+    the screen refused, or one that left the map on screen, is False and a
+    recorded finding — the post-gift lock of 2026-10-06 looked exactly like
+    the second case, and the old object click reported it as "entered".
+    """
+    global LAST_LEVEL_INDEX
+    name = getattr(icon, "name", "") or label
+    if not ui_actions._press(icon, altdriver):
+        logging.error(f"[Map Navigation] {label}: the press on '{name}' was refused")
+        return False
+    if scenes._wait_leaves_scene(altdriver, scene_names.MAP_SCENE, timeout=LEVEL_OPEN_TIMEOUT):
+        time.sleep(2)
+        if index is not None:
+            LAST_LEVEL_INDEX = index
+        logging.info(f"[Map Navigation] Entered {label} (icon '{name}').")
+        return True
+    ui_actions.record_finding(
+        "no-effect", name,
+        note=f"the map is still showing {LEVEL_OPEN_TIMEOUT}s after the tap on {label}: "
+             f"a locked icon, or the map is not taking touches")
+    return False
 
 
 def _find_level_icons(altdriver):
@@ -426,21 +460,16 @@ def enter_level_number(altdriver, level_num, retries=3, username=None, password=
 
         obj, name, kind = _level_icon_by_number(altdriver, level_num)
         if obj is not None:
-            obj.click()
-            time.sleep(4)
-            logging.info(f"[Map Navigation] Entered level {level_num} "
-                         f"({kind} level, icon '{name}').")
-            return True
+            return _open_level_icon(altdriver, obj, f"level {level_num} ({kind} level)",
+                                    index=level_num - 1)
 
         level_objs = _find_level_icons(altdriver)
         index = level_num - 1          # label 44 -> icon index 43
         if index < 0 or index >= len(level_objs):
             logging.error(f"[Map Navigation] Level {level_num} out of range ({len(level_objs)} icons).")
             return False
-        level_objs[index].click()
-        time.sleep(4)
-        logging.info(f"[Map Navigation] Entered level {level_num} (icon index {index}).")
-        return True
+        return _open_level_icon(altdriver, level_objs[index], f"level {level_num} (icon index {index})",
+                                index=index)
     except Exception as e:
         logging.error(f"[Map Navigation] Exception clicking level {level_num}: {e}")
         return False
@@ -511,6 +540,10 @@ _BACK_BUTTON_NAMES = ("prev", "X", "x", "CloseButton", "close", "Close", "Exit",
                       "nextButton")
 
 
+# The names in _BACK_BUTTON_NAMES that close a POPUP rather than leave a screen.
+_POPUP_CLOSE_NAMES = ("X", "x", "CloseButton", "close", "Close", "Exit")
+
+
 def return_to_map(altdriver, max_steps=8):
     """Clean state between chained test cases: go back to the level map.
 
@@ -529,14 +562,16 @@ def return_to_map(altdriver, max_steps=8):
                 obj = altdriver.find_object(By.NAME, name)
             except Exception:
                 continue
-            try:
-                obj.click()
+            if ui_actions._press(obj, altdriver):
                 clicked = name
                 break
-            except Exception:
-                continue
         if clicked:
             logging.info(f"[Map Navigation] step {step + 1}: clicked '{clicked}'")
+            if clicked in _POPUP_CLOSE_NAMES:
+                # A popup was closed on the way back. Say which and what it
+                # said: an unexpected one is a finding, not housekeeping.
+                ui_actions.record_finding("popup-dismissed", clicked,
+                                          note=ui_actions.popup_text(altdriver, settle=0.2)[:160])
         else:
             logging.warning(f"[Map Navigation] step {step + 1}: no back/close/home button found")
         time.sleep(4)

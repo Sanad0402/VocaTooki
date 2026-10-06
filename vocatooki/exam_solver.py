@@ -342,7 +342,10 @@ def solve_exam(altdriver, class_id, lesson_num):
     from datetime import datetime as _dt
     _start = _dt.now()
 
-    map_navigation.enter_to_level(altdriver, class_id, lesson_num, type="exam")
+    if not map_navigation.enter_to_level(altdriver, class_id, lesson_num, type="exam"):
+        raise RuntimeError(
+            f"Exam lesson {lesson_num}: the exam level did not open — no icon for it, or "
+            f"the tap on its icon left the map on screen (see the input findings).")
     time.sleep(4)
     result = solve_exam_pages(altdriver, label=f"lesson {lesson_num}")
 
@@ -361,6 +364,10 @@ def solve_exam(altdriver, class_id, lesson_num):
         "duration": dur,
         "platform": getattr(altdriver, "platform", "Unknown"),
     })
+    # What the user sees NEXT: the map, still taking touches. Its own row;
+    # raises LevelCompletionError (already recorded) when it does not.
+    from vocatooki import level_completion
+    level_completion.finish_exam(altdriver, class_id=class_id, lesson_num=lesson_num)
 
 
 def run_all_exams(altdriver, class_id):

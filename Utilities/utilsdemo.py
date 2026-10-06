@@ -56,6 +56,9 @@ from vocatooki.ui_actions import (  # noqa: F401
     _score_int, SCREEN_TEXT_NAMES, screen_texts, _slugish, tap_empty_area, _text_of,
     _TEXT_SCAN_PATHS, _text_variants, toggle_label, _visible_text_object, visible_texts,
     wait_for_any,
+    # 2026-10-06: presses go through the screen; these are the new primitives.
+    BEFORE_SCREEN_PRESS, findings_since, INPUT_FINDINGS, ORIGINAL_OBJECT_ACTIONS,
+    press_on_screen, press_policy, PressOutcome, record_finding, what_is_at,
 )
 
 from vocatooki.scene_names import (  # noqa: F401
@@ -93,6 +96,11 @@ from vocatooki.map_navigation import (  # noqa: F401
     extract_lesson_titles, FEATURE_BUTTON_TIMEOUT, FEATURE_PRESS_RETRY_AFTER,
     _find_level_icons, get_level, _level_icon_by_number, LEVEL_ICON_KINDS, level_kind,
     _map_ready, MAP_SETTLE_SECONDS, open_feature, open_level_to_activities, return_to_map,
+    LEVEL_OPEN_TIMEOUT, _open_level_icon,
+)
+
+from vocatooki.level_completion import (  # noqa: F401
+    finish_level, LevelCompletionError,
 )
 
 from vocatooki.activity_runner import (  # noqa: F401
@@ -103,7 +111,8 @@ from vocatooki.activity_runner import (  # noqa: F401
     FAILED_ACTIVITIES, find_activity_thumb, get_activity_solver_map,
     _get_current_activity_with_retry, handle_level_flow, _infer_scene_from_title,
     list_level_activities, _MID, _mid_activity_frame, MID_FRAME_FALLBACK_SECONDS,
-    _play_activity, read_activity_progress, retry_lost_activity, run_activity,
+    leave_activity, _play_activity, read_activity_progress, record_failure, retry_lost_activity,
+    run_activity,
     solve_activity_in_level, _solve_activity_once, _solve_open_activity, _TITLE_X_TOLERANCE,
     validate_activity_ui, wait_for_activity_board, wait_for_activity_result,
     wait_for_finish_feedback, _watch_mid_frame, when_finish_activity, write_activity_report,

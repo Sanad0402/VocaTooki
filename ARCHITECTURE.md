@@ -9,7 +9,7 @@ inside a function, never at import time. Every module must import on its own
 
 ```
   scene_names          Unity scene names — plain constants, imports nothing
-  ui_actions           find / press / read UI objects BY NAME (never coordinates)
+  ui_actions           find UI objects BY NAME; press them THROUGH THE SCREEN at their live position
   scenes               "is this screen ready" waits, login/hub/onboarding checks
   instructions_parrot  the instructions parrot: blocker, bubble, closing them
   parrot_guard         clears the parrot before EVERY click/tap/swipe, and on every new scene
@@ -28,7 +28,20 @@ inside a function, never at import time. Every module must import on its own
 
 ## Rules that keep it working
 
-- **Click by object name, never by screen coordinates** — resolutions change.
+- **Locate by object name, press through the screen.** Never a hardcoded pixel —
+  resolutions change — but every press is a real tap at the object's LIVE position
+  (`ui_actions.press_on_screen`; `parrot_guard.install` routes every `AltObject.click()`
+  / `.tap()` through it). AltTester's object click fires the object's handlers directly,
+  skipping the raycast and the EventSystem; that is how the hard-level gift that locks
+  the map shipped (2026-10-06). What the touch hits instead of the object, and every
+  bypass, is recorded in `ui_actions.INPUT_FINDINGS`. `VT_PRESS=object` restores the old
+  behaviour for a comparison run.
+- **A level ends with the completion contract** (`level_completion.finish_level`): leave
+  with Back like a user, record and dismiss whatever popup is up (the gift), the map is
+  back, a touch reaches its icons, and tapping a level still opens it. One
+  `LEVEL COMPLETION` row per level, PASSED or FAILED, saying what it could not cover.
+- **A level icon is "entered" only when the map scene is gone** after the tap
+  (`map_navigation._open_level_icon`); a map that stays is a recorded `no-effect`.
 - **Never pass without verifying.** A lesson-run activity is PASSED only when the
   game shows it finished (counter N/N or the success screen); otherwise it is
   retried, then FAILED with the reason. An unimplemented flow is a loud skip.

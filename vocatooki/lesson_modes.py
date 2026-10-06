@@ -8,27 +8,44 @@ import logging
 import time
 from alttester import By
 
-from vocatooki import activity_runner, exam_solver, map_navigation
+from vocatooki import activity_runner, exam_solver, level_completion, map_navigation
+
+
+def _after_level(altdriver, level_name, class_id, lesson_num, opened):
+    """Leave the level like a user and prove the map still works (one report row)."""
+    level_completion.finish_level(altdriver, level_name, class_id=class_id,
+                                  lesson_num=lesson_num, other_levels=tuple(opened))
+
+
+def _level_failed(altdriver, level_name, lesson_num, error):
+    """A level that raised is a FAILED row, not a log line. (The completion
+    contract writes its own row, so its error is not written twice.)"""
+    logging.error(f"[solve_lesson_levels] Error solving {level_name} level: {error}")
+    if not isinstance(error, level_completion.LevelCompletionError):
+        activity_runner.record_failure(altdriver, f"{level_name} level (lesson {lesson_num})",
+                                       error, difficulty=level_name)
 
 
 def solve_lesson_levels(altdriver, class_id, lesson_num):
     difficulties = [("easy", 0), ("medium", 1), ("hard", 2)]
+    opened = []
 
     for level_name, diff in difficulties:
         logging.info(f"[solve_lesson_levels] Solving {level_name} level...")
 
         if not map_navigation.enter_to_level(altdriver, class_id, lesson_num, type="lesson", difficulty=level_name):
-            logging.warning(f"[solve_lesson_levels] Skipped {level_name} level — no level found or failed to enter.")
+            activity_runner.record_failure(
+                altdriver, f"{level_name} level (lesson {lesson_num})",
+                "the level could not be entered: no icon for it, or the press on its icon "
+                "did not open it (see the input findings)", difficulty=level_name)
             continue
 
         try:
             solve_level(altdriver, diff)
-
-            back_button = altdriver.wait_for_object(By.NAME, 'Back')
-            back_button.click()
-            time.sleep(6)
+            _after_level(altdriver, level_name, class_id, lesson_num, opened)
+            opened.append(map_navigation.LAST_LEVEL_INDEX)
         except Exception as e:
-            logging.error(f"[solve_lesson_levels] Error solving {level_name} level: {e}")
+            _level_failed(altdriver, level_name, lesson_num, e)
 
 
 def solve_level(altdriver, difficulty):
@@ -63,6 +80,7 @@ def solve_level(altdriver, difficulty):
             activity_runner.handle_level_flow(altdriver)
         except Exception as e:
             logging.warning(f"[solve_level] Flow {i + 1} failed: {e}")
+            activity_runner.record_failure(altdriver, f"level flow {i + 1}/{repetitions}", e)
 
     logging.info(f"[solve_level] Finished solving level with difficulty {difficulty}")
     time.sleep(4)  # Wait before continuing to the next level
@@ -77,7 +95,13 @@ def solve_lesson(altdriver, class_id, lesson_num):
         exam_solver.solve_exam(altdriver, class_id, lesson_num)
         time.sleep(2)
     except Exception as e:
-        print(f"[ERROR] Failed to solve lesson {lesson_num}: {e}")
+        _exam_failed(altdriver, lesson_num, e)
+
+
+def _exam_failed(altdriver, lesson_num, error):
+    print(f"[ERROR] Failed to solve lesson {lesson_num}: {error}")
+    if not isinstance(error, level_completion.LevelCompletionError):   # has its own row
+        activity_runner.record_failure(altdriver, f"lesson {lesson_num} exam", error)
 
 
 def solve_level_express(altdriver, difficulty):
@@ -110,6 +134,7 @@ def solve_level_express(altdriver, difficulty):
             activity_runner.handle_level_flow(altdriver)
         except Exception as e:
             logging.warning(f"[solve_level] Flow {i + 1} failed: {e}")
+            activity_runner.record_failure(altdriver, f"level flow {i + 1}/{repetitions}", e)
 
     logging.info(f"[solve_level] Finished solving level for difficulty {difficulty}")
     time.sleep(4)
@@ -145,6 +170,7 @@ def solve_level_express_hard(altdriver, difficulty):
             activity_runner.handle_level_flow(altdriver)
         except Exception as e:
             logging.warning(f"[solve_level] Flow {i + 1} failed: {e}")
+            activity_runner.record_failure(altdriver, f"level flow {i + 1}/{repetitions}", e)
 
     logging.info(f"[solve_level] Finished solving level for difficulty {difficulty}")
     time.sleep(4)
@@ -159,7 +185,7 @@ def solve_lesson_express(altdriver, class_id, lesson_num):
         exam_solver.solve_exam(altdriver, class_id, lesson_num)
         time.sleep(3)
     except Exception as e:
-        print(f"[ERROR] Failed to solve lesson {lesson_num}: {e}")
+        _exam_failed(altdriver, lesson_num, e)
 
 
 def solve_lesson_express_hard(altdriver, class_id, lesson_num):
@@ -171,7 +197,7 @@ def solve_lesson_express_hard(altdriver, class_id, lesson_num):
         exam_solver.solve_exam(altdriver, class_id, lesson_num)
         time.sleep(3)
     except Exception as e:
-        print(f"[ERROR] Failed to solve lesson {lesson_num}: {e}")
+        _exam_failed(altdriver, lesson_num, e)
 
 
 def solve_lessons_express_hard(altdriver, class_id, num_lessons, start_lesson=0):
@@ -198,22 +224,25 @@ def solve_lessons_express_hard(altdriver, class_id, num_lessons, start_lesson=0)
 
 def solve_lesson_levels_express(altdriver, class_id, lesson_num):
     difficulties = [("easy", 0), ("medium", 1), ("hard", 2)]
+    opened = []
 
     for level_name, diff in difficulties:
         logging.info(f"[solve_lesson_levels] Solving {level_name} level...")
 
         if not map_navigation.enter_to_level(altdriver, class_id, lesson_num, type="lesson", difficulty=level_name):
-            logging.warning(f"[solve_lesson_levels] Skipped {level_name} level — no level found or failed to enter.")
+            activity_runner.record_failure(
+                altdriver, f"{level_name} level (lesson {lesson_num})",
+                "the level could not be entered: no icon for it, or the press on its icon "
+                "did not open it (see the input findings)", difficulty=level_name)
             continue
 
         try:
             time.sleep(2)
             solve_level_express(altdriver, diff)
-            back_button = altdriver.wait_for_object(By.NAME, 'Back')
-            back_button.click()
-            time.sleep(6)
+            _after_level(altdriver, level_name, class_id, lesson_num, opened)
+            opened.append(map_navigation.LAST_LEVEL_INDEX)
         except Exception as e:
-            logging.error(f"[solve_lesson_levels] Error solving {level_name} level: {e}")
+            _level_failed(altdriver, level_name, lesson_num, e)
 
 
 def solve_lesson_levels_express_hard(altdriver, class_id, lesson_num):
@@ -223,15 +252,17 @@ def solve_lesson_levels_express_hard(altdriver, class_id, lesson_num):
         logging.info(f"[solve_lesson_levels] Solving {level_name} level...")
 
         if not map_navigation.enter_to_level(altdriver, class_id, lesson_num, type="lesson", difficulty=level_name):
-            logging.warning(f"[solve_lesson_levels] Skipped {level_name} level — no level found or failed to enter.")
+            activity_runner.record_failure(
+                altdriver, f"{level_name} level (lesson {lesson_num})",
+                "the level could not be entered: no icon for it, or the press on its icon "
+                "did not open it (see the input findings)", difficulty=level_name)
             continue
 
         try:
             time.sleep(2)
             solve_level_express_hard(altdriver, diff)
-            back_button = altdriver.wait_for_object(By.NAME, 'Back')
-            back_button.click()
-            time.sleep(6)
-
+            # Only the hard level is played in this mode, so the probe re-opens
+            # the level just finished: that is still a map touch after the gift.
+            _after_level(altdriver, level_name, class_id, lesson_num, opened=())
         except Exception as e:
-            logging.error(f"[solve_lesson_levels] Error solving {level_name} level: {e}")
+            _level_failed(altdriver, level_name, lesson_num, e)

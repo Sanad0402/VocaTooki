@@ -345,15 +345,13 @@ def ti_play_building(altdriver, building, timeout=90, tc_id="", trail=None):
         if not trail:
             evidence_screenshots.capture_evidence(altdriver, f"ti-{activity}-unfinished", tc_id=tc_id)
 
-    # Back to the island whatever happened, so the next building is reachable.
+    # Back to the island whatever happened, so the next building is reachable —
+    # through the activity's own exits like a user; the scene load only as a
+    # recorded last resort (2026-10-06).
     for _ in range(4):
         if scenes._current_scene(altdriver) == TREASURE_ISLAND_SCENE:
             break
-        try:
-            ui_actions.call_method(altdriver, "AltTesterUtils", "LoadPreviousScene")
-        except Exception:                            # noqa: BLE001
-            activity_runner.when_finish_activity(altdriver)
-        scenes.wait_for_scene(altdriver, TREASURE_ISLAND_SCENE, timeout=20)
+        activity_runner.leave_activity(altdriver, scene=TREASURE_ISLAND_SCENE, timeout=20)
     if scenes._current_scene(altdriver) != TREASURE_ISLAND_SCENE:
         out["note"] = (out["note"] + "; " if out["note"] else "") + \
             f"stuck on {scenes._current_scene(altdriver)} after the activity"

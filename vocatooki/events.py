@@ -78,20 +78,26 @@ def event_back_to_map(altdriver, username=None, password=None, timeout=60):
     return open_event(altdriver, username, password, timeout=timeout)
 
 
-def open_event_level(altdriver, level, timeout=90):
-    """Open one event level and reach its activity list. ``(ok, note)``."""
+def open_event_level(altdriver, level, timeout=90, attempts=3):
+    """Open one event level and reach its activity list. ``(ok, note)``.
+
+    Every press that leaves the map on screen is a recorded ``no-effect``
+    finding, so a level that needed a second press is visible in the report
+    even when the retry worked.
+    """
     icon = EVENT_LEVEL_ICON.format(level=level)
     if ui_actions.find_any(altdriver, icon) is None:
         return False, f"event level {level} has no icon ('{icon}') on the map"
-    for attempt in range(1, 4):
+    for attempt in range(1, attempts + 1):
         logging.info(f"[Event] opening event level {level} via '{icon}'"
                      + (f" (attempt {attempt})" if attempt > 1 else ""))
         ui_actions.press_object(altdriver, icon, settle=2.0)
         if map_navigation.open_level_to_activities(altdriver, timeout=timeout):
             return True, ""
-        logging.warning(f"[Event] level {level} did not reach its activity list "
-                        f"(on {scenes._current_scene(altdriver)}) — pressing again")
-        if not event_back_to_map(altdriver):
+        ui_actions.record_finding("no-effect", icon,
+                                  note=f"event level {level}: the activity list was not reached "
+                                       f"(on {scenes._current_scene(altdriver)}), attempt {attempt}")
+        if attempt == attempts or not event_back_to_map(altdriver):
             break
     return False, (f"event level {level} did not reach its activity list "
                    f"(stuck on {scenes._current_scene(altdriver)})")
@@ -470,6 +476,21 @@ def event_score_check(altdriver, levels=(1, 2, 3), player_name="",
 
     if not event_back_to_map(altdriver, username, password):
         report["note"] = "could not get back to the event map for the leaderboard"
+        return report
+
+    # What the user does NEXT: a touch on the event map still opens a level
+    # after the last one's reward. One press, no retry — a second press that
+    # works would hide exactly the lock this is here to catch (2026-10-06).
+    last = list(levels)[-1]
+    ok, note = open_event_level(altdriver, last, timeout=timeout, attempts=1)
+    if not ok:
+        report["probe"] = (f"after event level {last} the map did not respond to a touch "
+                           f"on its icon: the post-reward lock ({note})")
+        report["note"] = report["probe"]
+        return report
+    report["probe"] = f"event level {last} re-opened by touch after the last level"
+    if not event_back_to_map(altdriver, username, password):
+        report["note"] = "could not get back to the event map after the probe"
         return report
 
     rows = event_leaderboard(altdriver, tc_id=tc_id)

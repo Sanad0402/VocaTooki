@@ -941,7 +941,10 @@ class RunManager:
                         if self._stopped():
                             break
                         self._log(f"[ERROR] Lesson {lesson} for {username} failed: {e}")
-                        self._record_activity_failure(driver, f"lesson {lesson} ({mode})", e)
+                        if isinstance(e, utilsdemo.LevelCompletionError):
+                            self._had_failure = True     # its row is already written
+                        else:
+                            self._record_activity_failure(driver, f"lesson {lesson} ({mode})", e)
                     self._sleep(1)
                 if self._stopped():
                     break
