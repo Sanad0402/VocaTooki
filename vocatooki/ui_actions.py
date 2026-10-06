@@ -370,6 +370,34 @@ def _rounded(point):
     return tuple(int(round(v)) for v in point)
 
 
+# Where to look for the object's touchable area when its pivot misses it:
+# rings around the pivot, as fractions of the SHORTER screen side (so the
+# search is the same at every resolution), nearest first; up before down,
+# because a pivot is far more often at an object's bottom than its top.
+TOUCH_SEARCH_RADII = (0.03, 0.06, 0.10, 0.15)
+TOUCH_SEARCH_DIRECTIONS = ((0, 1), (0, -1), (1, 0), (-1, 0),
+                           (1, 1), (-1, 1), (1, -1), (-1, -1))
+
+
+def _touchable_point(altdriver, obj, origin):
+    """A point near ``origin`` where a touch reaches ``obj``: ``(point, hit)`` or None."""
+    try:
+        width, height = (float(v) for v in altdriver.get_application_screensize())
+    except Exception:                                # noqa: BLE001
+        return None
+    unit = min(width, height)
+    x0, y0 = origin
+    for radius in TOUCH_SEARCH_RADII:
+        for dx, dy in TOUCH_SEARCH_DIRECTIONS:
+            point = (x0 + dx * radius * unit, y0 + dy * radius * unit)
+            if not (0 <= point[0] <= width and 0 <= point[1] <= height):
+                continue
+            hit = what_is_at(altdriver, point)
+            if hit is not None and _reaches(hit, obj):
+                return point, hit
+    return None
+
+
 def press_on_screen(altdriver, obj, label=""):
     """Tap ``obj`` where it is on the screen, as a finger would. Never raises.
 
@@ -390,6 +418,18 @@ def press_on_screen(altdriver, obj, label=""):
         record_finding("off-screen", name, note=f"position {point}")
         return PressOutcome("off-screen", point=point)
     hit = what_is_at(altdriver, point)
+    if hit is None or not _reaches(hit, obj):
+        # The reported position is the transform's PIVOT, and that can sit
+        # outside the object's own touchable area: the vending machine's
+        # green button ("Toggle") reports a point 80px below itself, where a
+        # touch hits the machine (seen live 2026-10-06). Before deciding
+        # that something covers the object, look around the pivot for a
+        # point the app gives to the object — where a finger would press.
+        better = _touchable_point(altdriver, obj, point)
+        if better is not None:
+            logging.info(f"[Press] '{name}' is touchable at {_rounded(better[0])}, "
+                         f"not at its reported {_rounded(point)}")
+            point, hit = better
     blocker = ""
     if hit is None:
         record_finding("untouchable", name,

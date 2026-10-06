@@ -69,6 +69,15 @@ def enter_to_level(altdriver, class_id, lesson_number, type="lesson", difficulty
         level_objs = _find_level_icons(altdriver)
 
         if not level_objs:
+            # Not on the map — the previous level may have left the app on its
+            # vending machine or activity list. Walk back like a user once
+            # before giving up, so one stuck level does not fail every lesson
+            # after it for "no level icons" (seen live 2026-10-06).
+            logging.warning(f"[Map Navigation] No level icons on screen "
+                            f"(scene: {scenes._current_scene(altdriver)}) — backing out to the map")
+            if return_to_map(altdriver):
+                level_objs = _find_level_icons(altdriver)
+        if not level_objs:
             logging.error(f"[Map Navigation] No level icons on the current map "
                           f"(scene: {scenes._current_scene(altdriver)})")
             return False

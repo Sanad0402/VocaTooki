@@ -363,3 +363,25 @@ def test_level_template_plays_the_whole_level_then_the_contract(generator):
     assert 'utilsdemo.finish_level(driver, DIFFICULTY' in code
     assert 'DIFFICULTY = "hard"' in code and "MAP_LEVEL = 12" in code
     assert "RESULT:" in code and "Not covered" in code
+
+
+# ------------------------------------------------- pivot outside the touch area
+def test_press_finds_where_the_object_is_touchable_when_its_pivot_misses(quiet):
+    """The vending machine's button reports a point below itself (live, 2026-10-06)."""
+    d = FakeDriver(size=(2560.0, 1440.0))
+    toggle = FakeObj("Toggle", 1800, 482, driver=d)
+    background = FakeObj("Background")
+    d.hit = lambda p: toggle if p[1] >= 520 else background
+    outcome = ui_actions.press_on_screen(d, toggle)
+    assert outcome and not outcome.blocker
+    assert d.taps == [(1800.0, 482.0 + 0.03 * 1440)]      # first ring, straight up
+    assert kinds() == []
+
+
+def test_a_real_cover_is_still_reported_when_no_nearby_point_reaches_the_object(quiet):
+    d = FakeDriver()
+    icon = FakeObj("LessonLevelIcon(Clone) 7", 600, 300, driver=d)
+    d.hit = FakeObj("GiftPopup(Clone)")                   # everywhere
+    outcome = ui_actions.press_on_screen(d, icon)
+    assert outcome and outcome.blocker == "GiftPopup(Clone)"
+    assert d.taps == [(600.0, 300.0)] and kinds() == ["covered"]
