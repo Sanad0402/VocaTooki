@@ -40,6 +40,16 @@ inside a function, never at import time. Every module must import on its own
   with Back like a user, record and dismiss whatever popup is up (the gift), the map is
   back, a touch reaches its icons, and tapping a level still opens it. One
   `LEVEL COMPLETION` row per level, PASSED or FAILED, saying what it could not cover.
+- **No size is a pixel count.** A distance, tolerance or clamp comes from the objects on
+  screen (`ui_actions.typical_gap` / `cluster_tolerance` / `band_of` read the spacing of the
+  rows, columns or thumbs being grouped) or from the live window (`ui_actions.scaled` turns a
+  value measured on a window of a known height into the live window's; `screen_size` for
+  fractions). The app has run at 1255x720 up to 2560x1440 (2026-10-06).
+- **Leave an activity through its own popup, and wait for the list.** The result popup covers
+  the toolbar; `when_finish_activity` presses the popup's ExitButton first and returns only
+  when the activity selection is back and settled. Never the map between activities.
+- **Let the parrot finish.** The blocker is clicked at once; the bubble is left to hide by
+  itself, and the icon is pressed only after `BUBBLE_PATIENCE` (8s).
 - **A level icon is "entered" only when the map scene is gone** after the tap
   (`map_navigation._open_level_icon`); a map that stays is a recorded `no-effect`.
 - **Never pass without verifying.** A lesson-run activity is PASSED only when the

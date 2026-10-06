@@ -7,6 +7,7 @@ still reachable as activitiesDemo.<name>.
 import time
 
 from alttester import By
+from vocatooki import ui_actions
 from collections import Counter
 
 
@@ -17,8 +18,9 @@ from collections import Counter
 MAX_PASSES_PER_SENTENCE = 12
 
 
-# Pieces of one sentence row share a y; this is how far apart two pieces may
-# sit and still count as the same row.
+# Pieces of one sentence row share a y. Rows are told apart by the pieces'
+# OWN spacing (under half the row pitch); this pixel value is only the
+# fallback when a single row is on screen and there is no spacing to read.
 ROW_HEIGHT_TOLERANCE = 30
 
 
@@ -182,7 +184,7 @@ def solve_puzzles(altdriver):
         them) make that certain rather than unlucky. Pieces of one row share a
         y, so grouping by y gives the real candidates to try instead.
         """
-        by_row = {}
+        pieces = []
         for e in altdriver.get_all_elements():
             if not e.name.isdigit() or not e.enabled or not playable(e):
                 continue
@@ -191,12 +193,18 @@ def solve_puzzles(altdriver):
             except Exception:
                 continue
             if word:
-                by_row.setdefault(round(float(e.y) / ROW_HEIGHT_TOLERANCE), []).append(
-                    {"obj": e, "text": word})
+                pieces.append({"obj": e, "text": word})
+
+        ys = [float(p["obj"].y) for p in pieces]
+        tol = ui_actions.cluster_tolerance(ys, fallback=ui_actions.scaled(altdriver, ROW_HEIGHT_TOLERANCE, 720))
+        bands = ui_actions.band_of(ys, tol)
+        by_row = {}
+        for piece, band in zip(pieces, bands):
+            by_row.setdefault(band, []).append(piece)
 
         want = Counter(target_words)
         rows = []
-        for key, row in sorted(by_row.items(), key=lambda kv: -kv[0]):
+        for key, row in sorted(by_row.items(), key=lambda kv: -kv[0]):   # top row first
             if Counter(p["text"] for p in row) == want:
                 row.sort(key=lambda p: (-p["obj"].y, p["obj"].x))
                 rows.append(row)

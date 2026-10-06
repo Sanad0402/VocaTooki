@@ -473,3 +473,27 @@ def test_exit_reports_failure_when_the_list_never_comes_back(quiet, monkeypatch)
     d.hit = prev
     assert activity_runner.when_finish_activity(d, retries=1, timeout=0.3) is False
     assert d.taps                                     # it did try the exits
+
+
+# ------------------------------------------------- resolution-free sizes
+def test_scaled_follows_the_live_height():
+    assert ui_actions.scaled(FakeDriver(size=(2560.0, 1440.0)), 100, 720) == 200.0
+    assert ui_actions.scaled(FakeDriver(size=(1280.0, 720.0)), 100, 720) == 100.0
+
+
+def test_typical_gap_reads_the_spacing_and_ignores_jitter():
+    # three rows of pieces, 60 apart, each with a pixel or two of jitter
+    ys = [100, 101, 99, 160, 161, 220, 219, 221]
+    assert 58 <= ui_actions.typical_gap(ys) <= 62
+    assert ui_actions.typical_gap([5]) == 0.0
+
+
+def test_band_of_splits_rows_by_their_own_spacing():
+    ys = [220, 100, 161, 99, 219, 160]
+    tol = ui_actions.cluster_tolerance(ys)
+    assert 25 <= tol <= 30                              # under half a row pitch
+    assert ui_actions.band_of(ys, tol) == [2, 0, 1, 0, 2, 1]
+
+
+def test_cluster_tolerance_falls_back_when_there_is_no_spacing():
+    assert ui_actions.cluster_tolerance([400.0], fallback=60) == 60

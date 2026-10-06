@@ -892,7 +892,8 @@ ACTIVITY_UI_TITLES = {
 
 # The lesson title sits well above the thumb row; activity titles are printed
 # directly over their own thumb, so a title belongs to the thumb it lines up
-# with horizontally.
+# with horizontally — within a share of the thumbs' own spacing. This pixel
+# value is only the fallback when a single thumb gives no spacing to read.
 _TITLE_X_TOLERANCE = 60
 
 
@@ -925,11 +926,13 @@ def list_level_activities(altdriver):
         logging.warning(f"[Activity] could not read activity titles: {e}")
 
     out = []
+    reach = ui_actions.cluster_tolerance([o.x for o in thumbs],
+                                         fallback=ui_actions.scaled(altdriver, _TITLE_X_TOLERANCE, 720))
     for th in sorted(thumbs, key=lambda o: o.x):
         best, best_dx = "", None
         for x, text in labels:
             dx = abs(x - th.x)
-            if dx <= _TITLE_X_TOLERANCE and (best_dx is None or dx < best_dx):
+            if dx <= reach and (best_dx is None or dx < best_dx):
                 best, best_dx = text, dx
         out.append({"title": best, "thumb": th, "x": th.x})
     return out

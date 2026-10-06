@@ -7,6 +7,7 @@ still reachable as activitiesDemo.<name>.
 import time
 
 from alttester import By
+from vocatooki import ui_actions
 
 from vocatooki.activity_runner import read_activity_progress
 from vocatooki.solvers.text_utils import is_rtl, normalize_text
@@ -82,8 +83,12 @@ def _frogger_blank_words(altdriver, sentence):
             texts[id(slot)] = ""
 
     def in_order(right_to_left):
-        # Top row first, then along the row.
-        return sorted(slots, key=lambda o: (-round(o.y / 10), -o.x if right_to_left else o.x))
+        # Top row first, then along the row. Rows are told apart by the slots'
+        # own spacing, never by a pixel bucket (2026-10-06).
+        ys = [float(o.y) for o in slots]
+        band = dict(zip((id(o) for o in slots),
+                        ui_actions.band_of(ys, ui_actions.cluster_tolerance(ys, fallback=10.0))))
+        return sorted(slots, key=lambda o: (-band[id(o)], -o.x if right_to_left else o.x))
 
     def fits(order):
         # Every word already printed in the bar must be the token at that place.

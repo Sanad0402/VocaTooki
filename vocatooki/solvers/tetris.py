@@ -7,6 +7,7 @@ still reachable as activitiesDemo.<name>.
 import time
 
 from alttester import By
+from vocatooki import ui_actions
 
 
 def tetris(altdriver):
@@ -56,9 +57,14 @@ def tetris(altdriver):
     ASM = "Assembly-CSharp"
     RUN_S = 600.0
     REF_CELL = "CellPanel (7)"      # stable named grid cell = resize sentinel
-    geo = {"colx": [], "rowy": [], "row_h": 50.0, "spawn": 0, "ref_x": None}
+    geo = {"colx": [], "rowy": [], "row_h": ui_actions.scaled(altdriver, 50.0, 708),
+           "spawn": 0, "ref_x": None}
 
-    def _bands(vals, tol=25):
+    def _bands(vals, tol=None):
+        # Columns and rows are told apart by the cells' OWN spacing (under half
+        # a pitch), never by a pixel count that fits one window only.
+        if tol is None:
+            tol = ui_actions.cluster_tolerance(vals, fallback=ui_actions.scaled(altdriver, 25, 708))
         vals = sorted(vals)
         bs = []
         for v in vals:
@@ -81,7 +87,7 @@ def tetris(altdriver):
         geo["rowy"] = _bands(ys)
         R = len(geo["rowy"])
         geo["row_h"] = ((geo["rowy"][-1] - geo["rowy"][0]) / max(1, R - 1)
-                        if R > 1 else 50.0)
+                        if R > 1 else ui_actions.scaled(altdriver, 50.0, 708))
         geo["spawn"] = len(geo["colx"]) // 2   # cubes spawn at the centre column
         try:
             geo["ref_x"] = altdriver.find_object(
@@ -95,7 +101,9 @@ def tetris(altdriver):
             return
         try:
             x = altdriver.find_object(By.NAME, REF_CELL).get_screen_position()[0]
-            if abs(x - geo["ref_x"]) > 20:
+            drift = (0.4 * (geo["colx"][1] - geo["colx"][0]) if len(geo["colx"]) > 1
+                     else ui_actions.scaled(altdriver, 20, 708))
+            if abs(x - geo["ref_x"]) > drift:
                 capture_geometry()
         except Exception:
             pass

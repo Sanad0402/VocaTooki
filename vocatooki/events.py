@@ -107,7 +107,7 @@ def open_event_level(altdriver, level, timeout=90, attempts=3):
 EVENT_LOCKED_MARKER = "NewLevelLockedTimer(Clone)"
 
 
-def event_open_levels(altdriver, max_levels=24, tolerance=60):
+def event_open_levels(altdriver, max_levels=24, tolerance=None):
     """The event levels that are OPEN right now, in order.
 
     A locked level keeps its icon like every other, so "the icon is there" says
@@ -134,12 +134,22 @@ def event_open_levels(altdriver, max_levels=24, tolerance=60):
     except Exception as e:                           # noqa: BLE001
         logging.debug(f"[Event] could not read the lock markers: {e}")
 
+    # A lock marks the icon NEAREST to it — within a share of the icons' own
+    # spacing, so the pairing holds at any window size. ``tolerance`` (pixels)
+    # is only honoured when a caller insists on one.
+    ordered = sorted(icons)
+    pitches = [((icons[b][0] - icons[a][0]) ** 2 + (icons[b][1] - icons[a][1]) ** 2) ** 0.5
+               for a, b in zip(ordered, ordered[1:])]
+    reach = tolerance if tolerance else (0.6 * sorted(pitches)[len(pitches) // 2] if pitches
+                                         else 0.05 * (ui_actions.screen_size(altdriver)[1] or 720))
+    locked_levels = set()
+    for lx, ly in locks:
+        nearest = min(ordered, key=lambda lv: (icons[lv][0] - lx) ** 2 + (icons[lv][1] - ly) ** 2)
+        if ((icons[nearest][0] - lx) ** 2 + (icons[nearest][1] - ly) ** 2) ** 0.5 <= reach:
+            locked_levels.add(nearest)
     open_levels = []
-    for level in sorted(icons):
-        x, y = icons[level]
-        locked = any(abs(x - lx) < tolerance and abs(y - ly) < tolerance
-                     for lx, ly in locks)
-        if locked:
+    for level in ordered:
+        if level in locked_levels:
             break                                    # the rest are locked too
         open_levels.append(level)
     logging.info(f"[Event] open levels: {open_levels} "
@@ -221,9 +231,13 @@ def _leaderboard_rows(altdriver):
         return []
 
     rows = []
+    # A score belongs to the name on its row: within a share of the rows' own
+    # pitch, never a pixel count.
+    reach = ui_actions.cluster_tolerance([y for y, _n in names],
+                                         fallback=0.03 * (ui_actions.screen_size(altdriver)[1] or 720))
     for y, name in sorted(names):
         nearest = min(scores, key=lambda pair: abs(pair[0] - y), default=None)
-        if nearest is not None and abs(nearest[0] - y) < 25:
+        if nearest is not None and abs(nearest[0] - y) < reach:
             rows.append((name, nearest[1]))
     return rows
 

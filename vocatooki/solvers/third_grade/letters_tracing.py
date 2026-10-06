@@ -185,8 +185,13 @@ def _lt_read_board(altdriver):
                     dots.append((float(dot.x), float(dot.y),
                                  float(dot.worldX), float(dot.worldY)))
             points = [(dot[0], dot[1]) for dot in dots]
+            # "On" a point = within a quarter of the stroke's own point spacing,
+            # so the pairing means the same on every window size.
+            gaps = [math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(points, points[1:])]
+            sit_tol = max(1.0, 0.25 * min(gaps)) if gaps else 2.0
+
             def sits_on(node, point):
-                return abs(node.x - point[0]) <= 2 and abs(node.y - point[1]) <= 2
+                return abs(node.x - point[0]) <= sit_tol and abs(node.y - point[1]) <= sit_tol
 
             circle = None
             if points:
@@ -460,7 +465,7 @@ def _lt_trace(altdriver, points, height):
     and 0.30s both land. So the duration is scaled to the stroke's own length
     with a floor well above the failing edge.
     """
-    step = max(4.0, height * 0.02)
+    step = height * 0.02                # a share of the screen, no pixel floor
     samples = [points[0]]
     span = 0.0
     for start, end in zip(points, points[1:]):
@@ -485,7 +490,7 @@ def _lt_trace(altdriver, points, height):
         delta_x, delta_y = last_x - prev_x, last_y - prev_y
         length = math.hypot(delta_x, delta_y)
         if length > 1e-6:
-            overshoot = max(6.0, height * _LT_OVERSHOOT)
+            overshoot = height * _LT_OVERSHOOT
             for i in range(1, max(1, int(overshoot / step)) + 1):
                 reach = overshoot * i / max(1, int(overshoot / step))
                 samples.append((last_x + delta_x / length * reach,

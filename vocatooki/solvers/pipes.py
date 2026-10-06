@@ -8,6 +8,7 @@ import re
 import time
 
 from alttester import By
+from vocatooki import ui_actions
 
 
 def _pipes_trace(altdriver, path, difficulty=""):
@@ -43,14 +44,17 @@ def _pipes_trace(altdriver, path, difficulty=""):
        lands outside the pipe and drops the latch mid-stroke, which is what made
        medium trace two pipes and then stall on the third.
     """
-    HEAD_GAPS, HEAD_MIN, HEAD_MAX = 4.0, 40.0, 140.0
-    TAIL_GAPS, TAIL_MIN, TAIL_MAX = 8.0, 90.0, 300.0
+    # The clamps below were measured on a 900px-tall window; they scale with
+    # the live window so a stroke reaches the same share of the pipe anywhere.
+    S = ui_actions.scaled(altdriver, 1.0, 900)
+    HEAD_GAPS, HEAD_MIN, HEAD_MAX = 4.0, 40.0 * S, 140.0 * S
+    TAIL_GAPS, TAIL_MIN, TAIL_MAX = 8.0, 90.0 * S, 300.0 * S
     # On easy the final pipe runs much further past its last letter than on the
     # other boards, so the stroke stops short of the closing junction unless the
     # last tail is driven harder. Easy only -- medium and hard are correct as is.
-    LAST_TAIL_GAPS, LAST_TAIL_MAX = 20.0, 700.0
-    JUNCTION_RADIUS = 120.0
-    STEP_PX, STEP_DUR = 10.0, 0.03
+    LAST_TAIL_GAPS, LAST_TAIL_MAX = 20.0, 700.0 * S
+    JUNCTION_RADIUS = 120.0 * S
+    STEP_PX, STEP_DUR = 10.0 * S, 0.03
     easy = "easy" in (difficulty or "").lower()
 
     pipes_at, letters, junctions = {}, [], []

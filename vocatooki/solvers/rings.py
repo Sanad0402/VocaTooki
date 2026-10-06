@@ -177,7 +177,7 @@ def rings(altdriver):
     SAME_CELL_R2 = (0.25 * geom["SPACING"]) ** 2
     print("[info] rings scale: spacing=%.0f x%.2f nudges=%s pitch=%.0f"
           % (geom["SPACING"], SCALE, NUDGES, PITCH))
-    TOL = max(16.0, ADJ * 0.16)
+    TOL = ADJ * 0.16                   # a share of the hex spacing, never a pixel floor
     print("[info] rings geometry: ADJ=%.0f PANEL_X=%.0f VIS=[%.0f,%.0f] inv_x=%.0f"
           % (ADJ, PANEL_X, VIS_LO, VIS_HI, geom["inv_x"]))
 
@@ -217,7 +217,7 @@ def rings(altdriver):
         blocked = set()
         for i, c in enumerate(cells):
             for q in blocked_pts:
-                if ((c[0]-q[0])**2 + (c[1]-q[1])**2) ** 0.5 < 30:
+                if ((c[0]-q[0])**2 + (c[1]-q[1])**2) ** 0.5 < 0.3 * geom["SPACING"]:
                     blocked.add(i)
                     break
 
@@ -410,7 +410,7 @@ def rings(altdriver):
                     break
                 if prev_c:
                     dfx, dcx = finger[0]-prev_f[0], c[0]-prev_c[0]
-                    if abs(dfx) > 3 and abs(dcx) > 3:
+                    if abs(dfx) > 0.03 * geom["SPACING"] and abs(dcx) > 0.03 * geom["SPACING"]:
                         g = abs(dcx/dfx)
                         if 0.3 < g < 6:
                             gain = 0.5*gain + 0.5*g
@@ -432,7 +432,7 @@ def rings(altdriver):
                 if not cc:
                     break
                 ex, ey = target[0]-cc[0], target[1]-cc[1]
-                if (ex*ex + ey*ey) ** 0.5 <= 6.0:
+                if (ex*ex + ey*ey) ** 0.5 <= 0.06 * geom["SPACING"]:
                     break
                 finger[0] += ex / gain
                 finger[1] += ey / gain

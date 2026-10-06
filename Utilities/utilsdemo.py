@@ -59,6 +59,7 @@ from vocatooki.ui_actions import (  # noqa: F401
     # 2026-10-06: presses go through the screen; these are the new primitives.
     BEFORE_SCREEN_PRESS, findings_since, INPUT_FINDINGS, ORIGINAL_OBJECT_ACTIONS,
     press_on_screen, press_policy, PressOutcome, record_finding, what_is_at,
+    band_of, cluster_tolerance, scaled, screen_size, typical_gap,
 )
 
 from vocatooki.scene_names import (  # noqa: F401

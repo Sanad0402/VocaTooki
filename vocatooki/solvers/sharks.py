@@ -359,7 +359,7 @@ def _sharks_sail_to(altdriver, target_id, wrong_ids, hooked_ids, islands,
     latched -- is only worth a call every few ticks.
     """
     PANIC, STUCK_AFTER, STUCK_WITHIN, ESCAPE_FOR = 1.5, 2.0, 0.6, 1.2
-    margin = max(60.0, 0.06 * height)
+    margin = 0.06 * height                # a share of the screen, no pixel floor
     ppu = _sharks_pixels_per_unit(altdriver, height)
 
     tracks = {}

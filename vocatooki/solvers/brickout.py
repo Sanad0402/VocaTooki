@@ -7,6 +7,7 @@ still reachable as activitiesDemo.<name>.
 import time
 
 from alttester import AltKeyCode, By
+from vocatooki import ui_actions
 
 
 def brickout(altdriver):
@@ -27,12 +28,18 @@ def brickout(altdriver):
     from alttester import AltKeyCode
 
     ASM = "Assembly-CSharp"
-    PADDLE_SPEED = 950.0   # px/sec, measured against the live build
-    MAX_BURST = 0.22       # sec; keep bursts short so we re-read often
-    DEADZONE = 35          # px; don't jitter when roughly aligned
-    FALL_EPS = 4           # px; y must drop at least this much to count as falling
-    SAFE_GAP = 260         # px of clearance to keep from a falling decoy
-    BOARD_MIN, BOARD_MAX = 120, 1450   # px; playable range of the paddle
+    # Every size below was measured on a 1614x708 window. The camera maps the
+    # world to pixels by the screen height, so they scale with the live height;
+    # the paddle's range sits around the screen's centre line.
+    W, H = ui_actions.screen_size(altdriver)
+    S = (H / 708.0) if H else 1.0
+    PADDLE_SPEED = 950.0 * S   # px/sec, measured against the live build
+    MAX_BURST = 0.22           # sec; keep bursts short so we re-read often
+    DEADZONE = 35 * S          # don't jitter when roughly aligned
+    FALL_EPS = 4 * S           # y must drop at least this much to count as falling
+    SAFE_GAP = 260 * S         # clearance to keep from a falling decoy
+    BOARD_MIN, BOARD_MAX = ((W / 2 - 687 * S, W / 2 + 643 * S) if W
+                            else (120 * S, 1450 * S))   # playable range of the paddle
 
     def targets():
         """Words still listed as needed (collected ones leave the panel list)."""
@@ -149,7 +156,7 @@ def brickout(altdriver):
                 if ball_x is not None:
                     # Step just clear of the decoy rather than running to the
                     # wall, and prefer the side that keeps us nearer the ball.
-                    step = SAFE_GAP + 40
+                    step = SAFE_GAP + 40 * S
                     spots = [max(BOARD_MIN, min(BOARD_MAX, px - step)),
                              max(BOARD_MIN, min(BOARD_MAX, px + step))]
                     safe = [s for s in spots if abs(s - x) >= SAFE_GAP]

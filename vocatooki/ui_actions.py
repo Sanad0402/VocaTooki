@@ -398,6 +398,67 @@ def _touchable_point(altdriver, obj, origin):
     return None
 
 
+# ------------------------------------------------- resolution-free sizes
+# The app has run at 1255x720, 1614x708, 1672x1065, 2152x1046 and 2560x1440.
+# A number measured on one of those lies on the others. A size that cannot
+# come from the objects on screen comes from the LIVE screen instead, and a
+# tolerance for grouping objects comes from the objects' own spacing.
+
+def screen_size(altdriver):
+    """``(width, height)`` of the live window as floats, or ``(0, 0)``."""
+    try:
+        width, height = altdriver.get_application_screensize()
+        return float(width), float(height)
+    except Exception:                                # noqa: BLE001
+        return 0.0, 0.0
+
+
+def scaled(altdriver, value, ref_height):
+    """``value``, measured on a window ``ref_height`` tall, scaled to the live window.
+
+    Unity's orthographic camera maps world units to pixels by the screen
+    HEIGHT, so a distance measured once scales with the height — not the
+    width, which only changes how much of the world is visible.
+    """
+    height = screen_size(altdriver)[1]
+    return value * height / float(ref_height) if height and ref_height else value
+
+
+def typical_gap(values, jitter=0.05):
+    """The usual spacing between distinct ``values``: the median gap between
+    neighbours, ignoring gaps smaller than ``jitter`` of the largest one
+    (objects of one row or column differ by a pixel or two). 0 if unknown."""
+    vals = sorted(float(v) for v in values)
+    gaps = [b - a for a, b in zip(vals, vals[1:])]
+    if not gaps:
+        return 0.0
+    biggest = max(gaps)
+    real = sorted(g for g in gaps if g > biggest * jitter)
+    return real[len(real) // 2] if real else 0.0
+
+
+def cluster_tolerance(values, fraction=0.45, fallback=0.0):
+    """How far apart two values may be and still belong to the same row or
+    column: under half their typical spacing, so neighbours never merge.
+    ``fallback`` when the values carry no spacing to read (one object)."""
+    gap = typical_gap(values)
+    return gap * fraction if gap else fallback
+
+
+def band_of(values, tol):
+    """The band index of every value (0 = smallest), a new band starting
+    wherever two consecutive sorted values are more than ``tol`` apart."""
+    order = sorted(range(len(values)), key=lambda i: float(values[i]))
+    bands, last, band = [0] * len(values), None, -1
+    for i in order:
+        v = float(values[i])
+        if last is None or v - last > tol:
+            band += 1
+        bands[i] = band
+        last = v
+    return bands
+
+
 def press_on_screen(altdriver, obj, label=""):
     """Tap ``obj`` where it is on the screen, as a finger would. Never raises.
 

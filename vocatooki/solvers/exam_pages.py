@@ -9,6 +9,7 @@ import time
 import unicodedata
 
 from alttester import By
+from vocatooki import ui_actions
 
 
 def _read_matchables(objects, component=None, lift=0):
@@ -30,6 +31,12 @@ def _read_matchables(objects, component=None, lift=0):
     return out
 
 
+# The match pages' sizes (the drop lift above a shape, the "it landed"
+# tolerance, "a tile is on its slot") were measured on a 720px-tall window
+# and scale with the live one.
+MATCH_REF_HEIGHT = 720
+
+
 def solve_match_exam(altdriver, read_board, label, attempts=3, match=None,
                      tolerance=(60, 80), duration=2.3):
     """Drag each word onto the shape that wants it, and PROVE each one landed.
@@ -47,7 +54,7 @@ def solve_match_exam(altdriver, read_board, label, attempts=3, match=None,
     Returns the list of words it could not place (empty means all placed).
     """
     same = match or (lambda w, s: (w or "").strip().lower() == (s or "").strip().lower())
-    tol_x, tol_y = tolerance
+    tol_x, tol_y = (ui_actions.scaled(altdriver, v, MATCH_REF_HEIGHT) for v in tolerance)
 
     def placed(word_pos, shape_pos):
         return (abs(word_pos[0] - shape_pos[0]) < tol_x
@@ -104,7 +111,7 @@ def exams_word_to_meaning(altdriver, attempts=3):
                  or altdriver.find_objects(By.NAME, 'KL_WordMeaningObject(Clone)'))
         shapes = altdriver.find_objects(By.NAME, 'WordMeaningShape(Clone)')
         return (_read_matchables(words),
-                _read_matchables(shapes, 'com.kideo.learn.english.WordMeaningShape', lift=100))
+                _read_matchables(shapes, 'com.kideo.learn.english.WordMeaningShape', lift=ui_actions.scaled(altdriver, 100, MATCH_REF_HEIGHT)))
 
     solve_match_exam(altdriver, read_board, "exams_word_to_meaning", attempts=attempts)
 
@@ -117,7 +124,7 @@ def exams_word_to_image(altdriver, attempts=3):
         words = altdriver.find_objects(By.NAME, 'MatchWordText(Clone)')
         shapes = altdriver.find_objects(By.NAME, 'MatchShapeImage(Clone)')
         return (_read_matchables(words),
-                _read_matchables(shapes, 'com.kideo.learn.english.MatchTestShape', lift=100))
+                _read_matchables(shapes, 'com.kideo.learn.english.MatchTestShape', lift=ui_actions.scaled(altdriver, 100, MATCH_REF_HEIGHT)))
 
     solve_match_exam(altdriver, read_board, "exams_word_to_image", attempts=attempts)
 
@@ -132,7 +139,7 @@ def exams_3rd_letter_to_word_image_match(altdriver, attempts=3):
         if not words or not shapes:
             raise Exception("Missing words or shapes for letter-to-word matching")
         return (_read_matchables(words, 'com.kideo.learn.english.MatchTestWord'),
-                _read_matchables(shapes, 'com.kideo.learn.english.MatchTestShape', lift=100))
+                _read_matchables(shapes, 'com.kideo.learn.english.MatchTestShape', lift=ui_actions.scaled(altdriver, 100, MATCH_REF_HEIGHT)))
 
     # The pairing rule is CONTAINMENT here, not equality: the shape carries a
     # letter and the word is the one spelled with it.
@@ -193,7 +200,7 @@ def exams_audio_to_meaning(altdriver, attempts=3):
             raise Exception("[ERROR] No word objects found.")
         return (_read_matchables(words, 'com.kideo.learn.english.WordAudioObject'),
                 _read_matchables(audio_shapes(),
-                                 'com.kideo.learn.english.WordAudioShape', lift=100))
+                                 'com.kideo.learn.english.WordAudioShape', lift=ui_actions.scaled(altdriver, 100, MATCH_REF_HEIGHT)))
 
     solve_match_exam(altdriver, read_board, "exams_audio_to_meaning", attempts=attempts)
 
@@ -338,7 +345,7 @@ def exams_image_to_audio(altdriver, attempts=3):
             raise Exception("[ERROR] No word objects found.")
         return (_read_matchables(words, 'com.kideo.learn.english.WordAudioObject'),
                 _read_matchables(audio_shapes(),
-                                 'com.kideo.learn.english.WordAudioShape', lift=100))
+                                 'com.kideo.learn.english.WordAudioShape', lift=ui_actions.scaled(altdriver, 100, MATCH_REF_HEIGHT)))
 
     solve_match_exam(altdriver, read_board, "exams_image_to_audio", attempts=attempts)
 
@@ -569,7 +576,8 @@ def exam_shuffled_context(altdriver, question_attempts=3):
 
     def on_slot(tile, slot):
         """A tile is in a blank when it is sitting on top of it."""
-        return abs(tile.x - slot.x) < 25 and abs(tile.y - slot.y) < 30
+        return (abs(tile.x - slot.x) < ui_actions.scaled(altdriver, 25, MATCH_REF_HEIGHT)
+                and abs(tile.y - slot.y) < ui_actions.scaled(altdriver, 30, MATCH_REF_HEIGHT))
 
     def scroll_to(i, total):
         if total < 2:

@@ -88,7 +88,10 @@ def parashoot(altdriver):
     GUN = P("Gun_1")                       # pivot
     zoneW = P("RightDetector")[0] - P("LeftDetector")[0]
     BOXR = zoneW * 0.42                    # crate half-size
-    SCREEN_H = 824.0
+    try:                                   # the live window, never a remembered one
+        SCREEN_H = float(altdriver.get_application_screensize()[1])
+    except Exception:                      # noqa: BLE001
+        SCREEN_H = 824.0
     for cam in ("Main Camera", "Camera"):
         try:
             v = altdriver.find_object(By.NAME, cam).get_component_property(
