@@ -155,6 +155,26 @@ def altdriver(request):
         logging.warning(f"[AltDriver] failed to close connection: {e}")
 
 
+@pytest.fixture(autouse=True)
+def _altdriver_reconnect(request):
+    """Before each test that drives the app: if AltTester dropped the driver
+    (long runs: "Waiting for Driver to connect"), reconnect the same driver
+    object, so one drop fails at most the test it happened in, not every test
+    after it. The test still starts wherever the app was left."""
+    if "altdriver" not in request.fixturenames:
+        yield
+        return
+    from vocatooki import alt_connection
+    driver, _platform = request.getfixturevalue("altdriver")
+    if not alt_connection.alive(driver):
+        print(f"[RECONNECT] AltTester connection lost before {request.node.name} — reconnecting")
+        if not alt_connection.revive(driver, log=print):
+            pytest.exit("Lost the AltTester connection and could not reconnect "
+                        f"({len(alt_connection.RECONNECT_WAITS)} attempts) — stopping the run",
+                        returncode=3)
+    yield
+
+
 # -----------------------------
 # Screenshot on failure
 # -----------------------------

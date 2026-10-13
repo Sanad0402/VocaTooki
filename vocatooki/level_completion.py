@@ -126,10 +126,15 @@ def finish_exam(altdriver, class_id=None, lesson_num=None, probe=True):
         if probe:
             other = []
             if class_id is not None and lesson_num is not None:
-                try:
-                    index = map_navigation.get_level(class_id, lesson_num, "lesson", "hard")
-                except Exception:                    # noqa: BLE001 - the class map is a network call
-                    index = -1
+                index = -1
+                # 3rd grade has no hard level: its vocabulary (medium) level is the probe.
+                for difficulty in ("hard", "medium"):
+                    try:
+                        index = map_navigation.get_level(class_id, lesson_num, "lesson", difficulty)
+                    except Exception:                # noqa: BLE001 - the class map is a network call
+                        index = -1
+                    if index is not None and index >= 0:
+                        break
                 if index is not None and index >= 0:
                     other.append(index)
             # The lesson's hard level is the probe; the exam's own icon only

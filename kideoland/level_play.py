@@ -37,14 +37,14 @@ def _ensure_mid_frame_hook():
         parrot_guard.ACTION_HOOKS.append(activity_runner._mid_activity_frame)
 
 
-def _feedback_frame(driver, key, timeout=15.0):
+def _feedback_frame(driver, key, play=None, timeout=15.0):
     """Frame 3: the result popup, shot 2s after it appears so it is fully drawn."""
     popups = activity_runner.SUCCESS_POPUPS + activity_runner.FAILURE_POPUPS
     if ui_actions.wait_for_any(driver, popups, timeout=timeout):
         time.sleep(activity_runner.FEEDBACK_FRAME_DELAY)
     else:
         logging.info(f"[KL Activity] {key}: no result popup seen -- feedback frame taken as is")
-    activity_runner.activity_frame(driver, key, activity_runner.ACTIVITY_FRAMES[2])
+    activity_runner.activity_frame(driver, play or key, activity_runner.ACTIVITY_FRAMES[2])
 
 
 def open_level_to_selection(driver, timeout=150):
@@ -160,11 +160,14 @@ def _exit_activity(driver, timeout=45):
 _CURRENT = {"difficulty": ""}
 
 
-def _report(key, status, error="", started=None):
+def _report(key, status, error="", started=None, play=None):
     duration = str(datetime.now() - started) if started else "0s"
-    activity_runner.activity_report.append({"activity": key, "status": status, "error": error,
-                                            "duration": duration, "platform": "Kideo Land",
-                                            "difficulty": _CURRENT["difficulty"]})
+    row = {"activity": key, "status": status, "error": error,
+           "duration": duration, "platform": "Kideo Land",
+           "difficulty": _CURRENT["difficulty"]}
+    if play:                                    # this play's own frames
+        row.update(activity_runner.play_fields(play, level=_CURRENT["difficulty"]))
+    activity_runner.activity_report.append(row)
 
 
 def play_slot(driver, slot, attempts=3):
@@ -177,6 +180,7 @@ def play_slot(driver, slot, attempts=3):
         return None
 
     started = datetime.now()
+    play = activity_runner.play_key(key, level=_CURRENT["difficulty"].lower())
     logging.info(f"[KL Activity] opening {key} ('{slot['title']}')")
     _press_slot(driver, slot)
     scene = _wait_activity_open(driver)
@@ -189,11 +193,11 @@ def play_slot(driver, slot, attempts=3):
     try:
         _last_attempt_popup(driver)
         activity_runner.clear_activity_intro(driver, key)
-        activity_runner.activity_frame(driver, key, activity_runner.ACTIVITY_FRAMES[0])
+        activity_runner.activity_frame(driver, play, activity_runner.ACTIVITY_FRAMES[0])
         # Frame 2 is shot WHILE the solver plays: the hook reads the progress
         # counter before each press and fires once it reaches half.
         _ensure_mid_frame_hook()
-        activity_runner._watch_mid_frame(driver, key)
+        activity_runner._watch_mid_frame(driver, play)
         for attempt in range(1, attempts + 1):
             try:
                 solver(driver)
@@ -215,14 +219,14 @@ def play_slot(driver, slot, attempts=3):
             activity_runner.retry_lost_activity(driver)
             time.sleep(2)
         activity_runner._watch_mid_frame(driver, None)
-        _feedback_frame(driver, key)
-        _report(key, "PASSED", "", started)
+        _feedback_frame(driver, key, play)
+        _report(key, "PASSED", "", started, play)
         passed = True
     except Exception as error:
         activity_runner._watch_mid_frame(driver, None)
         shot = ui_actions.capture_failure_screenshot(driver, f"kl_activity_{key}")
         _report(key, "FAILED", f"{error}\n{traceback.format_exc()}"
-                + (f" [screenshot: {shot}]" if shot else ""), started)
+                + (f" [screenshot: {shot}]" if shot else ""), started, play)
         passed = False
 
     if not _exit_activity(driver):

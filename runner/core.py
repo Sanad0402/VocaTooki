@@ -24,6 +24,7 @@ _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 from Utilities import utilsdemo
+from vocatooki import alt_connection
 from Pages.start_screen import StartScreen
 from Pages.map_page import MapPage
 from .modes import MODES, DEFAULT_MODE
@@ -180,6 +181,8 @@ class RunManager:
             self._started_at = None
             self._driver = None
             self._driver_closed = False
+            self._stop_mark = None       # report rows written before Stop was pressed
+            self._log_path = None        # this run's log file (created on the first line)
             self._proc = None            # pytest subprocess (suite runs)
             self._email_after = False    # email the report when the run finishes?
             self._shooter = None         # capped run screenshots (lesson-range runs)
@@ -198,8 +201,29 @@ class RunManager:
                 # trimmed, and state/progress events are re-sent by polling.
                 del self.events[: len(self.events) - self.MAX_EVENTS]
 
+    # Every run's live log also goes to a file: the browser view is trimmed and
+    # dies with the panel, and panel.log is truncated by a restart — which is
+    # how the 2026-10-12 driver drop lost its pytest output.
+    RUN_LOG_DIR = os.path.join(REPORTS_DIR, "run_logs")
+    RUN_LOGS_KEPT = 40
+
     def _log(self, line):
         self._emit("log", line=line)
+        self._log_to_file(line)
+
+    def _log_to_file(self, line):
+        try:
+            if self._log_path is None:
+                os.makedirs(self.RUN_LOG_DIR, exist_ok=True)
+                old = sorted(f for f in os.listdir(self.RUN_LOG_DIR) if f.startswith("run_"))
+                for f in old[:max(0, len(old) - self.RUN_LOGS_KEPT + 1)]:
+                    os.remove(os.path.join(self.RUN_LOG_DIR, f))
+                self._log_path = os.path.join(self.RUN_LOG_DIR,
+                                              f"run_{time.strftime('%Y%m%d_%H%M%S')}.log")
+            with open(self._log_path, "a", encoding="utf-8") as f:
+                f.write(f"{time.strftime('%H:%M:%S')} {line}\n")
+        except Exception:                            # noqa: BLE001 - logging must never break a run
+            pass
 
     def events_since(self, cursor):
         with self._lock:
@@ -576,7 +600,10 @@ class RunManager:
                 if self._stopped():
                     self._terminate_proc()
                     break
-            proc.wait()
+            rc = proc.wait()
+            # A crash shows here (e.g. 3221225477 = access violation); 0/1 are
+            # pytest's normal "all passed" / "some failed".
+            self._log(f"[INFO] pytest exited with code {rc}")
             self._drain_case_results(results, offset, nodeid_index)
 
             if self._stopped():
@@ -758,6 +785,8 @@ class RunManager:
     def stop(self):
         if not self.is_running():
             return False
+        with self._lock:
+            self._stop_mark = len(utilsdemo.activity_report)
         self._stop_event.set()
         self._log("[STOP] Stopping now — ending the current run...")
         # Sever the lesson-range driver and/or kill the pytest subprocess so the
@@ -891,9 +920,14 @@ class RunManager:
                 self._log("[INFO] Screenshots disabled for this run.")
 
             utilsdemo.activity_report.clear()
+            # This run's own stamp for its frame folders. Without it they took
+            # the PANEL's start time, so a second run in the same panel session
+            # wrote into the first run's folders.
+            os.environ[screenshots.ENV_STAMP] = time.strftime("%Y%m%d-%H%M%S")
 
+            lost = False        # AltTester dropped the driver and reconnecting failed
             for ui, user in enumerate(users):
-                if self._stopped():
+                if self._stopped() or lost:
                     break
                 username = user["username"]
                 cid = override or user["class_id"]
@@ -908,40 +942,37 @@ class RunManager:
                 self._set_progress(ui, len(users), username, None, lessons)
                 self._log(f"=== User {ui + 1}/{len(users)}: {username} (class {cid}) ===")
 
-                try:
-                    map_page = MapPage(driver)
-                    if game == "kl":
-                        # Kideo Land: log in and stop on the islands; each
-                        # lesson opens its own island and map.
-                        kl_login.login(driver, username, user["password"])
-                        self._shoot(f"start-{username}")
-                        raise _SkipToLessons()
-                    start_screen = StartScreen(driver, utilsdemo=utilsdemo)
-                    start_screen.login(username, user["password"])
-                    # open_feature, NOT start_screen.go_to_map(): go_to_map taps
-                    # GO-Map and asserts nothing, so a press the hub swallowed
-                    # counted as success and every lesson then "ran" against the
-                    # hub, recording nothing in 0s. open_feature proves the map
-                    # is really showing (Levels / level_icons / CountersPanel)
-                    # and names the placement pretest when that is what is in
-                    # the way, so navigation fails HERE, loudly, once.
-                    if not utilsdemo.open_feature(driver, "map"):
-                        raise AssertionError(
-                            f"the map did not open for {username} — see the "
-                            f"[Feature] line above for why (a swallowed press, "
-                            f"or the placement pretest gating this account)")
-                    self._sleep(6)
-                    self._shoot(f"map-{username}")
-                except _SkipToLessons:
-                    pass
-                except Exception as e:
-                    if self._stopped():
+                logged_in = False
+                for login_try in (1, 2):
+                    try:
+                        map_page = MapPage(driver)
+                        self._login_and_open_map(driver, game, username, user["password"])
+                        logged_in = True
                         break
-                    self._log(f"[ERROR] Login/navigation failed for {username}: {e}")
-                    self._record_activity_failure(driver, f"Login/navigation ({username})", e)
+                    except Exception as e:
+                        if self._stopped():
+                            break
+                        if login_try == 1 and not self._driver_alive(driver):
+                            self._log(f"[RECONNECT] Lost the AltTester connection while logging in {username}.")
+                            driver = self._reconnect(driver)
+                            if driver is not None:
+                                continue
+                            self._record_activity_failure(None, f"Login/navigation ({username})",
+                                                          self._lost_message(host, port))
+                            lost = True
+                            break
+                        self._log(f"[ERROR] Login/navigation failed for {username}: {e}")
+                        self._record_activity_failure(driver, f"Login/navigation ({username})", e)
+                        break
+                if self._stopped() or lost:
+                    break
+                if not logged_in:
                     continue
 
-                for li, lesson in enumerate(lessons):
+                lesson_queue = list(enumerate(lessons))
+                replayed = set()
+                while lesson_queue:
+                    li, lesson = lesson_queue.pop(0)
                     if self._stopped():
                         break
                     self._set_progress(ui, len(users), username, lesson, lessons, li)
@@ -967,8 +998,40 @@ class RunManager:
                             self._had_failure = True     # its row is already written
                         else:
                             self._record_activity_failure(driver, f"lesson {lesson} ({mode})", e)
+
+                    # AltTester can drop the driver on a long run (the app then
+                    # shows "Waiting for Driver to connect"). Everything after
+                    # the drop failed for that reason alone, so: reconnect, get
+                    # back to the map, discard this lesson's rows, replay it once.
+                    if not self._stopped() and not self._driver_alive(driver):
+                        self._log(f"[RECONNECT] Lost the AltTester connection during lesson {lesson}.")
+                        driver = self._reconnect(driver)
+                        if driver is None:
+                            if self._stopped():
+                                break
+                            self._record_activity_failure(None, f"lesson {lesson} ({mode})",
+                                                          self._lost_message(host, port))
+                            lost = True
+                            break
+                        map_page = MapPage(driver)
+                        try:
+                            if not self._back_to_lessons(driver, game, username, user["password"]):
+                                raise AssertionError("the map did not open after reconnecting")
+                        except Exception as e:           # noqa: BLE001 - the replay says the rest
+                            self._log(f"[RECONNECT] Could not get back to the map: {e}")
+                        if lesson in replayed:
+                            self._log(f"[RECONNECT] Lesson {lesson} already replayed once — "
+                                      f"keeping its result, moving on.")
+                        else:
+                            dropped = utilsdemo.activity_report[before:]
+                            del utilsdemo.activity_report[before:]
+                            self._log(f"[RECONNECT] Discarded {len(dropped)} row(s) recorded on the "
+                                      f"dead connection; replaying lesson {lesson}.")
+                            replayed.add(lesson)
+                            lesson_queue.insert(0, (li, lesson))
+                            continue
                     self._sleep(1)
-                if self._stopped():
+                if self._stopped() or lost:
                     break
 
             self._shoot("end")
@@ -1016,6 +1079,7 @@ class RunManager:
             except Exception:                        # noqa: BLE001
                 pass
             _timemod.sleep = _orig_sleep
+            os.environ.pop(screenshots.ENV_STAMP, None)
             sys.stdout, sys.stderr = old_stdout, old_stderr
             root.removeHandler(handler)
             root.setLevel(prev_level)
@@ -1173,6 +1237,61 @@ class RunManager:
             kwargs["device_instance_id"] = device
         return AltDriver(**kwargs)
 
+    def _login_and_open_map(self, driver, game, username, password):
+        """Log in and get to where lessons start. Raises when that fails."""
+        if game == "kl":
+            # Kideo Land: log in and stop on the islands; each
+            # lesson opens its own island and map.
+            from kideoland import login as kl_login
+            kl_login.login(driver, username, password)
+            self._shoot(f"start-{username}")
+            return
+        start_screen = StartScreen(driver, utilsdemo=utilsdemo)
+        start_screen.login(username, password)
+        # open_feature, NOT start_screen.go_to_map(): go_to_map taps
+        # GO-Map and asserts nothing, so a press the hub swallowed
+        # counted as success and every lesson then "ran" against the
+        # hub, recording nothing in 0s. open_feature proves the map
+        # is really showing (Levels / level_icons / CountersPanel)
+        # and names the placement pretest when that is what is in
+        # the way, so navigation fails HERE, loudly, once.
+        if not utilsdemo.open_feature(driver, "map"):
+            raise AssertionError(
+                f"the map did not open for {username} — see the "
+                f"[Feature] line above for why (a swallowed press, "
+                f"or the placement pretest gating this account)")
+        self._sleep(6)
+        self._shoot(f"map-{username}")
+
+    def _lost_message(self, host, port):
+        return (f"AltTester dropped the driver and {len(self.RECONNECT_WAITS)} reconnect "
+                f"attempts to {host}:{port} failed — run stopped")
+
+    RECONNECT_WAITS = alt_connection.RECONNECT_WAITS
+
+    @staticmethod
+    def _driver_alive(driver):
+        return alt_connection.alive(driver)
+
+    def _reconnect(self, driver):
+        """Reconnect the dropped driver in place (see vocatooki/alt_connection).
+        Returns the driver once it answers again; None when every attempt
+        failed or Stop was pressed meanwhile."""
+        if alt_connection.revive(driver, sleep=self._sleep, stopped=self._stopped, log=self._log):
+            return driver
+        return None
+
+    def _back_to_lessons(self, driver, game, username, password):
+        """After a reconnect: get the app back to where lessons start (the map
+        for Voca Tooki, logged in on the islands for Kideo Land)."""
+        if game == "kl":
+            from kideoland import login as kl_login
+            if kl_login.islands_visible(driver):     # the session survived the drop
+                return True
+            kl_login.login(driver, username, password)
+            return True
+        return utilsdemo.ensure_on_map(driver, username, password)
+
     def _set_progress(self, ui, total_users, username, lesson, lessons, lesson_idx=None):
         prog = {
             "user_index": ui + 1,
@@ -1191,7 +1310,28 @@ class RunManager:
         self._emit("progress", **prog)
 
     # ---- reports ---------------------------------------------------------
+    # What a FAILED row written after Stop becomes. Stop cuts the AltTester
+    # connection on purpose, so the activity in flight then fails with
+    # "Connection closed. An unexpected error ocurred." -- that is the Stop,
+    # not a result (every mid-run ConnectionError in the reports up to
+    # 2026-10-12 came from a stopped run).
+    STOPPED_NOTE = "not a result: the run was stopped while this was running (Stop cuts the AltTester connection)"
+
+    def _relabel_rows_after_stop(self):
+        mark = getattr(self, "_stop_mark", None)
+        if mark is None:
+            return
+        changed = 0
+        for row in utilsdemo.activity_report[mark:]:
+            if row.get("status") == "FAILED":
+                row["status"] = "SKIPPED"
+                row["error"] = f"{self.STOPPED_NOTE}; was: {str(row.get('error') or '')[:160]}"
+                changed += 1
+        if changed:
+            self._log(f"[STOP] {changed} row(s) written after Stop are marked SKIPPED, not FAILED.")
+
     def _build_reports(self, platform):
+        self._relabel_rows_after_stop()
         os.makedirs(REPORTS_DIR, exist_ok=True)
         ts = time.strftime("%Y%m%d_%H%M%S")
         txt_path = os.path.join(REPORTS_DIR, f"runner_report_{platform}_{ts}.txt")

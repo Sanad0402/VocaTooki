@@ -40,15 +40,37 @@ def get_level(class_id, lesson_number, type="lesson", difficulty=-1):
 
     for level in lesson_levels:
         logging.debug(f"[Level Resolver] Checking level: {level}")
-        if type == "lesson" and level.get("difficulty", "").lower() == difficulty:
+        # 3rd grade: the letters level is type "character" (difficulty "easy"),
+        # the vocabulary level is the ordinary medium "lesson" level.
+        if type == "letters" and level.get("type") == "character":
+            logging.info(f"[Level Resolver] Found letters level: {level.get('level')}")
+            return level.get("level")
+        if type == "lesson" and (level.get("difficulty") or "").lower() == difficulty:
             logging.info(f"[Level Resolver] Found lesson level: {level.get('level')}")
             return level.get("level")
         if type == "exam" and level.get("type") == "exam":
             logging.info(f"[Level Resolver] Found exam level: {level.get('level')}")
             return level.get("level")
 
-    logging.warning(f"[Level Resolver] No matching level found for type='{type}' and difficulty='{difficulty}'")
+    logging.warning(f"[Level Resolver] No matching level found for type='{type}' and difficulty='{difficulty}' "
+                    f"— lesson {lesson_number} has: {describe_levels(lesson_levels)}")
     return -1
+
+
+def describe_levels(lesson_levels):
+    """'letters, medium, exam' — what a lesson's levels are, for failure messages."""
+    return ", ".join("letters" if lv.get("type") == "character"
+                     else "exam" if lv.get("type") == "exam"
+                     else str(lv.get("difficulty")) for lv in lesson_levels)
+
+
+def lesson_levels_summary(class_id, lesson_number):
+    """describe_levels() for one lesson of the class map; '' when it cannot be read."""
+    try:
+        levels = backend_api.get_class_map(class_id, map_id=1)["map"]["levels"]
+        return describe_levels(levels[lesson_number])
+    except Exception:                                # noqa: BLE001 - only decorates a message
+        return ""
 
 
 def enter_to_level(altdriver, class_id, lesson_number, type="lesson", difficulty=-1):

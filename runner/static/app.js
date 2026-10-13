@@ -1042,6 +1042,7 @@ function readShotsDialog() {
 
 // ------------------------------------------------------- screenshot gallery
 let SHOTS_BY_CASE = {};      // tc_id (lowercased) -> newest run folder
+let SHOTS_BY_RUN = {};       // run folder id -> run (one activity PLAY in a lesson run)
 
 async function loadShots() {
   let runs = [];
@@ -1052,14 +1053,18 @@ async function loadShots() {
     if (key && !byCase[key]) byCase[key] = r;
   }
   SHOTS_BY_CASE = byCase;
+  SHOTS_BY_RUN = Object.fromEntries(runs.map((r) => [r.run_id, r]));
 }
 
 function shotsFor(tcId) {
   return SHOTS_BY_CASE[String(tcId || "").toLowerCase()] || null;
 }
 
-function shotsHtml(tcId) {
-  const run = shotsFor(tcId);
+function shotsHtml(tcId, runId) {
+  // A lesson-run row names its own play's folder (shots_run); falling back to
+  // the newest folder for the activity NAME is what showed the easy level's
+  // frames on the medium and hard rows.
+  const run = runId ? (SHOTS_BY_RUN[runId] || null) : shotsFor(tcId);
   if (!run || !run.files.length) return "";
   const thumbs = run.files.map((f) => {
     const url = `/api/shots/${encodeURIComponent(run.run_id)}/${encodeURIComponent(f)}`;
@@ -1343,7 +1348,7 @@ function renderResults(groups) {
       // files them under. Without this a lesson run only ever showed the
       // failure shot, so a PASSED activity's evidence was written to disk and
       // never surfaced.
-      err += shotsHtml(e.activity);
+      err += shotsHtml(e.activity, e.shots_run);
       return `<tr><td>${escapeHtml(e.activity || "")}</td>
         <td class="st-${escapeHtml(e.status || "")}">${escapeHtml(e.status || "")}</td>
         <td>${escapeHtml(e.duration || "")}</td><td>${err}</td></tr>`;

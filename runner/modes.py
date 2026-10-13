@@ -5,6 +5,7 @@ that reuses the existing solver functions. No solver logic lives here.
 """
 
 from Utilities import utilsdemo
+from vocatooki import lesson_modes
 
 
 # key -> {label, description, run}
@@ -29,6 +30,13 @@ MODES = {
         "label": "Levels only (express)",
         "description": "Solve levels (express) for each lesson, skip the exam.",
         "run": lambda mp, drv, cid, lesson: mp.solve_lesson_levels_express(cid, lesson),
+    },
+    "third_grade": {
+        "label": "3rd grade - Letters/Vocabulary",
+        "description": "3rd-grade lessons: the letters level, then the vocabulary level "
+                       "(one activity each), then the exam. Lessons without a letters level "
+                       "play their own easy/medium/hard levels.",
+        "run": lambda mp, drv, cid, lesson: lesson_modes.solve_lesson_third_grade(drv, cid, lesson),
     },
     "exam_only": {
         "label": "Exam only",

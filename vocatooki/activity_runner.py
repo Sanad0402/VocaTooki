@@ -4,7 +4,9 @@ Moved out of Utilities/utilsdemo.py unchanged (2026-09-22); every name is still
 reachable as utilsdemo.<name>.
 """
 
+import contextlib
 from datetime import datetime
+import itertools
 import logging
 import time
 from alttester import By
@@ -278,6 +280,48 @@ def _any_present(altdriver, names):
 ACTIVITY_RESULT_TIMEOUT = 8
 
 
+# Which level the activities being played belong to. The lesson runs set it
+# around each level (level_context); without it every play of an activity in a
+# run shared ONE frame folder, so a medium/hard row showed whichever frames the
+# browser loaded first (the easy ones), and the report GUESSED the level from
+# how often the activity had appeared (user, 2026-10-12).
+_LEVEL = {"lesson": None, "level": ""}
+_PLAYS = itertools.count(1)
+
+
+@contextlib.contextmanager
+def level_context(lesson=None, level=""):
+    """Activities played inside this block are filed under this lesson + level."""
+    previous = dict(_LEVEL)
+    _LEVEL.update(lesson=lesson, level=str(level or ""))
+    try:
+        yield
+    finally:
+        _LEVEL.update(previous)
+
+
+def play_key(activity, level=None, lesson=None):
+    """One key per PLAY of an activity: 'PUZZLES-hard-L5-007'. Its frames get
+    their own folder, so no later play overwrites them."""
+    level = _LEVEL["level"] if level is None else level
+    lesson = _LEVEL["lesson"] if lesson is None else lesson
+    parts = [activity] + ([level] if level else []) + ([f"L{lesson}"] if lesson is not None else [])
+    return "-".join(str(p) for p in parts) + f"-{next(_PLAYS):03d}"
+
+
+def play_fields(key, level=None):
+    """What a report row needs to show THIS play's frames and its real level."""
+    try:
+        from runner import screenshots as _screenshots   # local: runner imports us
+        fields = {"shots_run": _screenshots.evidence_run_id(key)}
+    except Exception:                                    # noqa: BLE001
+        fields = {}
+    level = _LEVEL["level"] if level is None else level
+    if level:
+        fields["difficulty"] = str(level).title()
+    return fields
+
+
 def activity_frame(altdriver, scene, phase):
     """Save one numbered frame for an activity. Never raises, never blocks."""
     try:
@@ -369,6 +413,7 @@ def run_activity(altdriver, activity):
         return
 
     print(f"[INFO] Running activity: {scene}")
+    play = play_key(scene)                  # this play's own frame folder
     # --- Handle optional "Last Attempt" popup (PlaceHolder only) ---
     try:
         placeholder = None
@@ -400,8 +445,8 @@ def run_activity(altdriver, activity):
     # Wait the parrot OUT, do not just knock once: the bubble can arrive after
     # the blocker leaves, and a solver that starts under it scores nothing.
     clear_activity_intro(altdriver, scene)
-    activity_frame(altdriver, scene, ACTIVITY_FRAMES[0])      # the board as it opened
-    _watch_mid_frame(altdriver, scene)                        # frame 2 is shot mid-solve
+    activity_frame(altdriver, play, ACTIVITY_FRAMES[0])       # the board as it opened
+    _watch_mid_frame(altdriver, play)                         # frame 2 is shot mid-solve
 
     try:
         if scene == 'CROSSWORD2':
@@ -468,7 +513,7 @@ def run_activity(altdriver, activity):
                 f"{', '.join(ACTIVITY_RESULT_MARKERS)}). The solver finished, so "
                 f"this is NOT counted as a failure — but nothing here proves the "
                 f"game accepted it.")
-        activity_frame(altdriver, scene, ACTIVITY_FRAMES[2])   # the final feedback
+        activity_frame(altdriver, play, ACTIVITY_FRAMES[2])    # the final feedback
 
         end_time = datetime.now()
         activity_report.append({
@@ -476,7 +521,8 @@ def run_activity(altdriver, activity):
             "status": "PASSED",
             "error": "",
             "duration": str(end_time - start_time),
-            "platform": getattr(altdriver, "platform", "Unknown")
+            "platform": getattr(altdriver, "platform", "Unknown"),
+            **play_fields(play),
         })
 
     except Exception as e:
@@ -496,7 +542,8 @@ def run_activity(altdriver, activity):
             "error": error_msg,
             "duration": str(end_time - start_time),
             "screenshot": shot,
-            "platform": getattr(altdriver, "platform", "Unknown")
+            "platform": getattr(altdriver, "platform", "Unknown"),
+            **play_fields(play),
         })
 
         # --- Recovery flow (unchanged, with safety checks) ---

@@ -177,6 +177,11 @@ def _same_as_previous(path):
     return None
 
 
+def evidence_run_id(tc_id="", stamp=None):
+    """The folder evidence() files ``tc_id``'s frames under."""
+    return _slug(f"{tc_id or 'run'}-{stamp or run_stamp()}", 80)
+
+
 def evidence(driver, label, tc_id="", stamp=None):
     """Save a frame that must ALWAYS be kept, whatever the budget has spent.
 
@@ -189,7 +194,7 @@ def evidence(driver, label, tc_id="", stamp=None):
     """
     if driver is None:
         return None
-    run_id = _slug(f"{tc_id or 'run'}-{stamp or run_stamp()}", 80)
+    run_id = evidence_run_id(tc_id, stamp)
     path = SHOTS_DIR / run_id / f"evidence-{_slug(label)}.png"
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -307,9 +312,20 @@ def resolve_file(run_id, name):
 
 
 def prune_old_runs(keep=KEEP_RUNS):
-    """Drop the oldest run folders beyond ``keep``. Returns runs removed."""
-    runs = list_runs()
-    stale = runs[keep:]
+    """Drop the folders of the oldest RUNS beyond ``keep``. Returns folders removed.
+
+    Counted per run (folders sharing a stamp), not per folder: a lesson run
+    files every activity play in its own folder, so a folder count would delete
+    the start of the very run that just finished."""
+    runs = list_runs()                           # newest first
+    kept_stamps = []
+    stale = []
+    for run in runs:
+        stamp = run.get("stamp") or run["run_id"]
+        if stamp not in kept_stamps and len(kept_stamps) < keep:
+            kept_stamps.append(stamp)
+        if stamp not in kept_stamps:
+            stale.append(run)
     for run in stale:
         shutil.rmtree(SHOTS_DIR / run["run_id"], ignore_errors=True)
     if stale:

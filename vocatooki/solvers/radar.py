@@ -29,9 +29,15 @@ _CONTROLLER = "com.kideo.learn.english.RadarObjectController"
 _ASSEMBLY = "Assembly-CSharp"
 _COVER = "cover"
 
-# How long the game gets to react to the tap: the blip scales up and moves
-# before `selected`/`hidden` change (ShowForCheckTwean).
-_CHECK_TIMEOUT = 4.0
+# How long the game gets to TAKE a tapped blip. A lowered blip first pops up
+# (ShowForCheckTwean: ~1s, after its bush stops shaking) and only then is it
+# judged; a right answer destroys its controller.
+_TAKE_TIMEOUT = 3.0
+_PRESS_ATTEMPTS = 3
+
+# After both blips of the pair are taken the game animates them together,
+# then counts the word and names the next target.
+_PAIR_TIMEOUT = 10.0
 
 
 def _blip_flag(blip, field):
@@ -41,15 +47,28 @@ def _blip_flag(blip, field):
         return None
 
 
-def _blip_checked(blip, timeout=_CHECK_TIMEOUT, poll=0.25):
-    """True once the game marked the blip selected (or revealed it)."""
+def _taken(blip):
+    """True once the game took this blip as a right answer: CheckSelectedObjects
+    DESTROYS its RadarObjectController, so the component is gone."""
+    try:
+        blip.get_component_property(_CONTROLLER, "word", _ASSEMBLY)
+        return False
+    except Exception:                                # noqa: BLE001 - controller destroyed
+        return True
+
+
+def _wait_taken(blip, timeout=_TAKE_TIMEOUT, poll=0.15):
+    """True once the blip was taken.
+
+    NOT `selected`: the game sets it the instant it is tapped, before the
+    blip is judged -- and a pending judgement can be killed (see radar()).
+    NOT `hidden`: on hard the blips pop up on their own every second or two;
+    reading "it popped up" as "it was checked" passed a missed tap as a press
+    (live, 2026-10-13)."""
     deadline = time.time() + timeout
     while time.time() < deadline:
-        selected, hidden = _blip_flag(blip, "selected"), _blip_flag(blip, "hidden")
-        if selected is True or hidden is False:
+        if _taken(blip):
             return True
-        if selected is None and hidden is None:
-            return None                              # unreadable: nothing to wait for
         time.sleep(poll)
     return False
 
@@ -63,48 +82,130 @@ def _cover_of(blip):
         return None
 
 
+def _tap(altdriver, obj):
+    """A real screen tap at ``obj``'s LIVE position, without the generic press's
+    search for a better point.
+
+    The generic press asks the app what is under the finger and, when it is not
+    the object itself, searches around it for a point that is -- seconds per
+    tap. On RADAR the blip and its bush always overlap (the bush is drawn ON
+    TOP of a lowered blip, see SetSortingOrder) and either one calls the same
+    blip's CheckObject(), so the search never helps and the 7s it took let the
+    blip move away before the tap landed (live, 2026-10-13)."""
+    point = ui_actions._live_position(obj)
+    if point is None:
+        raise RuntimeError(f"no live position for '{getattr(obj, 'name', '?')}'")
+    altdriver.tap(point)
+    logging.info(f"[Press] tapped '{obj.name}' at ({point[0]:.0f}, {point[1]:.0f})")
+
+
 def press_blip(altdriver, blip, word=""):
-    """Press one blip the way a player does. Returns True once the game checked it."""
-    cover = _cover_of(blip)
-    target = cover if cover is not None else blip
-    where = "its cover" if cover is not None else "the blip itself (no cover found)"
-    ui_actions._press(target, altdriver)
-    checked = _blip_checked(blip)
-    if checked is False:
-        # The cover did not take the tap (a hidden cover, a cover already
-        # gone): press the blip itself once, which is also what a player
-        # does once the bush is away.
-        logging.info(f"[RADAR] '{word}': the tap on {where} did not check the blip -- "
-                     f"pressing the blip itself")
-        ui_actions._press(blip, altdriver)
-        checked = _blip_checked(blip)
-    logging.info(f"[RADAR] '{word}': pressed {where}; checked={checked}")
-    return checked is not False
+    """Press one blip the way a player does. Returns True once the game took it.
+
+    A blip that is UP is tapped itself (it sits ~200px above its bush and on
+    top of it; its OnPointerDown checks it at once). A blip that is DOWN is
+    tapped through its bush, whose PointerClick pops it up and checks it. The
+    bush is re-read every attempt: on hard the blips are moved between bushes
+    whenever one hides (RandomizeObjectPositions)."""
+    for attempt in range(1, _PRESS_ATTEMPTS + 1):
+        up = _blip_flag(blip, "hidden") is False
+        cover = None if up else _cover_of(blip)
+        target = cover if cover is not None else blip
+        where = "its bush" if cover is not None else "the blip itself"
+        try:
+            _tap(altdriver, target)
+        except Exception as e:                       # noqa: BLE001
+            logging.info(f"[RADAR] '{word}': press on {where} failed ({e}); retrying")
+            time.sleep(0.3)
+            continue
+        if _wait_taken(blip):
+            logging.info(f"[RADAR] '{word}': taken on attempt {attempt} (tapped {where})")
+            return True
+        logging.info(f"[RADAR] '{word}': tap {attempt}/{_PRESS_ATTEMPTS} on {where} was not taken")
+    return False
+
+
+def _read_blips(altdriver):
+    """[(blip, word)] for the blips still in play. A taken blip has lost its
+    controller (the game destroys it), so it is skipped instead of crashing
+    the whole activity, as it did when a pair was left half-selected.
+
+    A blip that is `selected` but still HAS its controller is kept: its
+    judgement was killed (see radar()) and only another tap revives it."""
+    out = []
+    for blip in altdriver.find_objects(By.NAME, "radarObj"):
+        try:
+            word = blip.get_component_property(_CONTROLLER, "word", _ASSEMBLY)
+        except Exception:                            # noqa: BLE001 - already taken
+            continue
+        out.append((blip, word))
+    return out
+
+
+def _target_word(altdriver):
+    try:
+        return altdriver.find_object(By.NAME, "Radar_activity").get_component_property(
+            "com.kideo.learn.english.RadarActivityManagement",
+            "radarGameManager.targetWord", _ASSEMBLY)
+    except Exception:                                # noqa: BLE001
+        return None
+
+
+def _progress(altdriver):
+    """(done, total) from ProgressText, or (None, None)."""
+    try:
+        done, total = altdriver.find_object(By.NAME, "ProgressText").get_text().split("/")
+        return int(done), int(total)
+    except Exception:                                # noqa: BLE001
+        return None, None
+
+
+def _wait_progress_above(altdriver, done, timeout=_PAIR_TIMEOUT):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        now, _ = _progress(altdriver)
+        if now is not None and now > done:
+            return now
+        time.sleep(0.3)
+    return None
 
 
 def radar(altdriver):
-    progresstext = altdriver.find_object(By.NAME, "ProgressText").get_text()
-    progressArr = progresstext.split('/')
-    numberOfwords = int(progressArr[1])
-    for i in range(numberOfwords):
-        time.sleep(7)
-        # Fetch all radar objects and the target word
-        radar_objects = altdriver.find_objects(By.NAME, 'radarObj')
-        answer_obj = altdriver.find_object(By.NAME, 'Radar_activity')
-        target_word = answer_obj.get_component_property('com.kideo.learn.english.RadarActivityManagement',
-                                                        'radarGameManager.targetWord', 'Assembly-CSharp')
+    """Find every target word's PAIR of blips and select both -- ONE AT A TIME.
 
-        # List to hold the radar text values
-        radar_objects_texts = []
-        for radar_object in radar_objects:
-            radar_text = radar_object.get_component_property('com.kideo.learn.english.RadarObjectController', 'word',
-                                                             'Assembly-CSharp')
-            radar_objects_texts.append(radar_text)
+    The second blip is tapped only after the game TOOK the first. Tapping both
+    lowered blips at once soft-locks the game (live, 2026-10-13): each tap
+    starts a 1s pop-up-then-judge coroutine; when the first is judged right,
+    HideAllOtherObjectsImmediately() calls StopAllCoroutines() on every other
+    blip, killing the second one's pending judgement. It stays `selected`
+    forever, the pair never completes, and no blip ever shows again. A new tap
+    on that blip restarts its judgement, which is how press_blip recovers it.
 
-        # Press the blip(s) carrying the target word -- ONE tap each, on the
-        # cover, and the game is asked whether it took it before moving on.
-        for index, radar_text in enumerate(radar_objects_texts):
-            if radar_text == target_word:
-                press_blip(altdriver, radar_objects[index], word=target_word)
+    Driven by the game's own counter rather than fixed sleeps: hard has a
+    timer, and 7s of waiting before each of 8 words ate most of it."""
+    done, total = _progress(altdriver)
+    if total is None:
+        raise AssertionError("RADAR: no ProgressText on screen")
+    deadline = time.time() + 30 + total * 20
+    while done < total:
+        if time.time() > deadline:
+            raise AssertionError(f"RADAR: stuck at {done}/{total}")
+        target = _target_word(altdriver)
+        pair = [b for b, w in _read_blips(altdriver) if target and w == target][:2]
+        if not pair:
+            time.sleep(0.5)                          # between words: the next target is not up yet
+            continue
+        for blip in pair:
+            if not press_blip(altdriver, blip, word=target):
+                logging.warning(f"[RADAR] '{target}': no tap was taken; re-reading the board")
+                break
+        now = _wait_progress_above(altdriver, done)
+        if now is None:
+            # Half a pair selected, or a tap the game took late: re-read the
+            # board and press whatever blip of this word is still unselected.
+            logging.warning(f"[RADAR] '{target}': progress still {done}/{total}; re-reading")
+            continue
+        done = now
+        logging.info(f"[RADAR] '{target}' found: {done}/{total}")
 
     print('Radar activity done')

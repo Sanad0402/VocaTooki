@@ -842,6 +842,12 @@ def api_preflight():
         port = int(request.args.get("port", "13000"))
     except ValueError:
         return jsonify({"ok": False})
+    # During a run the driver itself proves the server is reachable. A probe
+    # is a raw TCP connect that AltTester logs as a refused "wrong protocol"
+    # client — one every 20s per open tab, into the server that is carrying
+    # the run's driver (seen in AltTesterDesktop logs around a 1006 drop).
+    if manager.is_running():
+        return jsonify({"ok": True, "skipped": "run in progress"})
     return jsonify({"ok": manager._preflight(host, port, timeout=1.5)})
 
 
@@ -864,7 +870,10 @@ def api_shot_file(run_id, name):
     # Read the bytes instead of send_file(): on Windows a file handle that
     # outlives the response keeps a LOCK on the frame, and deleting the run
     # then silently leaves the viewed thumbnail behind. These frames are small.
-    return Response(path.read_bytes(), mimetype="image/png")
+    # no-store: a frame file can be rewritten under the same URL, and a cached
+    # copy is how a hard-level row kept showing the easy level's picture.
+    return Response(path.read_bytes(), mimetype="image/png",
+                    headers={"Cache-Control": "no-store"})
 
 
 @app.route("/api/shots", methods=["DELETE"])
